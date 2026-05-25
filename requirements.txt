@@ -1,0 +1,7 @@
+# Ontology (Day 0)
+rdflib>=7.0
+owlrl>=6.0
+pyshacl>=0.25
+
+# Graph (Day 1)
+neo4j>=5.0
