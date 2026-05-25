@@ -1,0 +1,136 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  NEXTXR BASE SHAPE  —  the 10 universal properties
+#
+#  Every entity in the graph, of every class, in every domain,
+#  carries these ten properties. Per-class shapes (nxr-shapes.ttl
+#  and every pack) inherit this via sh:node nxr:BaseEntityShape.
+#
+#  This is the contract the Graph Writer checks on EVERY mutation.
+#################################################################
+
+### The ten universal datatype properties ###
+
+nxr:id a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "id" ;
+    skos:definition "UUIDv7 (time-ordered). Generated at creation, globally unique, never reused." ;
+    rdfs:range xsd:string .
+
+nxr:tenantId a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "tenant id" ;
+    skos:definition "Identifies the owning tenant. Present on every node; every query filters on it. The spine of isolation." ;
+    rdfs:range xsd:string .
+
+nxr:canonicalType a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "canonical type" ;
+    skos:definition "The stable ontology IRI of this entity's class (e.g. https://ontology.nextxr.io/v3/maritime#Vessel). Survives display renames. NEVER changes once assigned." ;
+    rdfs:range xsd:anyURI .
+
+nxr:displayName a owl:DatatypeProperty ;
+    rdfs:label "display name" ;
+    skos:definition "Human-friendly, tenant-specific label. Freely renameable without affecting canonicalType or any reference." ;
+    rdfs:range xsd:string .
+
+nxr:createdAt a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "created at" ;
+    skos:definition "ISO 8601 UTC timestamp set on first persistence." ;
+    rdfs:range xsd:dateTime .
+
+nxr:updatedAt a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "updated at" ;
+    skos:definition "ISO 8601 UTC timestamp touched on every property mutation. Indexed." ;
+    rdfs:range xsd:dateTime .
+
+nxr:createdBy a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "created by" ;
+    skos:definition "The user, agent, system, or adapter id responsible for creation. Always present." ;
+    rdfs:range xsd:string .
+
+nxr:changeLogRef a owl:DatatypeProperty ;
+    rdfs:label "change log ref" ;
+    skos:definition "Pointer (ULID) to the most recent Change Log entry for this entity. Enables traversal of the full mutation history." ;
+    rdfs:range xsd:string .
+
+nxr:tags a owl:DatatypeProperty ;
+    rdfs:label "tags" ;
+    skos:definition "Free-form string tags for ad-hoc grouping. Not indexed; not used for joins." ;
+    rdfs:range xsd:string .
+
+nxr:status a owl:DatatypeProperty ;
+    rdfs:label "status" ;
+    skos:definition "Current state-machine state of the entity. Legal values and transitions are declared by the entity's class via nxr:hasStateMachine." ;
+    rdfs:range xsd:string .
+
+#################################################################
+#  THE BASE SHAPE
+#################################################################
+
+nxr:BaseEntityShape a sh:NodeShape ;
+    rdfs:label "Base Entity Shape" ;
+    skos:definition "The universal validation contract. Every per-class shape includes this via sh:node." ;
+
+    sh:property [
+        sh:path nxr:id ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^[0-9a-fA-F-]{36}$" ;
+        sh:message "id is required, exactly one, and must be a UUID (v7) string." ;
+    ] ;
+    sh:property [
+        sh:path nxr:tenantId ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "tenantId is required and singular — isolation depends on it." ;
+    ] ;
+    sh:property [
+        sh:path nxr:canonicalType ;
+        sh:datatype xsd:anyURI ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^https://ontology\\.nextxr\\.io/v[0-9]+/" ;
+        sh:message "canonicalType is required, singular, and must be an nxr ontology IRI." ;
+    ] ;
+    sh:property [
+        sh:path nxr:displayName ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1 ;
+        sh:message "displayName, if present, is a single string." ;
+    ] ;
+    sh:property [
+        sh:path nxr:createdAt ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "createdAt is required and singular (ISO 8601 UTC)." ;
+    ] ;
+    sh:property [
+        sh:path nxr:updatedAt ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "updatedAt is required and singular (ISO 8601 UTC)." ;
+    ] ;
+    sh:property [
+        sh:path nxr:createdBy ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "createdBy is required and singular." ;
+    ] ;
+    sh:property [
+        sh:path nxr:changeLogRef ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path nxr:tags ;
+        sh:datatype xsd:string ;
+    ] ;
+    sh:property [
+        sh:path nxr:status ;
+        sh:datatype xsd:string ;
+        sh:maxCount 1 ;
+    ] .

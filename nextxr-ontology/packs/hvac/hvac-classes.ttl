@@ -1,0 +1,81 @@
+@prefix hvac: <https://ontology.nextxr.io/v3/hvac#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix quantitykind: <http://qudt.org/vocab/quantitykind/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  HVAC CAPABILITY PACK  —  LAYER 4 (a domain extension)
+#
+#  This is the proof of the whole design: every class here is a
+#  SUBCLASS of a platform mid-level class. It adds vocabulary
+#  DOWNWARD and touches nothing in layers 1-3.
+#################################################################
+
+<https://ontology.nextxr.io/v3/hvac> a owl:Ontology ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:label "HVAC Capability Pack" ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+### Equipment subclasses ###
+hvac:AirHandler a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Air Handler" ;
+    skos:definition "A unit that conditions and circulates air as part of an HVAC system." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hvac:Chiller a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Chiller" ;
+    skos:definition "A machine that removes heat from a liquid via a refrigeration cycle, supplying chilled water to air handlers." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+### Sensor subclass with its observable property + expected unit ###
+hvac:TemperatureSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Temperature Sensor" ;
+    skos:definition "A sensor measuring air or water temperature within an HVAC system." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hvac:AirTemperature a sosa:ObservableProperty ;
+    rdfs:label "Air Temperature" ;
+    nxr:expectedUnit unit:DEG_C ;
+    nxr:expectedQuantityKind quantitykind:Temperature .
+
+### A domain placement predicate — subproperty of the generic one ###
+hvac:servesSpace a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:label "serves space" ;
+    skos:definition "An air handler conditions the air of a space." ;
+    rdfs:domain hvac:AirHandler ;
+    rdfs:range nxr:Space .
+
+### A domain failure mode ###
+hvac:FilterClogged a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Filter Clogged" ;
+    skos:definition "Airflow restriction caused by a saturated filter." ;
+    nxr:taxonomyCategory "Capability" .
+
+### A domain state machine, declared exactly like the platform's ###
+hvac:AirHandlerStateMachine a nxr:StateMachine ;
+    rdfs:label "Air handler lifecycle" ;
+    nxr:initialState hvac:s_off ;
+    nxr:hasState hvac:s_off , hvac:s_running , hvac:s_degraded , hvac:s_fault ;
+    nxr:allowsTransition hvac:t_off_run , hvac:t_run_deg , hvac:t_deg_fault , hvac:t_fault_off .
+
+hvac:s_off      a nxr:State ; rdfs:label "off" .
+hvac:s_running  a nxr:State ; rdfs:label "running" .
+hvac:s_degraded a nxr:State ; rdfs:label "degraded" .
+hvac:s_fault    a nxr:State ; rdfs:label "fault" .
+
+hvac:t_off_run    a nxr:Transition ; nxr:fromState hvac:s_off ;      nxr:toState hvac:s_running .
+hvac:t_run_deg    a nxr:Transition ; nxr:fromState hvac:s_running ;  nxr:toState hvac:s_degraded .
+hvac:t_deg_fault  a nxr:Transition ; nxr:fromState hvac:s_degraded ; nxr:toState hvac:s_fault .
+hvac:t_fault_off  a nxr:Transition ; nxr:fromState hvac:s_fault ;    nxr:toState hvac:s_off .
+
+hvac:AirHandler nxr:hasStateMachine hvac:AirHandlerStateMachine .

@@ -1,0 +1,67 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  THE CLOSED TOP-LEVEL TAXONOMY  —  LAYER 3 (governance)
+#
+#  The ten categories are FIXED. Every NextXR entity class — core
+#  or pack — must declare exactly one of them via nxr:taxonomyCategory,
+#  and may NEVER introduce an eleventh. This is the machine-checkable
+#  form of "domain packs extend within the taxonomy, never beyond it."
+#
+#  The categories are declared here as individuals (so they can be
+#  queried as data) AND enforced by nxr:TaxonomyClosureShape (so an
+#  illegal category fails validation of the ontology itself).
+#
+#  Structural / value-object classes (state-machine vocabulary,
+#  quantitative results) are NOT top-level entities and are marked
+#  nxr:isStructural true so the closure rule skips them.
+#################################################################
+
+### Marker: a class that is plumbing, not a top-level entity ###
+nxr:isStructural a owl:AnnotationProperty ;
+    rdfs:label "is structural" ;
+    skos:definition "If true, this class is internal plumbing (state-machine vocabulary, value objects) rather than a top-level entity, and is exempt from the taxonomy-category requirement." .
+
+### The closed set, as queryable individuals ###
+nxr:TaxonomyCategory a owl:Class ;
+    rdfs:label "Taxonomy Category" ;
+    skos:definition "One of the ten closed top-level categories. The membership of this class is fixed at platform version v3; packs never add members." .
+
+nxr:cat_PhysicalAsset a nxr:TaxonomyCategory ; rdfs:label "PhysicalAsset" ;
+    skos:definition "Fixed, durable material things: equipment and sensors." .
+nxr:cat_MobileAsset   a nxr:TaxonomyCategory ; rdfs:label "MobileAsset" ;
+    skos:definition "Material things whose normal operation involves moving." .
+nxr:cat_Actor         a nxr:TaxonomyCategory ; rdfs:label "Actor" ;
+    skos:definition "Humans, teams, or organisational units that take action." .
+nxr:cat_Location      a nxr:TaxonomyCategory ; rdfs:label "Location" ;
+    skos:definition "Bounded places: sites and spaces." .
+nxr:cat_Process       a nxr:TaxonomyCategory ; rdfs:label "Process" ;
+    skos:definition "Activities that unfold over time." .
+nxr:cat_Observation   a nxr:TaxonomyCategory ; rdfs:label "Observation" ;
+    skos:definition "Timestamped measurements of observable properties." .
+nxr:cat_Finding       a nxr:TaxonomyCategory ; rdfs:label "Finding" ;
+    skos:definition "Atomic anomaly signals from behaviour models." .
+nxr:cat_Incident      a nxr:TaxonomyCategory ; rdfs:label "Incident" ;
+    skos:definition "Correlated groups of findings — the unit the operator acts on." .
+nxr:cat_Document      a nxr:TaxonomyCategory ; rdfs:label "Document" ;
+    skos:definition "Copyable information artefacts, including diagnoses and recommendations." .
+nxr:cat_Capability    a nxr:TaxonomyCategory ; rdfs:label "Capability" ;
+    skos:definition "The platform's self-model: bundles, adapters, models, ports, failure modes." .
+
+### Structural / non-entity classes — exempt from the category requirement ###
+nxr:StateMachine       nxr:isStructural true .
+nxr:State              nxr:isStructural true .
+nxr:Transition         nxr:isStructural true .
+nxr:QuantitativeResult nxr:isStructural true .
+nxr:TaxonomyCategory   nxr:isStructural true .   # the category vocabulary itself
+
+# The closed-set ENFORCEMENT shape lives in platform/nxr-governance.ttl.
+# It is deliberately kept out of the gate's shape bundle: it validates the
+# T-Box (the ontology as data), not tenant mutations, so it must not run on
+# every write. SchemaService.validate_governance() loads and applies it.

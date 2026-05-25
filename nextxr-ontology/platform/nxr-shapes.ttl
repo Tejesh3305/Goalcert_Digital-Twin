@@ -1,0 +1,272 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  PER-CLASS SHACL SHAPES  —  LAYER 3 validation
+#
+#  Each shape:
+#    - targets its class (sh:targetClass)
+#    - inherits the 10-property base via sh:node nxr:BaseEntityShape
+#    - adds class-specific required properties and relationships
+#
+#  Packs add their own shapes the same way, inheriting BaseEntityShape.
+#################################################################
+
+### SENSOR — must monitor something and declare what it observes ###
+nxr:SensorShape a sh:NodeShape ;
+    sh:targetClass nxr:Sensor ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:monitors ;
+        sh:minCount 1 ;
+        sh:message "A Sensor must monitor at least one feature of interest." ;
+    ] ;
+    sh:property [
+        sh:path sosa:observes ;
+        sh:minCount 1 ;
+        sh:message "A Sensor must declare at least one observable property it observes." ;
+    ] .
+
+### OBSERVATION — must be made by a sensor and carry a typed result ###
+nxr:ObservationShape a sh:NodeShape ;
+    sh:targetClass nxr:Observation ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path sosa:madeBySensor ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "An Observation must be made by exactly one Sensor." ;
+    ] ;
+    sh:property [
+        sh:path sosa:hasResult ;
+        sh:minCount 1 ;
+        sh:message "An Observation must carry a result." ;
+    ] ;
+    sh:property [
+        sh:path sosa:resultTime ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "An Observation must have exactly one resultTime." ;
+    ] .
+
+### QUANTITATIVE RESULT — value must travel with unit AND kind ###
+nxr:QuantitativeResultShape a sh:NodeShape ;
+    sh:targetClass nxr:QuantitativeResult ;
+    sh:property [
+        sh:path nxr:numericValue ;
+        sh:datatype xsd:double ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "A quantitative result must have exactly one numeric value." ;
+    ] ;
+    sh:property [
+        sh:path nxr:hasUnit ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "A quantitative result must declare exactly one QUDT unit — no bare numbers." ;
+    ] ;
+    sh:property [
+        sh:path nxr:hasQuantityKind ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "A quantitative result must declare exactly one QUDT quantity-kind." ;
+    ] .
+
+### FINDING — must flag something; may be grouped into one incident ###
+nxr:FindingShape a sh:NodeShape ;
+    sh:targetClass nxr:Finding ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:flags ;
+        sh:minCount 1 ;
+        sh:message "A Finding must flag at least one entity." ;
+    ] ;
+    sh:property [
+        sh:path nxr:groupedInto ;
+        sh:maxCount 1 ;
+        sh:message "A Finding can be grouped into at most one Incident." ;
+    ] .
+
+### INCIDENT — must affect something; carries at most one diagnosis ###
+nxr:IncidentShape a sh:NodeShape ;
+    sh:targetClass nxr:Incident ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:affects ;
+        sh:minCount 1 ;
+        sh:message "An Incident must affect at least one entity." ;
+    ] ;
+    sh:property [
+        sh:path nxr:diagnosedAs ;
+        sh:maxCount 1 ;
+        sh:message "An Incident has at most one Diagnosis." ;
+    ] .
+
+### DIAGNOSIS — must explain exactly one incident; needs confidence ###
+nxr:DiagnosisShape a sh:NodeShape ;
+    sh:targetClass nxr:Diagnosis ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:confidence ;
+        sh:datatype xsd:double ;
+        sh:minInclusive 0.0 ; sh:maxInclusive 1.0 ;
+        sh:maxCount 1 ;
+        sh:message "Diagnosis confidence, if present, is a single value in [0,1]." ;
+    ] .
+
+nxr:confidence a owl:DatatypeProperty ;
+    rdfs:label "confidence" ;
+    skos:definition "A diagnosis or finding confidence score in [0,1]." ;
+    rdfs:range xsd:double .
+
+### ACTION — must declare manual/automatic; advisory-only lock ###
+nxr:ActionShape a sh:NodeShape ;
+    sh:targetClass nxr:Action ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:executionMode ;
+        sh:in ( "manual" "automatic" ) ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:message "An Action must be tagged exactly 'manual' or 'automatic'." ;
+    ] .
+
+nxr:executionMode a owl:DatatypeProperty ;
+    rdfs:label "execution mode" ;
+    skos:definition "Whether an action may be triggered without operator approval ('automatic') or requires a human ('manual'). Under the advisory-only lock, automatic actions cannot cloud-actuate physical equipment." ;
+    rdfs:range xsd:string .
+
+### PORT — must inhere in one asset, declare its flow, and only connect to ports ###
+nxr:PortShape a sh:NodeShape ;
+    sh:targetClass nxr:Port ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:portOf ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:class bfo:BFO_0000040 ;          # the bearer must be a material entity
+        sh:message "A Port must belong to exactly one asset, which must be a material entity." ;
+    ] ;
+    sh:property [
+        sh:path nxr:carries ;
+        sh:minCount 1 ;
+        sh:message "A Port must declare what flow it carries, for connection compatibility." ;
+    ] ;
+    sh:property [
+        sh:path nxr:connectsTo ;
+        sh:class nxr:Port ;                 # ILLEGAL-RELATIONSHIP GUARD: ports connect only to ports
+        sh:message "A Port may only connect to another Port — a port-to-non-port link is an illegal relationship." ;
+    ] .
+
+### CAPABILITY BUNDLE — must declare version and what it provides ###
+nxr:CapabilityBundleShape a sh:NodeShape ;
+    sh:targetClass nxr:CapabilityBundle ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:bundleVersion ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ; sh:maxCount 1 ;
+        sh:pattern "^[0-9]+\\.[0-9]+\\.[0-9]+$" ;
+        sh:message "A capability bundle must declare a semantic version (x.y.z)." ;
+    ] .
+
+nxr:bundleVersion a owl:DatatypeProperty ;
+    rdfs:label "bundle version" ;
+    rdfs:range xsd:string .
+
+#################################################################
+#  BASE-COVERAGE SHAPES
+#
+#  These target the abstract roots of each entity branch. Because
+#  sh:targetClass applies to instances of subclasses too, one shape
+#  per branch guarantees that EVERY concrete entity — core or pack —
+#  is checked against the 10-property base, without each pack having
+#  to remember to include nxr:BaseEntityShape. Branch leaves that
+#  need extra rules (Sensor, Action, Port, ...) add them in the
+#  dedicated shapes above; these provide the universal floor.
+#################################################################
+
+### Material assets — covers Equipment, Sensor and every pack asset ###
+nxr:PhysicalAssetShape a sh:NodeShape ;
+    sh:targetClass nxr:PhysicalAsset ;
+    sh:node nxr:BaseEntityShape .
+
+nxr:MobileAssetShape a sh:NodeShape ;
+    sh:targetClass nxr:MobileAsset ;
+    sh:node nxr:BaseEntityShape .
+
+### Agents ###
+nxr:ActorShape a sh:NodeShape ;
+    sh:targetClass nxr:Actor ;
+    sh:node nxr:BaseEntityShape .
+
+### Places ###
+nxr:SiteShape a sh:NodeShape ;
+    sh:targetClass nxr:Site ;
+    sh:node nxr:BaseEntityShape .
+
+nxr:SpaceShape a sh:NodeShape ;
+    sh:targetClass nxr:Space ;
+    sh:node nxr:BaseEntityShape .
+
+### Occurrents — covers Process, MaintenanceEvent, Action base ###
+nxr:ProcessShape a sh:NodeShape ;
+    sh:targetClass nxr:Process ;
+    sh:node nxr:BaseEntityShape .
+
+### Maintenance event — must name the asset it is performed on ###
+nxr:MaintenanceEventShape a sh:NodeShape ;
+    sh:targetClass nxr:MaintenanceEvent ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:targetsAsset ;
+        sh:minCount 1 ;
+        sh:class bfo:BFO_0000040 ;          # must target a material entity
+        sh:message "A MaintenanceEvent must target at least one asset, which must be a material entity." ;
+    ] .
+
+### Information ###
+nxr:DocumentShape a sh:NodeShape ;
+    sh:targetClass nxr:Document ;
+    sh:node nxr:BaseEntityShape .
+
+### Reasoning-chain leaf without its own rules yet ###
+nxr:RecommendationShape a sh:NodeShape ;
+    sh:targetClass nxr:Recommendation ;
+    sh:node nxr:BaseEntityShape .
+
+### Self-model — covers Capability, IntegrationAdapter, MLModel, CapabilityBundle base ###
+nxr:CapabilityShape a sh:NodeShape ;
+    sh:targetClass nxr:Capability ;
+    sh:node nxr:BaseEntityShape .
+
+#################################################################
+#  STATE-MACHINE DECLARATION PATTERN
+#
+#  A class declares its lifecycle by attaching a StateMachine.
+#  The platform validates a `status` change by checking that a
+#  Transition fromState->toState exists. Below is the GENERIC
+#  Incident lifecycle as a worked, loadable example; packs declare
+#  their own the same way (Vessel, PatientAdmission, etc.).
+#################################################################
+
+nxr:IncidentStateMachine a nxr:StateMachine ;
+    rdfs:label "Incident lifecycle" ;
+    nxr:initialState nxr:state_open ;
+    nxr:hasState nxr:state_open , nxr:state_diagnosed , nxr:state_acknowledged ,
+                 nxr:state_resolved , nxr:state_closed ;
+    nxr:allowsTransition nxr:tr_open_diag , nxr:tr_diag_ack , nxr:tr_ack_res , nxr:tr_res_close .
+
+nxr:state_open         a nxr:State ; rdfs:label "open" .
+nxr:state_diagnosed    a nxr:State ; rdfs:label "diagnosed" .
+nxr:state_acknowledged a nxr:State ; rdfs:label "acknowledged" .
+nxr:state_resolved     a nxr:State ; rdfs:label "resolved" .
+nxr:state_closed       a nxr:State ; rdfs:label "closed" .
+
+nxr:tr_open_diag a nxr:Transition ; nxr:fromState nxr:state_open ;         nxr:toState nxr:state_diagnosed .
+nxr:tr_diag_ack  a nxr:Transition ; nxr:fromState nxr:state_diagnosed ;    nxr:toState nxr:state_acknowledged .
+nxr:tr_ack_res   a nxr:Transition ; nxr:fromState nxr:state_acknowledged ; nxr:toState nxr:state_resolved .
+nxr:tr_res_close a nxr:Transition ; nxr:fromState nxr:state_resolved ;     nxr:toState nxr:state_closed .
+
+### Attach the state machine to the Incident class ###
+nxr:Incident nxr:hasStateMachine nxr:IncidentStateMachine .

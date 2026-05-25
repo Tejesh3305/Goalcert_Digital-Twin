@@ -1,0 +1,79 @@
+@prefix nxr:   <https://ontology.nextxr.io/v3/core#> .
+@prefix qudt:  <http://qudt.org/schema/qudt/> .
+@prefix unit:  <http://qudt.org/vocab/unit/> .
+@prefix quantitykind: <http://qudt.org/vocab/quantitykind/> .
+@prefix sosa:  <http://www.w3.org/ns/sosa/> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  QUDT UNITS WIRING  —  observations carry value + unit + kind
+#
+#  SOSA gives an Observation a Result, but a bare number is
+#  meaningless ("4" — celsius? metres? count?). We commit to QUDT
+#  (the standard SOSA pairing) so every quantitative result
+#  travels with an explicit unit and quantity-kind. This is what
+#  lets the reasoning engine threshold, compare, and convert
+#  values across domains without hardcoding units.
+#
+#  QUDT IRIs are referenced, not redefined. For full QUDT, import
+#  the official release: https://qudt.org/
+#################################################################
+
+### A typed quantitative result: value + unit + quantity-kind ###
+
+nxr:QuantitativeResult a owl:Class ;
+    rdfs:subClassOf sosa:Result ;
+    rdfs:label "Quantitative Result" ;
+    skos:definition "A SOSA result that carries a numeric value together with a QUDT unit and quantity-kind, so the measurement is self-describing and comparable." .
+
+nxr:numericValue a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "numeric value" ;
+    skos:definition "The bare numeric magnitude of a quantitative result." ;
+    rdfs:domain nxr:QuantitativeResult ;
+    rdfs:range xsd:double .
+
+nxr:hasUnit a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "has unit" ;
+    skos:definition "The QUDT unit the numeric value is expressed in (e.g. unit:DEG_C, unit:M, unit:KiloW)." ;
+    rdfs:domain nxr:QuantitativeResult ;
+    rdfs:range qudt:Unit .
+
+nxr:hasQuantityKind a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "has quantity kind" ;
+    skos:definition "The QUDT quantity-kind being measured (e.g. quantitykind:Temperature, quantitykind:Power). Lets the engine know two values are comparable even across unit systems." ;
+    rdfs:domain nxr:QuantitativeResult ;
+    rdfs:range qudt:QuantityKind .
+
+### Observable properties may pin their expected unit/kind so the
+### platform can validate that incoming observations are coherent. ###
+
+nxr:expectedUnit a owl:ObjectProperty ;
+    rdfs:label "expected unit" ;
+    skos:definition "The unit an observable property is normally reported in. Used to flag unit mismatches at ingestion." ;
+    rdfs:domain sosa:ObservableProperty ;
+    rdfs:range qudt:Unit .
+
+nxr:expectedQuantityKind a owl:ObjectProperty ;
+    rdfs:label "expected quantity kind" ;
+    rdfs:domain sosa:ObservableProperty ;
+    rdfs:range qudt:QuantityKind .
+
+#################################################################
+#  A few commonly-used QUDT references, declared so RDFlib
+#  resolves them. (Illustrative — packs reference QUDT freely.)
+#################################################################
+
+unit:DEG_C a qudt:Unit ; rdfs:label "degree Celsius" .
+unit:K a qudt:Unit ; rdfs:label "kelvin" .
+unit:M a qudt:Unit ; rdfs:label "metre" .
+unit:KiloW a qudt:Unit ; rdfs:label "kilowatt" .
+unit:PERCENT a qudt:Unit ; rdfs:label "percent" .
+unit:NUM a qudt:Unit ; rdfs:label "number (dimensionless count)" .
+
+quantitykind:Temperature a qudt:QuantityKind ; rdfs:label "Temperature" .
+quantitykind:Power a qudt:QuantityKind ; rdfs:label "Power" .
+quantitykind:Length a qudt:QuantityKind ; rdfs:label "Length" .
+quantitykind:Dimensionless a qudt:QuantityKind ; rdfs:label "Dimensionless" .

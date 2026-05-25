@@ -1,0 +1,297 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  NEXTXR PLATFORM MID-LEVEL ONTOLOGY  —  LAYER 3 (T-Box)
+#
+#  This is the spine of the whole platform. Every domain pack
+#  (maritime, hospital, data-centre, defence) subclasses from
+#  THESE classes and never from BFO/SOSA directly, and never
+#  modifies this file.
+#
+#  >>> FREEZE RULE: this file is extended by packs (downward),
+#  never edited by them. Adding a class here is a platform
+#  version bump (v3 -> v4), governed and migration-checked.
+#
+#  Each class declares:
+#    - its BFO or SOSA parent (rdfs:subClassOf)
+#    - a human + machine readable skos:definition
+#    - nxr:taxonomyCategory : which of the 10 graph categories
+#      (becomes the Neo4j label)
+#    - nxr:isAbstract : true if packs must subclass it, not
+#      instantiate it directly
+#################################################################
+
+<https://ontology.nextxr.io/v3/core> a owl:Ontology ;
+    dct:title "NextXR Platform Mid-Level Ontology" ;
+    owl:versionInfo "v3.0.0" ;
+    dct:description "Domain-agnostic backbone for the NextXR Universal Modular Digital Twin. Grounded in BFO (ISO 21838-2) and SOSA/SSN (W3C)." ;
+    owl:imports <http://purl.obolibrary.org/obo/bfo.owl> ,
+                <http://www.w3.org/ns/sosa/> .
+
+### Annotation properties used to tag platform classes ###
+nxr:taxonomyCategory a owl:AnnotationProperty ;
+    rdfs:label "taxonomy category" ;
+    skos:definition "One of the ten closed top-level categories. Becomes the Neo4j label for instances of this class and its subclasses." .
+
+nxr:isAbstract a owl:AnnotationProperty ;
+    rdfs:label "is abstract" ;
+    skos:definition "If true, this class is not directly instantiated; domain packs must declare a subclass. If false, instances may be created directly." .
+
+nxr:bfoGrounding a owl:AnnotationProperty ;
+    rdfs:label "BFO grounding note" ;
+    skos:definition "Human-readable note on the existential category this class occupies." .
+
+#################################################################
+#  GROUP A — MATERIAL ENTITIES  (BFO:material entity)
+#  Independent continuants made of matter. The physical things.
+#################################################################
+
+nxr:PhysicalAsset a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000040 ;          # material entity
+    rdfs:label "Physical Asset" ;
+    skos:definition "A fixed, durable material entity that is part of a facility's infrastructure and does not move in normal operation. The abstract parent of fixed equipment and sensors." ;
+    nxr:taxonomyCategory "PhysicalAsset" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:MaterialEntity — independent continuant with matter." .
+
+nxr:Equipment a owl:Class ;
+    rdfs:subClassOf nxr:PhysicalAsset ;
+    rdfs:label "Equipment" ;
+    skos:definition "A fixed engineered asset that performs a function within a facility (e.g. a crane, a substation, an air handler, a ventilator). Domain packs subclass this for each equipment type." ;
+    nxr:taxonomyCategory "PhysicalAsset" ;
+    nxr:isAbstract true .
+
+nxr:Sensor a owl:Class ;
+    rdfs:subClassOf nxr:PhysicalAsset , sosa:Sensor ;
+    rdfs:label "Sensor" ;
+    skos:definition "A device that observes one or more observable properties of a feature of interest and emits observations. Dual-grounded as a physical asset and a SOSA sensor." ;
+    nxr:taxonomyCategory "PhysicalAsset" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:MaterialEntity and sosa:Sensor — a physical thing that also plays the observing role." .
+
+nxr:MobileAsset a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000040 ;          # material entity
+    rdfs:label "Mobile Asset" ;
+    skos:definition "A material entity whose normal operation involves changing location, and which therefore bears a motion disposition (position, trajectory, geofence membership). Examples: vessel, truck, container, ambulance, forklift." ;
+    nxr:taxonomyCategory "MobileAsset" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:MaterialEntity with motion-disposition." .
+
+#################################################################
+#  GROUP B — AGENTS  (BFO:material entity bearing agent role)
+#################################################################
+
+nxr:Actor a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000040 ;          # material entity (a person/org)
+    rdfs:label "Actor" ;
+    skos:definition "An entity capable of taking action within the facility's operation — a human, team, or organisational unit. Examples: operator, pilot, driver, surgeon, maintenance crew. Actors are assigned to incidents and participate in processes." ;
+    nxr:taxonomyCategory "Actor" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:Continuant bearing an agent role (RO:has role)." .
+
+#################################################################
+#  GROUP C — PLACES  (BFO:site, immaterial)
+#################################################################
+
+nxr:Site a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000029 ;          # site
+    rdfs:label "Site" ;
+    skos:definition "The top-level bounded place of a deployment — the whole facility (a port, a hospital campus, a data centre). A twin has exactly one root Site." ;
+    nxr:taxonomyCategory "Location" ;
+    nxr:isAbstract false .
+
+nxr:Space a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000029 ;          # site
+    rdfs:label "Space" ;
+    skos:definition "A bounded place within a Site — a region, zone, room, berth, yard block, ward, or rack row. Spaces nest within Sites and within one another." ;
+    nxr:taxonomyCategory "Location" ;
+    nxr:isAbstract true .
+
+#################################################################
+#  GROUP D — OCCURRENTS  (BFO:process — things that unfold in time)
+#################################################################
+
+nxr:Process a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000015 ;          # process
+    rdfs:label "Process" ;
+    skos:definition "An operational activity that unfolds over time through a sequence of states, involving one or more participants. Examples: port call, container lifecycle, patient admission, incident resolution. Processes carry a state machine." ;
+    nxr:taxonomyCategory "Process" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:Process — occurrent with temporal parts." .
+
+nxr:Incident a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000015 ;          # process
+    rdfs:label "Incident" ;
+    skos:definition "A single operational issue formed by grouping one or more correlated Findings by temporal and graph proximity. The unit the operator acts on. An Incident is the realisation of a problem disposition." ;
+    nxr:taxonomyCategory "Incident" ;
+    nxr:isAbstract false ;
+    nxr:bfoGrounding "BFO:Process — the realisation of a disposition flagged by findings." .
+
+nxr:MaintenanceEvent a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000015 ;          # process
+    rdfs:label "Maintenance Event" ;
+    skos:definition "A scheduled or corrective activity performed on a physical or mobile asset, with a planned window and an outcome. Examples: preventive service, repair, inspection, calibration." ;
+    nxr:taxonomyCategory "Process" ;
+    nxr:isAbstract false .
+
+#################################################################
+#  GROUP E — OBSERVATIONS  (SOSA)
+#################################################################
+
+nxr:Observation a owl:Class ;
+    rdfs:subClassOf sosa:Observation ;
+    rdfs:label "Observation" ;
+    skos:definition "A single timestamped measurement of an observable property of a feature of interest, produced by a Sensor and carrying a value with an explicit unit. Examples: temperature reading, ANPR detection, AIS message." ;
+    nxr:taxonomyCategory "Observation" ;
+    nxr:isAbstract false ;
+    nxr:bfoGrounding "sosa:Observation — an act estimating a property value." .
+
+#################################################################
+#  GROUP F — THE REASONING CHAIN
+#  Finding -> Incident -> Diagnosis -> Action / Recommendation
+#  This is the platform's core operational loop. It MUST be at
+#  mid-level because the reasoning engine operates on these types
+#  generically across every domain.
+#################################################################
+
+nxr:Finding a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000016 ;          # disposition
+    rdfs:label "Finding" ;
+    skos:definition "A single anomaly signal produced by a behaviour model (a rule firing, a statistical deviation). The atomic input to correlation. Many findings group into one Incident." ;
+    nxr:taxonomyCategory "Finding" ;
+    nxr:isAbstract false ;
+    nxr:bfoGrounding "BFO:Disposition realised in a detection event." .
+
+nxr:FailureMode a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000016 ;          # disposition
+    rdfs:label "Failure Mode" ;
+    skos:definition "A characterised way in which an asset or process can fail, defined in a domain pack. Findings and diagnoses reference failure modes. Example: bearing wear, feeder trip, plug power loss." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:Disposition borne by an asset type." .
+
+nxr:Diagnosis a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000031 ;          # generically dependent continuant (information)
+    rdfs:label "Diagnosis" ;
+    skos:definition "A reasoned explanation of an Incident's root cause, produced by the Diagnosis Agent, with confidence and supporting evidence. An information object that can be copied and audited." ;
+    nxr:taxonomyCategory "Document" ;
+    nxr:isAbstract false ;
+    nxr:bfoGrounding "BFO:GenericallyDependentContinuant — information content." .
+
+nxr:Recommendation a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000031 ;          # generically dependent continuant
+    rdfs:label "Recommendation" ;
+    skos:definition "Advisory guidance attached to a diagnosis or asset, proposing a course of action. Under the advisory-only lock, recommendations never auto-actuate." ;
+    nxr:taxonomyCategory "Document" ;
+    nxr:isAbstract false .
+
+nxr:Action a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000015 ;          # process (an action is a doing)
+    rdfs:label "Action" ;
+    skos:definition "A concrete operational step recommended or taken in response to a diagnosis, tagged manual or automatic, and assignable to an Actor. Example: dispatch electrical team, switch to secondary feeder." ;
+    nxr:taxonomyCategory "Process" ;
+    nxr:isAbstract false .
+
+#################################################################
+#  GROUP G — INFORMATION OBJECTS  (BFO:generically dependent continuant)
+#################################################################
+
+nxr:Document a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000031 ;          # generically dependent continuant
+    rdfs:label "Document" ;
+    skos:definition "An information artefact that describes, authorises, or records something in the facility and can exist in multiple copies. Examples: bill of lading, incident report, SOP, compliance report." ;
+    nxr:taxonomyCategory "Document" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:GenericallyDependentContinuant — copyable information." .
+
+#################################################################
+#  GROUP H — THE PLATFORM'S SELF-MODEL  (BFO:disposition)
+#  The platform represents its own loaded capabilities as graph
+#  entities, so agents can reason about what is installed.
+#################################################################
+
+nxr:Capability a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000016 ;          # disposition borne by the platform
+    rdfs:label "Capability" ;
+    skos:definition "A unit of platform functionality that has been loaded into a twin — a capability bundle, an integration adapter, or an ML model. Enables the Capability Composer to reason about installed function." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:Disposition borne by the platform." .
+
+nxr:CapabilityBundle a owl:Class ;
+    rdfs:subClassOf nxr:Capability ;
+    rdfs:label "Capability Bundle" ;
+    skos:definition "A self-contained, versioned, signed extension that adds vocabulary, behaviours, rules, and assets for one capability. The unit of vertical extension." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract false .
+
+nxr:IntegrationAdapter a owl:Class ;
+    rdfs:subClassOf nxr:Capability ;
+    rdfs:label "Integration Adapter" ;
+    skos:definition "A loaded connector that translates an external system's protocol into ontology-conforming observations and events." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract false .
+
+nxr:MLModel a owl:Class ;
+    rdfs:subClassOf nxr:Capability ;
+    rdfs:label "ML Model" ;
+    skos:definition "A registered machine-learning model available to the platform for inference (e.g. detection, forecasting, classification)." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract false .
+
+#################################################################
+#  GROUP I — TYPED PORTS  (structural connection rigour, v1)
+#  A Port is a typed connection point on an asset. Connections
+#  are made port-to-port, so the graph knows not just THAT two
+#  assets connect, but THROUGH WHAT and in WHICH DIRECTION.
+#################################################################
+
+nxr:Port a owl:Class ;
+    rdfs:subClassOf bfo:BFO_0000020 ;          # specifically dependent continuant (depends on its asset)
+    rdfs:label "Port" ;
+    skos:definition "A typed, directional connection point that inheres in an asset, through which a flow (power, fluid, data, material) enters or leaves. Connections are declared port-to-port via nxr:connectsTo." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract true ;
+    nxr:bfoGrounding "BFO:SpecificallyDependentContinuant — a port cannot exist without its bearer asset." .
+
+nxr:InputPort a owl:Class ;
+    rdfs:subClassOf nxr:Port ;
+    rdfs:label "Input Port" ;
+    skos:definition "A port through which a flow enters the bearing asset." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract false .
+
+nxr:OutputPort a owl:Class ;
+    rdfs:subClassOf nxr:Port ;
+    rdfs:label "Output Port" ;
+    skos:definition "A port through which a flow leaves the bearing asset." ;
+    nxr:taxonomyCategory "Capability" ;
+    nxr:isAbstract false .
+
+#################################################################
+#  GROUP J — STATE MACHINE VOCABULARY
+#  Lets any class DECLARE its own legal states and transitions,
+#  so the platform can validate `status` changes generically.
+#################################################################
+
+nxr:StateMachine a owl:Class ;
+    rdfs:label "State Machine" ;
+    skos:definition "A declaration of the legal lifecycle states and transitions for a class. Attached to a class via nxr:hasStateMachine." ;
+    nxr:isAbstract false .
+
+nxr:State a owl:Class ;
+    rdfs:label "State" ;
+    skos:definition "One legal value of the status property within a state machine (e.g. 'expected', 'alongside', 'departed')." ;
+    nxr:isAbstract false .
+
+nxr:Transition a owl:Class ;
+    rdfs:label "Transition" ;
+    skos:definition "A permitted move from one State to another within a state machine. Used to validate status changes." ;
+    nxr:isAbstract false .

@@ -1,0 +1,243 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  NEXTXR PLATFORM PREDICATE VOCABULARY  —  LAYER 3 (relations)
+#
+#  Only GENERIC predicates that make sense in ANY facility live
+#  here. Domain packs declare specialised predicates as
+#  rdfs:subPropertyOf these (e.g. maritime:BERTHED_AT is a
+#  subproperty of nxr:locatedAt).
+#
+#  Each predicate declares rdfs:domain, rdfs:range, and — where it
+#  holds — a logical character (Transitive / inverseOf / Functional)
+#  so the OWL-RL reasoner can infer facts not stated explicitly.
+#################################################################
+
+############### SPATIAL / STRUCTURAL ###############
+
+nxr:locatedAt a owl:ObjectProperty ;
+    rdfs:label "located at" ;
+    skos:definition "Generic placement of an asset, mobile asset, or actor in a place. Domain placement predicates subproperty this." ;
+    rdfs:domain bfo:BFO_0000040 ;              # any material entity
+    rdfs:range  bfo:BFO_0000029 ;              # a site/space
+    rdfs:subPropertyOf bfo:BFO_0000050 .       # part of (loosely)
+
+nxr:containedIn a owl:ObjectProperty , owl:TransitiveProperty ;
+    rdfs:label "contained in" ;
+    skos:definition "Spatial nesting of one place within another. Transitive: a rack in a row in a hall is in the hall." ;
+    rdfs:domain nxr:Space ;
+    rdfs:range  bfo:BFO_0000029 ;
+    owl:inverseOf nxr:contains .
+
+nxr:contains a owl:ObjectProperty , owl:TransitiveProperty ;
+    rdfs:label "contains" ;
+    rdfs:domain bfo:BFO_0000029 ;
+    rdfs:range  nxr:Space .
+
+nxr:partOf a owl:ObjectProperty , owl:TransitiveProperty ;
+    rdfs:label "part of" ;
+    skos:definition "Mereological composition: an asset is part of a larger assembly. Transitive." ;
+    rdfs:subPropertyOf bfo:BFO_0000050 ;
+    owl:inverseOf nxr:hasPart .
+
+nxr:hasPart a owl:ObjectProperty , owl:TransitiveProperty ;
+    rdfs:label "has part" ;
+    rdfs:subPropertyOf bfo:BFO_0000051 .
+
+############### PORTS & CONNECTIONS (structural rigour) ###############
+
+nxr:hasPort a owl:ObjectProperty ;
+    rdfs:label "has port" ;
+    skos:definition "Relates an asset to a typed connection point that inheres in it." ;
+    rdfs:domain bfo:BFO_0000040 ;              # material entity
+    rdfs:range  nxr:Port ;
+    owl:inverseOf nxr:portOf .
+
+nxr:portOf a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "port of" ;
+    skos:definition "Relates a port to the single asset it inheres in. Functional: a port belongs to exactly one asset." ;
+    rdfs:domain nxr:Port ;
+    rdfs:range  bfo:BFO_0000040 .
+
+nxr:connectsTo a owl:ObjectProperty , owl:SymmetricProperty ;
+    rdfs:label "connects to" ;
+    skos:definition "A physical or logical connection between two ports. Symmetric: if A connects to B, B connects to A. Flow direction is carried by InputPort/OutputPort typing, not by this predicate." ;
+    rdfs:domain nxr:Port ;
+    rdfs:range  nxr:Port .
+
+nxr:carries a owl:DatatypeProperty ;
+    rdfs:label "carries" ;
+    skos:definition "The kind of flow a port handles (e.g. 'electrical-power', 'chilled-water', 'data', 'container'). A string tag matched between connected ports for compatibility checks." ;
+    rdfs:domain nxr:Port ;
+    rdfs:range  rdf:langString .
+
+############### FUNCTIONAL / DEPENDENCY ###############
+
+nxr:dependsOn a owl:ObjectProperty , owl:TransitiveProperty ;
+    rdfs:label "depends on" ;
+    skos:definition "Operational dependency: the source asset requires the target to function. Transitive, and the backbone of cascade reasoning (a crane depends on a substation; if it trips, the crane is affected)." ;
+    rdfs:domain bfo:BFO_0000040 ;
+    rdfs:range  bfo:BFO_0000040 .
+
+nxr:feeds a owl:ObjectProperty ;
+    rdfs:label "feeds" ;
+    skos:definition "The source asset supplies a flow (power, fluid, material, data) to the target. A specialised, directional dependency. Domain predicates like POWERS subproperty this." ;
+    rdfs:domain bfo:BFO_0000040 ;
+    rdfs:range  bfo:BFO_0000040 ;
+    owl:inverseOf nxr:fedBy .
+
+nxr:fedBy a owl:ObjectProperty ;
+    rdfs:label "fed by" ;
+    rdfs:domain bfo:BFO_0000040 ;
+    rdfs:range  bfo:BFO_0000040 .
+
+############### OBSERVATION (extends SOSA) ###############
+
+nxr:monitors a owl:ObjectProperty ;
+    rdfs:label "monitors" ;
+    skos:definition "Relates a Sensor to the asset, mobile asset, or space whose properties it observes (the feature of interest)." ;
+    rdfs:domain nxr:Sensor ;
+    rdfs:range  bfo:BFO_0000001 ;              # any entity
+    rdfs:subPropertyOf sosa:observes .
+
+nxr:observedAs a owl:ObjectProperty ;
+    rdfs:label "observed as" ;
+    skos:definition "Relates an asset to an observation made about it (e.g. a truck observed as an ANPR detection)." ;
+    rdfs:domain bfo:BFO_0000040 ;
+    rdfs:range  nxr:Observation .
+
+############### THE REASONING CHAIN ###############
+
+nxr:flags a owl:ObjectProperty ;
+    rdfs:label "flags" ;
+    skos:definition "Relates a Finding to the asset, space, or process it concerns." ;
+    rdfs:domain nxr:Finding ;
+    rdfs:range  bfo:BFO_0000001 .
+
+nxr:groupedInto a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "grouped into" ;
+    skos:definition "Relates a Finding to the single Incident it was correlated into. Functional: a finding belongs to at most one incident." ;
+    rdfs:domain nxr:Finding ;
+    rdfs:range  nxr:Incident ;
+    owl:inverseOf nxr:groups .
+
+nxr:groups a owl:ObjectProperty ;
+    rdfs:label "groups" ;
+    rdfs:domain nxr:Incident ;
+    rdfs:range  nxr:Finding .
+
+nxr:affects a owl:ObjectProperty ;
+    rdfs:label "affects" ;
+    skos:definition "Relates an Incident to the asset(s), space(s) or process(es) it impacts." ;
+    rdfs:domain nxr:Incident ;
+    rdfs:range  bfo:BFO_0000001 .
+
+nxr:diagnosedAs a owl:ObjectProperty ;
+    rdfs:label "diagnosed as" ;
+    skos:definition "Relates an Incident to the Diagnosis explaining its root cause." ;
+    rdfs:domain nxr:Incident ;
+    rdfs:range  nxr:Diagnosis .
+
+nxr:indicatesFailureMode a owl:ObjectProperty ;
+    rdfs:label "indicates failure mode" ;
+    skos:definition "Relates a Diagnosis (or Finding) to the FailureMode it identifies." ;
+    rdfs:domain nxr:Diagnosis ;
+    rdfs:range  nxr:FailureMode .
+
+nxr:recommends a owl:ObjectProperty ;
+    rdfs:label "recommends" ;
+    skos:definition "Relates a Diagnosis to a Recommendation or Action it proposes." ;
+    rdfs:domain nxr:Diagnosis ;
+    rdfs:range  bfo:BFO_0000031 .
+
+nxr:proposesAction a owl:ObjectProperty ;
+    rdfs:label "proposes action" ;
+    rdfs:domain nxr:Recommendation ;
+    rdfs:range  nxr:Action .
+
+############### ACTORS, PROCESSES, ASSIGNMENT ###############
+
+nxr:assignedTo a owl:ObjectProperty ;
+    rdfs:label "assigned to" ;
+    skos:definition "Relates an Incident or Action to the Actor responsible for handling it." ;
+    rdfs:domain bfo:BFO_0000001 ;
+    rdfs:range  nxr:Actor .
+
+nxr:participatesIn a owl:ObjectProperty ;
+    rdfs:label "participates in" ;
+    skos:definition "Relates a continuant (asset, mobile asset, actor) to a Process it takes part in." ;
+    rdfs:domain bfo:BFO_0000040 ;
+    rdfs:range  nxr:Process ;
+    rdfs:subPropertyOf bfo:BFO_0000056 .
+
+nxr:performedBy a owl:ObjectProperty ;
+    rdfs:label "performed by" ;
+    skos:definition "Relates a MaintenanceEvent or Action to the Actor that carries it out." ;
+    rdfs:domain bfo:BFO_0000015 ;
+    rdfs:range  nxr:Actor .
+
+nxr:targetsAsset a owl:ObjectProperty ;
+    rdfs:label "targets asset" ;
+    skos:definition "Relates a MaintenanceEvent to the asset it is performed on." ;
+    rdfs:domain nxr:MaintenanceEvent ;
+    rdfs:range  bfo:BFO_0000040 .
+
+############### DOCUMENTS ###############
+
+nxr:describes a owl:ObjectProperty ;
+    rdfs:label "describes" ;
+    skos:definition "Relates a Document to the entity it documents (an asset, process, incident)." ;
+    rdfs:domain nxr:Document ;
+    rdfs:range  bfo:BFO_0000001 .
+
+############### SELF-MODEL ###############
+
+nxr:provides a owl:ObjectProperty ;
+    rdfs:label "provides" ;
+    skos:definition "Relates a CapabilityBundle to the class(es) of entity it introduces, so the platform can trace which bundle owns which vocabulary." ;
+    rdfs:domain nxr:CapabilityBundle ;
+    rdfs:range  rdfs:Class .
+
+nxr:requiresCapability a owl:ObjectProperty , owl:TransitiveProperty ;
+    rdfs:label "requires capability" ;
+    skos:definition "Declares a dependency of one capability bundle on another. Transitive; verified at deploy time by the Capability Composer." ;
+    rdfs:domain nxr:Capability ;
+    rdfs:range  nxr:Capability .
+
+############### STATE MACHINE WIRING ###############
+
+nxr:hasStateMachine a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "has state machine" ;
+    skos:definition "Attaches a StateMachine declaration to a class. Functional: a class has at most one state machine." ;
+    rdfs:range nxr:StateMachine .
+
+nxr:hasState a owl:ObjectProperty ;
+    rdfs:label "has state" ;
+    rdfs:domain nxr:StateMachine ;
+    rdfs:range  nxr:State .
+
+nxr:initialState a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "initial state" ;
+    rdfs:domain nxr:StateMachine ;
+    rdfs:range  nxr:State .
+
+nxr:allowsTransition a owl:ObjectProperty ;
+    rdfs:label "allows transition" ;
+    rdfs:domain nxr:StateMachine ;
+    rdfs:range  nxr:Transition .
+
+nxr:fromState a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "from state" ;
+    rdfs:domain nxr:Transition ;
+    rdfs:range  nxr:State .
+
+nxr:toState a owl:ObjectProperty , owl:FunctionalProperty ;
+    rdfs:label "to state" ;
+    rdfs:domain nxr:Transition ;
+    rdfs:range  nxr:State .

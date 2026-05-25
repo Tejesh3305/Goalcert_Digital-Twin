@@ -1,0 +1,89 @@
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix ssn:  <http://www.w3.org/ns/ssn/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  SOSA / SSN (Semantic Sensor Network) — IMPORT STUB
+#
+#  W3C Recommendation. This file is NOT the full SOSA/SSN release.
+#  It declares ONLY the SOSA terms the NextXR platform mid-level
+#  subclasses from or reuses, with their official IRIs.
+#
+#  >>> FREEZE RULE: never edit this file. For full SOSA/SSN, drop
+#  the official ontology in alongside; IRIs align exactly.
+#  Official: https://www.w3.org/TR/vocab-ssn/
+#################################################################
+
+<http://www.w3.org/ns/sosa/> a owl:Ontology ;
+    dct:title "Sensor, Observation, Sample, and Actuator (NextXR import stub)" ;
+    rdfs:comment "Reference stub. Replace with the official W3C SOSA/SSN release for full vocabulary." .
+
+### --- Core SOSA classes ---
+sosa:Sensor a owl:Class ;
+    rdfs:label "Sensor" ;
+    skos:definition "A device, agent, or software that observes a property and produces observations." .
+
+sosa:Observation a owl:Class ;
+    rdfs:label "Observation" ;
+    skos:definition "An act of carrying out a procedure to estimate or calculate a value of a property of a feature of interest." .
+
+sosa:ObservableProperty a owl:Class ;
+    rdfs:label "ObservableProperty" ;
+    skos:definition "An observable quality of a feature of interest." .
+
+sosa:FeatureOfInterest a owl:Class ;
+    rdfs:label "FeatureOfInterest" ;
+    skos:definition "The thing whose property is being estimated or calculated in the course of an observation." .
+
+sosa:Result a owl:Class ;
+    rdfs:label "Result" ;
+    skos:definition "The result of an observation: a value together with the property it estimates." .
+
+sosa:Actuator a owl:Class ;
+    rdfs:label "Actuator" ;
+    skos:definition "A device that is used to effect a change on a feature of interest." .
+
+sosa:Platform a owl:Class ;
+    rdfs:label "Platform" ;
+    skos:definition "An entity that hosts other entities, particularly sensors, actuators, and other platforms." .
+
+### --- Core SOSA relations we reuse ---
+sosa:observes a owl:ObjectProperty ;
+    rdfs:label "observes" ;
+    rdfs:domain sosa:Sensor ;
+    rdfs:range sosa:ObservableProperty ;
+    skos:definition "Relation between a sensor and the observable property it can observe." .
+
+sosa:madeBySensor a owl:ObjectProperty ;
+    rdfs:label "madeBySensor" ;
+    rdfs:domain sosa:Observation ;
+    rdfs:range sosa:Sensor ;
+    skos:definition "Relation between an observation and the sensor that made it." .
+
+sosa:observedProperty a owl:ObjectProperty ;
+    rdfs:label "observedProperty" ;
+    rdfs:domain sosa:Observation ;
+    rdfs:range sosa:ObservableProperty .
+
+sosa:hasFeatureOfInterest a owl:ObjectProperty ;
+    rdfs:label "hasFeatureOfInterest" ;
+    rdfs:domain sosa:Observation ;
+    rdfs:range sosa:FeatureOfInterest .
+
+sosa:hasResult a owl:ObjectProperty ;
+    rdfs:label "hasResult" ;
+    rdfs:domain sosa:Observation ;
+    rdfs:range sosa:Result .
+
+sosa:resultTime a owl:DatatypeProperty ;
+    rdfs:label "resultTime" ;
+    rdfs:domain sosa:Observation ;
+    skos:definition "The instant of time when the observation activity was completed." .
+
+sosa:hosts a owl:ObjectProperty ;
+    rdfs:label "hosts" ;
+    rdfs:domain sosa:Platform ;
+    rdfs:range sosa:Sensor .

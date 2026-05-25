@@ -1,0 +1,118 @@
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  BFO (Basic Formal Ontology) — IMPORT STUB
+#
+#  ISO/IEC 21838-2. This file is NOT the full BFO release.
+#  It declares ONLY the BFO classes that the NextXR platform
+#  mid-level subclasses from, using their official IRIs, so that
+#  RDFlib can resolve our rdfs:subClassOf links without pulling
+#  the entire upper ontology.
+#
+#  >>> FREEZE RULE: never edit this file. To use the full BFO,
+#  download the official release and place it alongside; the IRIs
+#  here will line up with it exactly.
+#  Official: https://github.com/BFO-ontology/BFO-2020
+#################################################################
+
+<http://purl.obolibrary.org/obo/bfo.owl> a owl:Ontology ;
+    dct:title "Basic Formal Ontology (NextXR import stub)" ;
+    rdfs:comment "Reference stub. Replace with the official ISO 21838-2 release for full reasoning." .
+
+### --- Top of BFO ---
+bfo:BFO_0000001 a owl:Class ;
+    rdfs:label "entity" ;
+    skos:definition "Anything that exists, has existed, or will exist." .
+
+### --- Continuant branch (things that persist through time) ---
+bfo:BFO_0000002 a owl:Class ;
+    rdfs:label "continuant" ;
+    rdfs:subClassOf bfo:BFO_0000001 ;
+    skos:definition "An entity that persists through time while maintaining its identity, having no temporal parts." .
+
+bfo:BFO_0000004 a owl:Class ;
+    rdfs:label "independent continuant" ;
+    rdfs:subClassOf bfo:BFO_0000002 ;
+    skos:definition "A continuant that is the bearer of qualities and realizable entities, and which does not depend on another entity to exist." .
+
+bfo:BFO_0000040 a owl:Class ;
+    rdfs:label "material entity" ;
+    rdfs:subClassOf bfo:BFO_0000004 ;
+    skos:definition "An independent continuant that has some portion of matter as part." .
+
+bfo:BFO_0000141 a owl:Class ;
+    rdfs:label "immaterial entity" ;
+    rdfs:subClassOf bfo:BFO_0000004 ;
+    skos:definition "An independent continuant that contains no material parts (e.g. a site, a spatial region)." .
+
+bfo:BFO_0000029 a owl:Class ;
+    rdfs:label "site" ;
+    rdfs:subClassOf bfo:BFO_0000141 ;
+    skos:definition "A three-dimensional immaterial entity bounded by material entities, or by a combination of material entities and spatial regions (e.g. a berth, a room)." .
+
+### --- Dependent continuant branch (qualities, dispositions, information) ---
+bfo:BFO_0000020 a owl:Class ;
+    rdfs:label "specifically dependent continuant" ;
+    rdfs:subClassOf bfo:BFO_0000002 ;
+    skos:definition "A continuant that depends on one or more specific independent continuants for its existence (e.g. a quality, a disposition)." .
+
+bfo:BFO_0000019 a owl:Class ;
+    rdfs:label "quality" ;
+    rdfs:subClassOf bfo:BFO_0000020 ;
+    skos:definition "A specifically dependent continuant that is fully exhibited whenever it inheres in its bearer (e.g. a temperature, a mass)." .
+
+bfo:BFO_0000017 a owl:Class ;
+    rdfs:label "realizable entity" ;
+    rdfs:subClassOf bfo:BFO_0000020 ;
+    skos:definition "A specifically dependent continuant whose instances are realized in associated processes." .
+
+bfo:BFO_0000016 a owl:Class ;
+    rdfs:label "disposition" ;
+    rdfs:subClassOf bfo:BFO_0000017 ;
+    skos:definition "A realizable entity such that, if realized, it is realized in a particular process, and whose bearer is such that it tends to undergo that process under certain conditions." .
+
+bfo:BFO_0000023 a owl:Class ;
+    rdfs:label "role" ;
+    rdfs:subClassOf bfo:BFO_0000017 ;
+    skos:definition "A realizable entity that exists because the bearer is in some special physical, social, or institutional set of circumstances, and is not such that the bearer must necessarily have it." .
+
+bfo:BFO_0000031 a owl:Class ;
+    rdfs:label "generically dependent continuant" ;
+    rdfs:subClassOf bfo:BFO_0000002 ;
+    skos:definition "A continuant that depends on one or more other entities but can be copied from one bearer to another (e.g. the information in a document)." .
+
+### --- Occurrent branch (things that happen / unfold in time) ---
+bfo:BFO_0000003 a owl:Class ;
+    rdfs:label "occurrent" ;
+    rdfs:subClassOf bfo:BFO_0000001 ;
+    skos:definition "An entity that unfolds itself in time, or that is the start or end of such an entity, or that is a temporal or spatiotemporal region." .
+
+bfo:BFO_0000015 a owl:Class ;
+    rdfs:label "process" ;
+    rdfs:subClassOf bfo:BFO_0000003 ;
+    skos:definition "An occurrent that has temporal proper parts and depends on some material entity as participant." .
+
+### --- Key BFO relations we reuse at the platform level ---
+bfo:BFO_0000050 a owl:ObjectProperty ;
+    rdfs:label "part of" ;
+    skos:definition "A core mereological relation: x part of y." .
+
+bfo:BFO_0000051 a owl:ObjectProperty ;
+    rdfs:label "has part" ;
+    owl:inverseOf bfo:BFO_0000050 .
+
+bfo:BFO_0000066 a owl:ObjectProperty ;
+    rdfs:label "occurs in" ;
+    skos:definition "A relation between a process and an independent continuant in which the process occurs." .
+
+bfo:BFO_0000056 a owl:ObjectProperty ;
+    rdfs:label "participates in" ;
+    skos:definition "A relation between a continuant and a process in which the continuant participates." .
+
+bfo:RO_0000087 a owl:ObjectProperty ;
+    rdfs:label "has role" ;
+    skos:definition "A relation between an independent continuant and a role that it bears." .

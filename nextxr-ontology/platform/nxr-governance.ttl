@@ -1,0 +1,45 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  GOVERNANCE SHAPES  —  validate the ONTOLOGY itself (the T-Box)
+#
+#  These shapes are NOT part of the per-mutation gate. They are run
+#  against the loaded ontology AS DATA, to prove the schema obeys its
+#  own rules before it is shipped or a pack is merged. Keeping them
+#  separate is what stops them from firing on every tenant write.
+#
+#  Run via: SchemaService.validate_governance()  (or the harness).
+#################################################################
+
+### The closed-taxonomy rule, machine-enforced ###
+#  Every NextXR class (core or pack) that is not marked structural must
+#  declare exactly one taxonomyCategory drawn from the ten. Adding an
+#  eleventh category, or omitting one on an entity class, fails here.
+nxr:TaxonomyClosureShape a sh:NodeShape ;
+    rdfs:label "Taxonomy Closure Shape" ;
+    skos:definition "Enforces the closed set of ten top-level categories across every NextXR entity class." ;
+    sh:target [
+        a sh:SPARQLTarget ;
+        sh:select """
+            PREFIX owl: <http://www.w3.org/2002/07/owl#>
+            PREFIX nxr: <https://ontology.nextxr.io/v3/core#>
+            SELECT ?this WHERE {
+                ?this a owl:Class .
+                FILTER(STRSTARTS(STR(?this), "https://ontology.nextxr.io/"))
+                FILTER NOT EXISTS { ?this nxr:isStructural true }
+            }
+        """ ;
+    ] ;
+    sh:property [
+        sh:path nxr:taxonomyCategory ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:in ( "PhysicalAsset" "MobileAsset" "Actor" "Location" "Process"
+                "Observation" "Finding" "Incident" "Document" "Capability" ) ;
+        sh:message "Every NextXR entity class must declare exactly one taxonomyCategory drawn from the ten closed categories — packs extend within the set, never beyond it." ;
+    ] .
