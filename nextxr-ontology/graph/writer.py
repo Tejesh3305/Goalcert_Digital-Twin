@@ -1,339 +1,409 @@
 """
-writer.py — THE Graph Writer (Day 3 keystone).
+writer.py — THE GRAPH WRITER. The single, non-negotiable write path.
 
-The single, disciplined doorway through which all data changes must pass:
+Its contract is fixed (from the architecture doc):
 
-    validate → commit → emit
+    receive a mutation request
+      -> resolve the Neo4j label from the ontology (taxonomyCategory)
+      -> call ontology validate()                     [tools/gate.validate]
+      -> if INVALID: reject. Nothing touches the graph. No Change Log event.
+      -> if VALID:   write to Neo4j in a transaction
+      -> emit a Change Log event                       [changelog.ChangeLog]
+      -> stamp changeLogRef on the node
+      -> return the result
 
-Every mutation (create, update, delete) flows through write_node / update_node /
-delete_node. The writer:
-  1. Converts the incoming dict into a Turtle RDF string.
-  2. Calls gate.validate() against the full SHACL shape set.
-  3. If valid, writes to Neo4j via crud.py.
-  4. Appends a Change Log entry via changelog.py.
-  5. Returns a WriteResult (ok + the node + the log entry, or violations).
+Everything else in the system — adapters, agents, behaviours, the simulated
+feed — calls THIS. They never issue Cypher mutations directly. (graph/crud.py
+remains only as the Day-1 low-level read helper; mutations go through here.)
 
-Nothing bypasses this. crud.py still exists for raw DB access (tests, migrations),
-but all application-level writes go through the writer.
-
-Usage:
-    from graph.writer import write_node, update_node, delete_node
-
-    result = write_node("tenant-1", "hvac:AirHandler", {
-        "displayName": "AHU-01",
-        "status": "running",
-    }, related_turtle='<urn:space:lobby> a nxr:Space ; ...',
-       actor="api-user-42")
-
-    if result.ok:
-        print(result.node)       # the Neo4j node dict
-        print(result.log_entry)  # the Change Log entry dict
-    else:
-        for v in result.violations:
-            print(v)
+Every method takes a tenant_id. There is no tenant-less write path.
 """
 
 from __future__ import annotations
 
 import sys
-import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
-# Add tools/ to sys.path so we can import gate.py
-_TOOLS_DIR = str(Path(__file__).resolve().parent.parent / "tools")
-if _TOOLS_DIR not in sys.path:
-    sys.path.insert(0, _TOOLS_DIR)
+# Make the ontology gate (tools/) importable regardless of how we're launched.
+_TOOLS = Path(__file__).resolve().parent.parent / "tools"
+if str(_TOOLS) not in sys.path:
+    sys.path.insert(0, str(_TOOLS))
 
-from graph.crud import create_node, read_node, delete_node as crud_delete, _now_iso
-from graph.changelog import append_entry
+import gate  # noqa: E402  — tools/gate.py: the single validate() function
+from rdflib import URIRef, RDF  # noqa: E402
+from rdflib.namespace import Namespace  # noqa: E402
 
-# gate.py import — needs tools/ on the path (done above)
-import gate as _gate
-
-
-# ── Namespace constants ─────────────────────────────────────────────
+from graph.connection import get_driver  # noqa: E402
+from changelog.service import ChangeLog  # noqa: E402
 
 NXR = "https://ontology.nextxr.io/v3/core#"
-HVAC = "https://ontology.nextxr.io/v3/hvac#"
+TAXONOMY_PRED = URIRef(NXR + "taxonomyCategory")
+SUBCLASS = URIRef("http://www.w3.org/2000/01/rdf-schema#subClassOf")
 
-PREFIXES = """
-@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
-@prefix hvac: <https://ontology.nextxr.io/v3/hvac#> .
-@prefix sosa: <http://www.w3.org/ns/sosa/> .
-@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
-@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
-"""
+# CURIE prefixes the writer understands for predicates/relationships.
+PREFIXES = {
+    "nxr": NXR,
+    "hvac": "https://ontology.nextxr.io/v3/hvac#",
+    "office": "https://ontology.nextxr.io/v3/office#",
+    "sosa": "http://www.w3.org/ns/sosa/",
+}
 
-# Maps short class names (as used by callers) to their full prefixed form
-# and the taxonomy category (Neo4j label).
-# This gets the caller out of having to know RDF prefix syntax.
-CLASS_MAP = {
-    # Platform classes
-    "Site": ("nxr:Site", "Location", f"{NXR}Site"),
-    "Space": ("nxr:Space", "Location", f"{NXR}Space"),
-    "Incident": ("nxr:Incident", "Incident", f"{NXR}Incident"),
-    "MaintenanceEvent": ("nxr:MaintenanceEvent", "Process", f"{NXR}MaintenanceEvent"),
-    "Observation": ("nxr:Observation", "Observation", f"{NXR}Observation"),
-    "Finding": ("nxr:Finding", "Finding", f"{NXR}Finding"),
-    "Diagnosis": ("nxr:Diagnosis", "Document", f"{NXR}Diagnosis"),
-    "Recommendation": ("nxr:Recommendation", "Document", f"{NXR}Recommendation"),
-    "Action": ("nxr:Action", "Process", f"{NXR}Action"),
-    "Document": ("nxr:Document", "Document", f"{NXR}Document"),
-    "CapabilityBundle": ("nxr:CapabilityBundle", "Capability", f"{NXR}CapabilityBundle"),
-    "IntegrationAdapter": ("nxr:IntegrationAdapter", "Capability", f"{NXR}IntegrationAdapter"),
-    "MLModel": ("nxr:MLModel", "Capability", f"{NXR}MLModel"),
-    "InputPort": ("nxr:InputPort", "Capability", f"{NXR}InputPort"),
-    "OutputPort": ("nxr:OutputPort", "Capability", f"{NXR}OutputPort"),
-    # HVAC pack classes
-    "hvac:AirHandler": ("hvac:AirHandler", "PhysicalAsset", f"{HVAC}AirHandler"),
-    "hvac:Chiller": ("hvac:Chiller", "PhysicalAsset", f"{HVAC}Chiller"),
-    "hvac:TemperatureSensor": ("hvac:TemperatureSensor", "PhysicalAsset", f"{HVAC}TemperatureSensor"),
-    "hvac:FilterClogged": ("hvac:FilterClogged", "Capability", f"{HVAC}FilterClogged"),
-    # Aliases (callers can use either form)
-    "AirHandler": ("hvac:AirHandler", "PhysicalAsset", f"{HVAC}AirHandler"),
-    "Chiller": ("hvac:Chiller", "PhysicalAsset", f"{HVAC}Chiller"),
-    "TemperatureSensor": ("hvac:TemperatureSensor", "PhysicalAsset", f"{HVAC}TemperatureSensor"),
+# The 10 base property keys the writer stamps / manages itself.
+_BASE_KEYS = {
+    "id", "tenantId", "canonicalType", "displayName", "createdAt",
+    "updatedAt", "createdBy", "changeLogRef", "tags", "status",
 }
 
 
-# ── Result types ────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
+#  Request / result types
+# --------------------------------------------------------------------------
+@dataclass
+class Rel:
+    """An outgoing relationship to an existing node in the same tenant.
+    predicate is a CURIE ('nxr:flags', 'hvac:servesSpace') or a full IRI."""
+    predicate: str
+    target_id: str
+
 
 @dataclass
 class WriteResult:
-    """Outcome of a write_node / update_node / delete_node call."""
+    """Outcome of a mutation. Truthy iff the write was committed."""
     ok: bool
-    node: Optional[dict] = None
-    log_entry: Optional[dict] = None
-    violations: List[str] = field(default_factory=list)
+    node_id: Optional[str] = None
+    label: Optional[str] = None
+    canonical_type: Optional[str] = None
+    event_id: Optional[str] = None
+    violations: list = field(default_factory=list)
+    error: Optional[str] = None
 
-    def __bool__(self):
+    def __bool__(self) -> bool:
         return self.ok
 
 
-# ── Internal helpers ────────────────────────────────────────────────
-
-def _new_id():
-    try:
-        return str(uuid.uuid7())
-    except AttributeError:
-        return str(uuid.uuid4())
+# --------------------------------------------------------------------------
+#  Small helpers
+# --------------------------------------------------------------------------
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
-def _resolve_class(class_name):
-    """Resolve a class name to (prefixed_rdf_type, neo4j_label, canonical_type_iri)."""
-    if class_name in CLASS_MAP:
-        return CLASS_MAP[class_name]
-    # If caller passes a fully prefixed form we don't recognise, pass through
-    # and let gate.validate() decide if it's legal.
-    raise ValueError(
-        f"Unknown class {class_name!r}. Use one of: {sorted(set(CLASS_MAP.keys()))}"
-    )
+def _new_uuid7() -> str:
+    from graph.crud import _new_id  # reuse the time-ordered UUIDv7 generator
+    return _new_id()
 
 
-def _build_turtle(rdf_type, canonical_iri, node_id, tenant_id, properties, actor,
-                   related_turtle=""):
-    """
-    Convert a properties dict into a Turtle string that satisfies
-    the SHACL base shape + class-specific shapes.
-    """
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    urn = f"<urn:nxr:{node_id}>"
-
-    # Base 10 properties (required by BaseEntityShape)
-    lines = [
-        f'{urn} a {rdf_type} ;',
-        f'    nxr:id "{node_id}" ;',
-        f'    nxr:tenantId "{tenant_id}" ;',
-        f'    nxr:canonicalType "{canonical_iri}"^^xsd:anyURI ;',
-        f'    nxr:createdAt "{now}"^^xsd:dateTime ;',
-        f'    nxr:updatedAt "{now}"^^xsd:dateTime ;',
-        f'    nxr:createdBy "{actor}" ;',
-    ]
-
-    # Optional base properties
-    if "displayName" in properties:
-        lines.append(f'    nxr:displayName "{properties["displayName"]}" ;')
-    if "status" in properties:
-        lines.append(f'    nxr:status "{properties["status"]}" ;')
-
-    # Class-specific RDF properties (object properties like servesSpace, targetsAsset)
-    rdf_props = properties.get("_rdf", {})
-    for pred, obj in rdf_props.items():
-        lines.append(f'    {pred} {obj} ;')
-
-    # Close the entity — replace last semicolon with period
-    lines[-1] = lines[-1].rstrip(" ;") + " ."
-
-    turtle = PREFIXES + "\n" + "\n".join(lines) + "\n"
-
-    # Append related entities if provided (e.g., the Space that an AirHandler serves)
-    if related_turtle:
-        turtle += "\n" + related_turtle + "\n"
-
-    return turtle
+def _camel_to_upper_snake(name: str) -> str:
+    out = []
+    for i, ch in enumerate(name):
+        if ch.isupper() and i > 0 and not name[i - 1].isupper():
+            out.append("_")
+        out.append(ch.upper())
+    return "".join(out)
 
 
-# ── Public API ──────────────────────────────────────────────────────
+def _resolve_predicate(curie_or_iri: str) -> tuple[str, str]:
+    """Return (full_iri, neo4j_rel_type) for a predicate CURIE or IRI."""
+    if curie_or_iri.startswith("http"):
+        iri = curie_or_iri
+        local = iri.split("#")[-1].split("/")[-1]
+    else:
+        pfx, local = curie_or_iri.split(":", 1)
+        if pfx not in PREFIXES:
+            raise ValueError(f"Unknown predicate prefix '{pfx}:'")
+        iri = PREFIXES[pfx] + local
+    return iri, _camel_to_upper_snake(local)
 
-def write_node(tenant_id, class_name, properties, related_turtle="", actor="system"):
-    """
-    The guarded door: validate → commit → emit.
 
-    Parameters
-    ----------
-    tenant_id       : str  — which tenant
-    class_name      : str  — e.g. "AirHandler", "Site", "hvac:Chiller"
-    properties      : dict — displayName, status, and _rdf for object properties
-    related_turtle  : str  — extra Turtle for related entities needed by validation
-    actor           : str  — who triggered this write
+def _ttl_literal(value) -> str:
+    """Render a Python value as a typed Turtle literal."""
+    if isinstance(value, bool):
+        return f'"{str(value).lower()}"^^xsd:boolean'
+    if isinstance(value, float):
+        return f'"{value}"^^xsd:double'
+    if isinstance(value, int):
+        return f'"{value}"^^xsd:integer'
+    s = str(value).replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{s}"'
 
-    Returns WriteResult.
-    """
-    rdf_type, neo4j_label, canonical_iri = _resolve_class(class_name)
-    node_id = properties.get("id") or _new_id()
 
-    # 1. Build Turtle for validation
-    turtle = _build_turtle(rdf_type, canonical_iri, node_id, tenant_id,
-                           properties, actor, related_turtle)
+def _subject_iri(node_id: str) -> str:
+    return f"<urn:nxr:{node_id}>"
 
-    # 2. VALIDATE against SHACL shapes
-    result = _gate.validate(turtle)
-    if not result.ok:
-        return WriteResult(
-            ok=False,
-            violations=[str(v) for v in result.violations],
+
+# --------------------------------------------------------------------------
+#  The writer
+# --------------------------------------------------------------------------
+class GraphWriter:
+    """The one component allowed to mutate the graph."""
+
+    def __init__(self, changelog: Optional[ChangeLog] = None):
+        self.driver = get_driver()
+        self.changelog = changelog or ChangeLog()
+        self._label_cache: dict[str, Optional[str]] = {}
+
+    # ---- ontology label resolution -----------------------------------
+    def resolve_label(self, canonical_type: str) -> Optional[str]:
+        """Look up the closed-taxonomy category (= Neo4j label) for a class
+        IRI, walking up rdfs:subClassOf if the class doesn't declare its own.
+        Returns None for an unknown / ungoverned type — which the writer
+        treats as a rejection (you cannot persist an entity the ontology
+        doesn't recognise)."""
+        if canonical_type in self._label_cache:
+            return self._label_cache[canonical_type]
+
+        g = gate.ontology_graph()
+        cls = URIRef(canonical_type)
+        seen = set()
+        frontier = [cls]
+        label = None
+        while frontier:
+            cur = frontier.pop()
+            if cur in seen:
+                continue
+            seen.add(cur)
+            cat = g.value(cur, TAXONOMY_PRED)
+            if cat is not None:
+                label = str(cat)
+                break
+            frontier.extend(g.objects(cur, SUBCLASS))
+        self._label_cache[canonical_type] = label
+        return label
+
+    # ---- validation turtle assembly ----------------------------------
+    def _render_node_ttl(self, node_id, canonical_type, props, rels) -> str:
+        """Build the Turtle subgraph handed to validate(): JUST this node's
+        full intended state (base props + extras + outgoing relationships).
+
+        Referenced target nodes are deliberately NOT included as typed nodes:
+        each was already validated when it was created, and asserting a bare
+        `<target> a SomeClass` here would make SHACL re-validate it against the
+        base shape and fail (it has no properties in this subgraph). Target
+        existence is enforced separately as a referential-integrity check
+        against Neo4j; relationship cardinality is enforced here."""
+        subj = _subject_iri(node_id)
+        lines = [
+            "@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .",
+            "@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .",
+            "",
+            f"{subj} a <{canonical_type}> ;",
+        ]
+        body = []
+        # The 10 base properties + any extra datatype props.
+        for key, val in props.items():
+            if val is None or val == "" or (isinstance(val, list) and not val):
+                continue
+            if key == "canonicalType":
+                body.append(f'    nxr:canonicalType "{val}"^^xsd:anyURI')
+            elif key in ("createdAt", "updatedAt"):
+                body.append(f'    nxr:{key} "{val}"^^xsd:dateTime')
+            elif key == "tags":
+                for t in (val if isinstance(val, list) else [val]):
+                    body.append(f'    nxr:tags {_ttl_literal(t)}')
+            else:
+                body.append(f"    nxr:{key} {_ttl_literal(val)}")
+        # Outgoing relationships (cardinality is validated; range existence is
+        # checked separately against the graph).
+        for r in rels:
+            iri, _ = _resolve_predicate(r.predicate)
+            body.append(f"    <{iri}> {_subject_iri(r.target_id)}")
+        lines.append(" ;\n".join(body) + " .")
+        return "\n".join(lines)
+
+    # ---- neo4j helpers ------------------------------------------------
+    def _fetch_node(self, tenant_id, node_id):
+        with self.driver.session() as s:
+            rec = s.run(
+                "MATCH (n {tenantId:$t, id:$i}) RETURN properties(n) AS p, "
+                "labels(n) AS labels LIMIT 1",
+                t=tenant_id, i=node_id,
+            ).single()
+            if not rec:
+                return None
+            return {"props": dict(rec["p"]), "labels": list(rec["labels"])}
+
+    def _fetch_outgoing(self, tenant_id, node_id):
+        """Return existing outgoing rels as [Rel(predicateIri, target_id)]."""
+        with self.driver.session() as s:
+            recs = s.run(
+                "MATCH (n {tenantId:$t, id:$i})-[r]->(m) "
+                "RETURN r.predicateIri AS pred, m.id AS target",
+                t=tenant_id, i=node_id,
+            )
+            out = []
+            for rec in recs:
+                if rec["pred"] and rec["target"]:
+                    out.append(Rel(predicate=rec["pred"], target_id=rec["target"]))
+            return out
+
+    def _target_canonical_types(self, tenant_id, rels) -> dict:
+        """Map each rel target_id -> its stored canonicalType. Missing targets
+        map to None (caller rejects on referential-integrity grounds)."""
+        out = {}
+        with self.driver.session() as s:
+            for r in rels:
+                rec = s.run(
+                    "MATCH (m {tenantId:$t, id:$i}) RETURN m.canonicalType AS c "
+                    "LIMIT 1",
+                    t=tenant_id, i=r.target_id,
+                ).single()
+                out[r.target_id] = rec["c"] if rec else None
+        return out
+
+    # ---- the single write path ---------------------------------------
+    def create(self, *, tenant_id: str, canonical_type: str, actor: str,
+               properties: Optional[dict] = None,
+               relationships: Optional[list] = None,
+               node_id: Optional[str] = None) -> WriteResult:
+        """Create one node. validate -> commit -> emit -> stamp, or reject."""
+        properties = dict(properties or {})
+        rels = list(relationships or [])
+
+        label = self.resolve_label(canonical_type)
+        if label is None:
+            return WriteResult(ok=False, canonical_type=canonical_type,
+                               error=f"Unknown/ungoverned type: {canonical_type}")
+
+        node_id = node_id or _new_uuid7()
+        now = _now_iso()
+        props = {
+            "id": node_id,
+            "tenantId": tenant_id,
+            "canonicalType": canonical_type,
+            "createdAt": now,
+            "updatedAt": now,
+            "createdBy": actor,
+        }
+        # caller-supplied extras (displayName, status, setpoint, severity, ...)
+        for k, v in properties.items():
+            if k not in ("id", "tenantId", "canonicalType", "createdAt",
+                         "createdBy"):
+                props[k] = v
+
+        # Referential integrity: every relationship target must already exist.
+        target_types = self._target_canonical_types(tenant_id, rels)
+        missing = [tid for tid, c in target_types.items() if c is None]
+        if missing:
+            return WriteResult(ok=False, canonical_type=canonical_type,
+                               error=f"Relationship target(s) not found in "
+                                     f"tenant '{tenant_id}': {missing}")
+
+        # ---- VALIDATE (before anything touches the graph) ----
+        ttl = self._render_node_ttl(node_id, canonical_type, props, rels)
+        result = gate.validate(ttl)
+        if not result.ok:
+            return WriteResult(
+                ok=False, node_id=node_id, label=label,
+                canonical_type=canonical_type,
+                violations=[str(v) for v in result.violations],
+                error="Validation failed; nothing written.",
+            )
+
+        # ---- COMMIT (single transaction: node + relationships) ----
+        self._commit_create(tenant_id, label, props, rels)
+
+        # ---- EMIT change-log event ----
+        field_changes = {k: {"old": None, "new": v} for k, v in props.items()}
+        for r in rels:
+            iri, _ = _resolve_predicate(r.predicate)
+            field_changes[iri] = {"old": None, "new": r.target_id}
+        ev = self.changelog.append(
+            tenant_id=tenant_id, entity_id=node_id,
+            entity_type=canonical_type, actor=actor, action="create",
+            field_changes=field_changes,
         )
 
-    # 3. COMMIT to Neo4j
-    node_props = dict(properties)
-    node_props.pop("_rdf", None)  # _rdf is for Turtle only, not Neo4j
-    node_props["id"] = node_id
-    node_props["canonicalType"] = canonical_iri
-    node = create_node(tenant_id, neo4j_label, node_props, created_by=actor)
+        # ---- STAMP changeLogRef back onto the node ----
+        self._stamp_change_log_ref(tenant_id, node_id, ev.event_id)
 
-    # 4. EMIT Change Log entry
-    log_entry = append_entry(
-        tenant_id=tenant_id,
-        entity_id=node_id,
-        entity_label=neo4j_label,
-        action="CREATE",
-        payload=node,
-        actor=actor,
-    )
+        return WriteResult(ok=True, node_id=node_id, label=label,
+                           canonical_type=canonical_type, event_id=ev.event_id)
 
-    # Update the node's changeLogRef to point to this log entry
-    from graph.connection import get_driver
-    driver = get_driver()
-    with driver.session() as session:
-        session.run(
-            f"MATCH (n:{neo4j_label} {{tenantId: $tid, id: $nid}}) "
-            f"SET n.changeLogRef = $ref",
-            tid=tenant_id, nid=node_id, ref=log_entry["id"],
+    def relate(self, *, tenant_id: str, actor: str, source_id: str,
+               predicate: str, target_id: str) -> WriteResult:
+        """Add one outgoing relationship to an existing node, re-validating
+        the source node's FULL state (existing props + all rels + the new
+        one) through the same gate. This is how a Finding is GROUPED_INTO an
+        Incident — proving the relationship path also honours the discipline.
+        """
+        src = self._fetch_node(tenant_id, source_id)
+        if src is None:
+            return WriteResult(ok=False, node_id=source_id,
+                               error="Source node not found in tenant.")
+        canonical_type = src["props"].get("canonicalType")
+        label = self.resolve_label(canonical_type)
+
+        existing = self._fetch_outgoing(tenant_id, source_id)
+        new_rel = Rel(predicate=predicate, target_id=target_id)
+        all_rels = existing + [new_rel]
+
+        target_types = self._target_canonical_types(tenant_id, all_rels)
+        if target_types.get(target_id) is None:
+            return WriteResult(ok=False, node_id=source_id,
+                               error=f"Relationship target '{target_id}' not "
+                                     f"found in tenant.")
+
+        props = dict(src["props"])
+        props["updatedAt"] = _now_iso()
+        props.pop("changeLogRef", None)  # re-stamped after this mutation
+
+        ttl = self._render_node_ttl(source_id, canonical_type, props, all_rels)
+        result = gate.validate(ttl)
+        if not result.ok:
+            return WriteResult(
+                ok=False, node_id=source_id, label=label,
+                canonical_type=canonical_type,
+                violations=[str(v) for v in result.violations],
+                error="Validation failed; relationship not written.",
+            )
+
+        iri, rel_type = _resolve_predicate(predicate)
+        with self.driver.session() as s:
+            s.execute_write(self._tx_relate, tenant_id, source_id, target_id,
+                            rel_type, iri, props["updatedAt"])
+
+        ev = self.changelog.append(
+            tenant_id=tenant_id, entity_id=source_id,
+            entity_type=canonical_type, actor=actor, action="update",
+            field_changes={iri: {"old": None, "new": target_id}},
         )
-    node["changeLogRef"] = log_entry["id"]
+        self._stamp_change_log_ref(tenant_id, source_id, ev.event_id)
+        return WriteResult(ok=True, node_id=source_id, label=label,
+                           canonical_type=canonical_type, event_id=ev.event_id)
 
-    return WriteResult(ok=True, node=node, log_entry=log_entry)
+    # ---- transaction functions ---------------------------------------
+    def _commit_create(self, tenant_id, label, props, rels):
+        with self.driver.session() as s:
+            s.execute_write(self._tx_create, label, props, rels)
 
+    @staticmethod
+    def _tx_create(tx, label, props, rels):
+        tx.run(f"CREATE (n:{label} $props)", props=props)
+        for r in rels:
+            iri, rel_type = _resolve_predicate(r.predicate)
+            tx.run(
+                f"MATCH (n {{tenantId:$t, id:$sid}}) "
+                f"MATCH (m {{tenantId:$t, id:$tid}}) "
+                f"CREATE (n)-[:{rel_type} {{predicateIri:$iri}}]->(m)",
+                t=props["tenantId"], sid=props["id"], tid=r.target_id, iri=iri,
+            )
 
-def update_node(tenant_id, node_id, class_name, properties, related_turtle="", actor="system"):
-    """
-    Update an existing node: validate the new state → update → emit.
-
-    Only the properties in the dict are changed; others are preserved.
-    """
-    rdf_type, neo4j_label, canonical_iri = _resolve_class(class_name)
-
-    # Read existing node
-    existing = read_node(tenant_id, node_id, label=neo4j_label)
-    if existing is None:
-        return WriteResult(ok=False, violations=[f"Node {node_id} not found for tenant {tenant_id}"])
-
-    # Merge properties
-    merged = dict(existing)
-    for k, v in properties.items():
-        if k != "_rdf":
-            merged[k] = v
-
-    # Build Turtle of the merged (post-update) state for validation
-    turtle = _build_turtle(rdf_type, canonical_iri, node_id, tenant_id,
-                           merged, actor, related_turtle)
-
-    result = _gate.validate(turtle)
-    if not result.ok:
-        return WriteResult(
-            ok=False,
-            violations=[str(v) for v in result.violations],
+    @staticmethod
+    def _tx_relate(tx, tenant_id, source_id, target_id, rel_type, iri, updated):
+        tx.run(
+            f"MATCH (n {{tenantId:$t, id:$sid}}) "
+            f"MATCH (m {{tenantId:$t, id:$tid}}) "
+            f"MERGE (n)-[r:{rel_type}]->(m) "
+            f"SET r.predicateIri = $iri, n.updatedAt = $u",
+            t=tenant_id, sid=source_id, tid=target_id, iri=iri, u=updated,
         )
 
-    # Apply update in Neo4j
-    now = _now_iso()
-    update_props = {k: v for k, v in properties.items() if k != "_rdf"}
-    update_props["updatedAt"] = now
-
-    from graph.connection import get_driver
-    driver = get_driver()
-    with driver.session() as session:
-        set_clauses = ", ".join(f"n.{k} = ${k}" for k in update_props)
-        result_db = session.run(
-            f"MATCH (n:{neo4j_label} {{tenantId: $tid, id: $nid}}) "
-            f"SET {set_clauses} RETURN properties(n) AS props",
-            tid=tenant_id, nid=node_id, **update_props,
-        )
-        record = result_db.single()
-        updated_node = dict(record["props"]) if record else None
-
-    if updated_node is None:
-        return WriteResult(ok=False, violations=["Update failed — node disappeared"])
-
-    # Emit Change Log
-    log_entry = append_entry(
-        tenant_id=tenant_id,
-        entity_id=node_id,
-        entity_label=neo4j_label,
-        action="UPDATE",
-        payload=update_props,
-        actor=actor,
-    )
-
-    # Update changeLogRef
-    with driver.session() as session:
-        session.run(
-            f"MATCH (n:{neo4j_label} {{tenantId: $tid, id: $nid}}) "
-            f"SET n.changeLogRef = $ref",
-            tid=tenant_id, nid=node_id, ref=log_entry["id"],
-        )
-    updated_node["changeLogRef"] = log_entry["id"]
-
-    return WriteResult(ok=True, node=updated_node, log_entry=log_entry)
-
-
-def delete_node(tenant_id, node_id, class_name, actor="system"):
-    """
-    Delete a node: no validation needed, but the deletion IS logged.
-    """
-    _rdf_type, neo4j_label, _canonical_iri = _resolve_class(class_name)
-
-    # Read existing node before deleting (for the log payload)
-    existing = read_node(tenant_id, node_id, label=neo4j_label)
-    if existing is None:
-        return WriteResult(ok=False, violations=[f"Node {node_id} not found for tenant {tenant_id}"])
-
-    # Delete from Neo4j
-    deleted = crud_delete(tenant_id, node_id, label=neo4j_label)
-    if not deleted:
-        return WriteResult(ok=False, violations=["Delete failed"])
-
-    # Emit Change Log
-    log_entry = append_entry(
-        tenant_id=tenant_id,
-        entity_id=node_id,
-        entity_label=neo4j_label,
-        action="DELETE",
-        payload=existing,
-        actor=actor,
-    )
-
-    return WriteResult(ok=True, node=existing, log_entry=log_entry)
+    def _stamp_change_log_ref(self, tenant_id, node_id, event_id):
+        with self.driver.session() as s:
+            s.run(
+                "MATCH (n {tenantId:$t, id:$i}) SET n.changeLogRef = $e",
+                t=tenant_id, i=node_id, e=event_id,
+            )
