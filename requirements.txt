@@ -6,6 +6,10 @@ pyshacl>=0.25
 # Graph (Day 1)
 neo4j>=5.0
 
+# Server + Dashboard (Day 4-5)
+fastapi>=0.100
+uvicorn>=0.20
+
 # Change Log + Graph Writer + Behavior Registry + findings loop (Track 3):
 # stdlib only (sqlite3, hashlib, json, math) — no new dependencies.
 # Optional Tier-B upgrade: scikit-learn (IsolationForest) slots behind the

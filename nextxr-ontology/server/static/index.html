@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NextXR Digital Twin</title>
+  <style>
+    :root {
+      --bg: #0a0e17;
+      --surface: #111827;
+      --surface2: #1a2332;
+      --border: #1e2d3d;
+      --text: #e2e8f0;
+      --text-dim: #8899aa;
+      --accent: #3b82f6;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --orange: #f97316;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: 1px;
+    }
+
+    header h1 span { color: var(--accent); }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      margin-right: 6px;
+    }
+
+    .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
+    .status-dot.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    /* KPI cards */
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .kpi-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+
+    .kpi-card .value {
+      font-size: 32px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .kpi-card .label {
+      font-size: 11px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+
+    .kpi-card.critical .value { color: var(--red); }
+    .kpi-card.warning .value { color: var(--yellow); }
+    .kpi-card.ok .value { color: var(--green); }
+
+    /* Main grid */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      background: var(--surface2);
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .panel-body {
+      padding: 0;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .panel-body::-webkit-scrollbar { width: 4px; }
+    .panel-body::-webkit-scrollbar-track { background: var(--surface); }
+    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Entity list */
+    .entity-row {
+      display: flex;
+      align-items: center;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      transition: background 0.15s;
+    }
+
+    .entity-row:hover { background: var(--surface2); }
+    .entity-row:last-child { border-bottom: none; }
+
+    .entity-label {
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      margin-right: 12px;
+      min-width: 90px;
+      text-align: center;
+      font-weight: 600;
+    }
+
+    .entity-label.Location { background: #6366f1; }
+    .entity-label.Finding { background: var(--orange); }
+    .entity-label.Incident { background: var(--red); }
+    .entity-label.Process { background: #8b5cf6; }
+
+    .entity-name { flex: 1; }
+    .entity-id { color: var(--text-dim); font-size: 11px; }
+
+    /* Findings */
+    .finding-row {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+
+    .finding-row:last-child { border-bottom: none; }
+
+    .finding-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 4px;
+    }
+
+    .severity-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .severity-badge.critical { background: var(--red); color: #fff; }
+    .severity-badge.warning { background: var(--yellow); color: #000; }
+    .severity-badge.info { background: var(--accent); color: #fff; }
+
+    .finding-message { color: var(--text); margin-top: 4px; }
+    .finding-meta { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+
+    /* Feed */
+    .feed-controls {
+      padding: 16px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+    }
+
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: opacity 0.15s;
+    }
+
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.stop { background: var(--red); }
+
+    .feed-stat {
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+
+    .feed-stat strong { color: var(--text); }
+
+    /* Changelog */
+    .event-row {
+      display: flex;
+      align-items: center;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+      gap: 12px;
+    }
+
+    .event-row:last-child { border-bottom: none; }
+
+    .event-action {
+      font-size: 10px;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 700;
+      min-width: 55px;
+      text-align: center;
+    }
+
+    .event-action.create { background: var(--green); color: #000; }
+    .event-action.update { background: var(--accent); color: #fff; }
+    .event-action.delete { background: var(--red); color: #fff; }
+
+    .event-actor { color: var(--text-dim); min-width: 100px; }
+    .event-entity { flex: 1; }
+    .event-time { color: var(--text-dim); font-size: 11px; }
+
+    .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
+
+    /* Live temp display */
+    .temp-display {
+      text-align: center;
+      padding: 20px;
+    }
+
+    .temp-value {
+      font-size: 48px;
+      font-weight: 700;
+    }
+
+    .temp-value.normal { color: var(--green); }
+    .temp-value.elevated { color: var(--yellow); }
+    .temp-value.critical { color: var(--red); }
+
+    .temp-label {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .full-width {
+      grid-column: 1 / -1;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>NEXT<span>XR</span> DIGITAL TWIN</h1>
+    <div class="header-right">
+      <span id="neo4j-status"><span class="status-dot" id="health-dot"></span>Neo4j</span>
+      <span id="tenant-display">tenant: demo-tenant</span>
+      <span id="clock"></span>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- KPI Row -->
+    <div class="kpi-row">
+      <div class="kpi-card ok">
+        <div class="value" id="kpi-entities">--</div>
+        <div class="label">Total Entities</div>
+      </div>
+      <div class="kpi-card">
+        <div class="value" id="kpi-assets">--</div>
+        <div class="label">Physical Assets</div>
+      </div>
+      <div class="kpi-card warning" id="kpi-findings-card">
+        <div class="value" id="kpi-findings">--</div>
+        <div class="label">Active Findings</div>
+      </div>
+      <div class="kpi-card critical" id="kpi-incidents-card">
+        <div class="value" id="kpi-incidents">--</div>
+        <div class="label">Incidents</div>
+      </div>
+      <div class="kpi-card">
+        <div class="value" id="kpi-events">--</div>
+        <div class="label">Changelog Events</div>
+      </div>
+    </div>
+
+    <!-- Feed Controls + Live Temp -->
+    <div class="panel full-width" style="margin-bottom: 16px;">
+      <div class="panel-header">
+        Live Feed
+        <span class="feed-stat" id="feed-info"></span>
+      </div>
+      <div class="feed-controls">
+        <button id="btn-start" onclick="startFeed()">Start Feed</button>
+        <button id="btn-stop" class="stop" onclick="stopFeed()" disabled>Stop</button>
+        <div class="feed-stat">
+          Samples: <strong id="feed-samples">0</strong> |
+          Findings: <strong id="feed-findings">0</strong> |
+          Temp: <strong id="feed-temp">--</strong>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+      <!-- Entities -->
+      <div class="panel">
+        <div class="panel-header">
+          Entities
+          <span style="font-size: 11px; color: var(--text-dim); font-weight: 400;" id="entity-count"></span>
+        </div>
+        <div class="panel-body" id="entity-list">
+          <div class="empty">No entities. Start the feed to seed data.</div>
+        </div>
+      </div>
+
+      <!-- Findings -->
+      <div class="panel">
+        <div class="panel-header">
+          Findings
+          <span style="font-size: 11px; color: var(--text-dim); font-weight: 400;" id="finding-count"></span>
+        </div>
+        <div class="panel-body" id="finding-list">
+          <div class="empty">No findings yet.</div>
+        </div>
+      </div>
+
+      <!-- Changelog -->
+      <div class="panel full-width">
+        <div class="panel-header">
+          Change Log
+          <span style="font-size: 11px; color: var(--text-dim); font-weight: 400;" id="event-count"></span>
+        </div>
+        <div class="panel-body" id="changelog-list">
+          <div class="empty">No events yet.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const TENANT = "demo-tenant";
+    const API = "/api/v1";
+    let polling = null;
+
+    // Clock
+    setInterval(() => {
+      document.getElementById("clock").textContent = new Date().toLocaleTimeString();
+    }, 1000);
+
+    // Health check
+    async function checkHealth() {
+      try {
+        const r = await fetch(`${API}/health`);
+        const dot = document.getElementById("health-dot");
+        if (r.ok) {
+          dot.className = "status-dot green";
+        } else {
+          dot.className = "status-dot red";
+        }
+      } catch {
+        document.getElementById("health-dot").className = "status-dot red";
+      }
+    }
+
+    // KPIs
+    async function updateStats() {
+      try {
+        const r = await fetch(`${API}/stats?tenant=${TENANT}`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        document.getElementById("kpi-entities").textContent = d.total_entities || 0;
+        document.getElementById("kpi-assets").textContent = d.entity_counts?.PhysicalAsset || 0;
+        document.getElementById("kpi-findings").textContent = d.total_findings || 0;
+        document.getElementById("kpi-incidents").textContent = d.entity_counts?.Incident || 0;
+        document.getElementById("kpi-events").textContent = d.changelog_events || 0;
+      } catch {}
+    }
+
+    // Entities
+    async function updateEntities() {
+      try {
+        const labels = ["PhysicalAsset", "Location", "Finding", "Incident", "Process", "Capability"];
+        let allNodes = [];
+        for (const label of labels) {
+          const r = await fetch(`${API}/entities?tenant=${TENANT}&label=${label}&limit=20`);
+          if (!r.ok) continue;
+          const d = await r.json();
+          for (const node of d.nodes) {
+            allNodes.push({ ...node, _label: label });
+          }
+        }
+
+        const el = document.getElementById("entity-list");
+        const countEl = document.getElementById("entity-count");
+        if (allNodes.length === 0) {
+          el.innerHTML = '<div class="empty">No entities. Start the feed to seed data.</div>';
+          countEl.textContent = "";
+          return;
+        }
+
+        countEl.textContent = `${allNodes.length} total`;
+        el.innerHTML = allNodes.map(n => `
+          <div class="entity-row">
+            <span class="entity-label ${n._label}">${n._label}</span>
+            <span class="entity-name">${n.displayName || "(unnamed)"}</span>
+            <span class="entity-id">${(n.id || "").substring(0, 8)}...</span>
+          </div>
+        `).join("");
+      } catch {}
+    }
+
+    // Findings
+    async function updateFindings() {
+      try {
+        const r = await fetch(`${API}/findings?tenant=${TENANT}&limit=20`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        const el = document.getElementById("finding-list");
+        const countEl = document.getElementById("finding-count");
+
+        if (d.findings.length === 0) {
+          el.innerHTML = '<div class="empty">No findings yet.</div>';
+          countEl.textContent = "";
+          return;
+        }
+
+        countEl.textContent = `${d.count} total`;
+        el.innerHTML = d.findings.map(f => `
+          <div class="finding-row">
+            <div class="finding-header">
+              <span class="severity-badge ${f.severity || 'info'}">${f.severity || 'info'}</span>
+              <span style="font-size: 11px; color: var(--text-dim);">${f.tier || ''}</span>
+            </div>
+            <div class="finding-message">${f.displayName || f.message || ''}</div>
+            <div class="finding-meta">${(f.id || '').substring(0, 8)}... | ${f.behaviorId || ''}</div>
+          </div>
+        `).join("");
+      } catch {}
+    }
+
+    // Changelog
+    async function updateChangelog() {
+      try {
+        const r = await fetch(`${API}/changelog?tenant=${TENANT}&limit=20`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        const el = document.getElementById("changelog-list");
+        const countEl = document.getElementById("event-count");
+
+        if (d.events.length === 0) {
+          el.innerHTML = '<div class="empty">No events yet.</div>';
+          countEl.textContent = "";
+          return;
+        }
+
+        countEl.textContent = `${d.count} events`;
+        el.innerHTML = d.events.map(e => `
+          <div class="event-row">
+            <span class="event-action ${e.action}">${e.action}</span>
+            <span class="event-actor">${e.actor}</span>
+            <span class="event-entity">${(e.entity_id || '').substring(0, 12)}...</span>
+            <span class="event-time">${e.ts ? new Date(e.ts).toLocaleTimeString() : ''}</span>
+          </div>
+        `).join("");
+      } catch {}
+    }
+
+    // Feed status
+    async function updateFeedStatus() {
+      try {
+        const r = await fetch(`${API}/feed/status`);
+        if (!r.ok) return;
+        const d = await r.json();
+
+        document.getElementById("feed-samples").textContent = d.samples_processed || 0;
+        document.getElementById("feed-findings").textContent = d.findings_emitted || 0;
+
+        const tempEl = document.getElementById("feed-temp");
+        if (d.latest_value !== null) {
+          const v = d.latest_value.toFixed(1);
+          tempEl.textContent = v + " C";
+          if (d.latest_value > 28) tempEl.style.color = "var(--red)";
+          else if (d.latest_value > 25) tempEl.style.color = "var(--yellow)";
+          else tempEl.style.color = "var(--green)";
+        } else {
+          tempEl.textContent = "--";
+        }
+
+        const infoEl = document.getElementById("feed-info");
+        if (d.running) {
+          infoEl.innerHTML = '<span class="status-dot green" style="display:inline-block"></span> RUNNING';
+          document.getElementById("btn-start").disabled = true;
+          document.getElementById("btn-stop").disabled = false;
+        } else {
+          infoEl.innerHTML = '<span class="status-dot yellow" style="display:inline-block"></span> IDLE';
+          document.getElementById("btn-start").disabled = false;
+          document.getElementById("btn-stop").disabled = true;
+        }
+      } catch {}
+    }
+
+    // Controls
+    async function startFeed() {
+      document.getElementById("btn-start").disabled = true;
+      await fetch(`${API}/feed/start?tenant=${TENANT}`, { method: "POST" });
+    }
+
+    async function stopFeed() {
+      await fetch(`${API}/feed/stop`, { method: "POST" });
+    }
+
+    // Poll everything
+    async function poll() {
+      await Promise.all([
+        checkHealth(),
+        updateStats(),
+        updateEntities(),
+        updateFindings(),
+        updateChangelog(),
+        updateFeedStatus(),
+      ]);
+    }
+
+    // Initial load + start polling
+    poll();
+    polling = setInterval(poll, 2000);
+  </script>
+</body>
+</html>

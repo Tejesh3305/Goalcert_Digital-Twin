@@ -407,3 +407,105 @@ class GraphWriter:
                 "MATCH (n {tenantId:$t, id:$i}) SET n.changeLogRef = $e",
                 t=tenant_id, i=node_id, e=event_id,
             )
+
+    # ---- update path (validate new state → patch → emit) -------------
+    def update(self, *, tenant_id: str, node_id: str, actor: str,
+               properties: dict) -> WriteResult:
+        """Update properties on an existing node. The full post-update state
+        is validated through the gate before anything is written."""
+        src = self._fetch_node(tenant_id, node_id)
+        if src is None:
+            return WriteResult(ok=False, node_id=node_id,
+                               error=f"Node {node_id} not found in tenant {tenant_id}")
+
+        canonical_type = src["props"].get("canonicalType")
+        label = self.resolve_label(canonical_type)
+        if label is None:
+            return WriteResult(ok=False, node_id=node_id,
+                               error=f"Unknown type: {canonical_type}")
+
+        # Merge new properties into existing
+        merged = dict(src["props"])
+        for k, v in properties.items():
+            if k not in ("id", "tenantId", "canonicalType", "createdAt", "createdBy"):
+                merged[k] = v
+        merged["updatedAt"] = _now_iso()
+        merged.pop("changeLogRef", None)
+
+        # Fetch existing relationships for full-state validation
+        existing_rels = self._fetch_outgoing(tenant_id, node_id)
+
+        # Validate the full post-update state
+        ttl = self._render_node_ttl(node_id, canonical_type, merged, existing_rels)
+        result = gate.validate(ttl)
+        if not result.ok:
+            return WriteResult(
+                ok=False, node_id=node_id, label=label,
+                canonical_type=canonical_type,
+                violations=[str(v) for v in result.violations],
+                error="Validation failed; nothing updated.",
+            )
+
+        # Build the field_changes diff for the changelog
+        old_props = src["props"]
+        field_changes = {}
+        for k, v in properties.items():
+            if k not in ("id", "tenantId", "canonicalType", "createdAt", "createdBy"):
+                field_changes[k] = {"old": old_props.get(k), "new": v}
+
+        # Apply in Neo4j
+        update_props = {k: v for k, v in properties.items()
+                        if k not in ("id", "tenantId", "canonicalType",
+                                     "createdAt", "createdBy")}
+        update_props["updatedAt"] = merged["updatedAt"]
+
+        with self.driver.session() as s:
+            set_clauses = ", ".join(f"n.`{k}` = ${k}" for k in update_props)
+            s.run(
+                f"MATCH (n {{tenantId:$t, id:$i}}) SET {set_clauses}",
+                t=tenant_id, i=node_id, **update_props,
+            )
+
+        # Emit changelog
+        ev = self.changelog.append(
+            tenant_id=tenant_id, entity_id=node_id,
+            entity_type=canonical_type, actor=actor, action="update",
+            field_changes=field_changes,
+        )
+        self._stamp_change_log_ref(tenant_id, node_id, ev.event_id)
+
+        return WriteResult(ok=True, node_id=node_id, label=label,
+                           canonical_type=canonical_type, event_id=ev.event_id)
+
+    # ---- delete path (no validation needed, but logged) --------------
+    def delete(self, *, tenant_id: str, node_id: str, actor: str) -> WriteResult:
+        """Delete a node. No SHACL validation needed for deletions, but the
+        event IS logged in the Change Log for auditability."""
+        src = self._fetch_node(tenant_id, node_id)
+        if src is None:
+            return WriteResult(ok=False, node_id=node_id,
+                               error=f"Node {node_id} not found in tenant {tenant_id}")
+
+        canonical_type = src["props"].get("canonicalType")
+        label = self.resolve_label(canonical_type) or "Unknown"
+
+        # Snapshot the node before deleting (for the changelog payload)
+        snapshot = dict(src["props"])
+
+        # Delete from Neo4j (detach removes relationships too)
+        with self.driver.session() as s:
+            s.run(
+                "MATCH (n {tenantId:$t, id:$i}) DETACH DELETE n",
+                t=tenant_id, i=node_id,
+            )
+
+        # Emit changelog
+        field_changes = {k: {"old": v, "new": None} for k, v in snapshot.items()}
+        self.changelog.append(
+            tenant_id=tenant_id, entity_id=node_id,
+            entity_type=canonical_type, actor=actor, action="delete",
+            field_changes=field_changes,
+        )
+
+        return WriteResult(ok=True, node_id=node_id, label=label,
+                           canonical_type=canonical_type)

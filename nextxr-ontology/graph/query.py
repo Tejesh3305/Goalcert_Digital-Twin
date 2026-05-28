@@ -9,9 +9,35 @@ cross-tenant read.
 
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from graph.connection import get_driver
+
+# Closed set of legal Neo4j labels (taxonomy categories + ChangeLog).
+# Any label not in this set is rejected before it reaches Cypher.
+LEGAL_LABELS = frozenset({
+    "Actor", "Capability", "Document", "Finding", "Incident",
+    "Location", "MobileAsset", "Observation", "PhysicalAsset", "Process",
+    "ChangeLog",
+})
+
+# Legal relationship types (UPPER_SNAKE from predicate IRIs).
+_SAFE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_label(label: str) -> str:
+    """Reject labels not in the closed taxonomy set to prevent Cypher injection."""
+    if label not in LEGAL_LABELS:
+        raise ValueError(f"Unknown label {label!r}. Legal: {sorted(LEGAL_LABELS)}")
+    return label
+
+
+def _validate_rel_type(rel_type: str) -> str:
+    """Reject relationship types that aren't safe identifiers."""
+    if not _SAFE_NAME.match(rel_type):
+        raise ValueError(f"Invalid relationship type {rel_type!r}")
+    return rel_type
 
 
 class GraphQuery:
@@ -34,6 +60,7 @@ class GraphQuery:
         return node.get(key, default)
 
     def list_by_label(self, tenant_id: str, label: str, limit: int = 100):
+        _validate_label(label)
         with self.driver.session() as s:
             recs = s.run(
                 f"MATCH (n:{label} {{tenantId:$t}}) RETURN properties(n) AS p "
@@ -44,7 +71,7 @@ class GraphQuery:
 
     def neighbors(self, tenant_id: str, node_id: str,
                   rel_type: Optional[str] = None):
-        rel = f":{rel_type}" if rel_type else ""
+        rel = f":{_validate_rel_type(rel_type)}" if rel_type else ""
         with self.driver.session() as s:
             recs = s.run(
                 f"MATCH (n {{tenantId:$t, id:$i}})-[r{rel}]->(m) "
