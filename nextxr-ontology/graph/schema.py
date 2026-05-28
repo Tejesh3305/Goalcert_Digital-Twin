@@ -107,6 +107,33 @@ def apply_schema(dry_run=False):
             except Exception as e:
                 print(f"  [!!] index {index_name}: {e}")
 
+        # ── ChangeLog label (Day 2) ──────────────────────────────────
+        # Uniqueness on (tenantId, id) so no duplicate log entries.
+        # Index on (tenantId, seq) for fast chain walks.
+        # Index on (tenantId, entityId) for per-entity history queries.
+        for name, cypher in [
+            (
+                "uniq_changelog_tenant_id",
+                "CREATE CONSTRAINT uniq_changelog_tenant_id IF NOT EXISTS "
+                "FOR (e:ChangeLog) REQUIRE (e.tenantId, e.id) IS UNIQUE",
+            ),
+            (
+                "idx_changelog_tenant_seq",
+                "CREATE INDEX idx_changelog_tenant_seq IF NOT EXISTS "
+                "FOR (e:ChangeLog) ON (e.tenantId, e.seq)",
+            ),
+            (
+                "idx_changelog_tenant_entity",
+                "CREATE INDEX idx_changelog_tenant_entity IF NOT EXISTS "
+                "FOR (e:ChangeLog) ON (e.tenantId, e.entityId)",
+            ),
+        ]:
+            try:
+                session.run(cypher)
+                print(f"  [ok] {name}")
+            except Exception as e:
+                print(f"  [!!] {name}: {e}")
+
     print("\nSchema applied.")
     close_driver()
 
