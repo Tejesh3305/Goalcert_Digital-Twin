@@ -8,8 +8,14 @@ Usage:
     driver = get_driver(uri="bolt://somehost:7687", user="neo4j", password="pw")
 """
 
+import logging
 import os
 from neo4j import GraphDatabase
+
+# Silence benign server notifications (e.g. "relationship type FLAGS does not
+# exist" when querying a rel type the young graph hasn't created yet). These
+# are informational, not errors, and clutter tool output.
+logging.getLogger("neo4j").setLevel(logging.ERROR)
 
 _DEFAULT_URI = "bolt://localhost:7687"
 _DEFAULT_USER = "neo4j"

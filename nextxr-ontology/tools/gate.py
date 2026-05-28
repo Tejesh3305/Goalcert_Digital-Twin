@@ -85,6 +85,14 @@ def _shapes_graph() -> Graph:
     return build_graph(include_packs=True, reason=False)
 
 
+def ontology_graph() -> Graph:
+    """The cached ontology + shapes graph, exposed for callers that need to
+    query the T-Box itself — e.g. the Graph Writer resolving a class's
+    nxr:taxonomyCategory (its Neo4j label) before a write. Read-only by
+    convention; do not mutate the returned graph."""
+    return _shapes_graph()
+
+
 def _as_graph(mutation: Union[str, Graph]) -> Graph:
     if isinstance(mutation, Graph):
         return mutation

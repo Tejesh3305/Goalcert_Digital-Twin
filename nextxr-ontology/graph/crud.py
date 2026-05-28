@@ -8,6 +8,8 @@ This is a thin layer for Day 1. The Graph Writer (Day 3-4) will wrap
 this with validate() + Change Log emit in a single transaction.
 """
 
+import os
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -18,12 +20,34 @@ def _now_iso():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _uuid7():
+    """
+    Generate a time-ordered UUIDv7 per RFC 9562.
+
+    Layout: 48-bit Unix-ms timestamp | version (7) | rand_a | variant | rand_b.
+    The leading timestamp makes ids lexically/byte sortable by creation time,
+    which is the "time-ordered" property the change-log and feed ordering rely on.
+    """
+    ms = int(time.time() * 1000)
+    b = bytearray(os.urandom(16))
+    # First 48 bits = big-endian millisecond timestamp.
+    b[0:6] = ms.to_bytes(6, "big")
+    # High nibble of byte 6 = version 7.
+    b[6] = (b[6] & 0x0F) | 0x70
+    # Top two bits of byte 8 = variant (10xx).
+    b[8] = (b[8] & 0x3F) | 0x80
+    return str(uuid.UUID(bytes=bytes(b)))
+
+
 def _new_id():
-    """Generate a UUIDv7-style id (falls back to v4 if uuid7 unavailable)."""
-    try:
-        return str(uuid.uuid7())
-    except AttributeError:
-        return str(uuid.uuid4())
+    """Generate a time-ordered UUIDv7 id.
+
+    Uses the stdlib uuid.uuid7() on Python 3.14+, otherwise the RFC 9562
+    implementation above. Either way the id is time-ordered — never a
+    random v4, which would break created-time sortability.
+    """
+    native = getattr(uuid, "uuid7", None)
+    return str(native()) if native else _uuid7()
 
 
 def create_node(tenant_id, label, properties, created_by="system"):
