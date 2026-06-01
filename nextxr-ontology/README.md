@@ -1,4 +1,81 @@
-# NextXR Platform Ontology — v3 core
+# NextXR Digital Twin Platform
+
+A full-stack digital twin system: ontology-governed graph database, SHACL-validated
+write path, three-tier anomaly detection, tamper-evident audit trail, REST API,
+and a live monitoring dashboard.
+
+## Quick start
+
+```bash
+# 1. Start Neo4j
+docker compose up -d
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Start the server (from nextxr-ontology/)
+cd nextxr-ontology
+python -m server.main
+
+# 4. Open http://localhost:8000
+#    Click "Start" to begin the telemetry simulation
+```
+
+Or with Docker (runs both Neo4j + server):
+```bash
+docker compose up --build
+# Open http://localhost:8000
+```
+
+## Architecture
+
+```
+Telemetry Feed ──> Behavior Registry ──> Graph Writer ──> Neo4j
+                   (Tier A/B/C)          (SHACL gate)     (graph)
+                                              |
+                                         Change Log
+                                         (SQLite, hash-chained)
+                                              |
+                                         REST API ──> Dashboard
+```
+
+**Write discipline:** Every mutation flows through the Graph Writer. The writer
+validates via SHACL, commits to Neo4j, logs to the change log, and stamps the
+event reference. Nothing else writes directly.
+
+## API endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/v1/health` | Neo4j connectivity check |
+| GET | `/api/v1/stats?tenant=X` | KPI summary (counts, severity) |
+| GET | `/api/v1/entities?tenant=X&label=Y` | List entities by category |
+| GET | `/api/v1/entities/{id}?tenant=X` | Entity detail + relationships |
+| POST | `/api/v1/entities` | Create entity (via GraphWriter) |
+| PATCH | `/api/v1/entities/{id}` | Update entity properties |
+| DELETE | `/api/v1/entities/{id}?tenant=X` | Delete entity |
+| POST | `/api/v1/entities/{id}/rel` | Add relationship |
+| GET | `/api/v1/findings?tenant=X` | List anomaly findings |
+| GET | `/api/v1/changelog?tenant=X` | Audit log events |
+| GET | `/api/v1/topology?tenant=X` | Graph nodes + edges for visualization |
+| POST | `/api/v1/feed/start?tenant=X` | Start telemetry simulation |
+| GET | `/api/v1/feed/status` | Feed loop state |
+| GET | `/api/v1/schema/types` | Legal ontology types |
+| GET | `/api/v1/schema/categories` | The 10 taxonomy categories |
+| GET | `/api/v1/schema/class/{name}` | Class detail (properties, state machines) |
+
+## Gate tests
+
+```bash
+python -m graph.gate_test           # Track 2: graph + tenant isolation (3/3)
+python tools/validate.py            # Track 1: write gate pass/reject (7/7)
+python tools/track3_gate.py         # Track 3: findings loop (23/23)
+python tools/track4_gate.py         # Track 4: REST API + dashboard (11/11)
+```
+
+---
+
+## Ontology (v3 core)
 
 The semantic backbone of the Universal Modular Digital Twin. Everything
 that enters the graph is validated against this. Build it once, with rigor;

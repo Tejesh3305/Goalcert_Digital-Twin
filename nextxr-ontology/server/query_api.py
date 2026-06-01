@@ -185,6 +185,52 @@ def stats(tenant: str):
 
 # ── Health ──────────────────────────────────────────────────────────
 
+@router.get("/topology")
+def topology(tenant: str, limit: int = 200):
+    """Return all nodes and edges for the tenant, suitable for graph visualization."""
+    driver = get_driver()
+    nodes = []
+    edges = []
+    seen = set()
+
+    with driver.session() as s:
+        # Get all nodes (across labels)
+        recs = s.run(
+            "MATCH (n {tenantId:$t}) RETURN labels(n) AS labels, properties(n) AS p "
+            "ORDER BY n.createdAt LIMIT $lim",
+            t=tenant, lim=limit,
+        )
+        for r in recs:
+            props = dict(r["p"])
+            nid = props.get("id")
+            if nid and nid not in seen:
+                seen.add(nid)
+                label_list = [lb for lb in r["labels"] if lb in LEGAL_LABELS]
+                nodes.append({
+                    "id": nid,
+                    "label": label_list[0] if label_list else "Unknown",
+                    "displayName": props.get("displayName", ""),
+                    "status": props.get("status"),
+                    "severity": props.get("severity"),
+                })
+
+        # Get all edges
+        recs = s.run(
+            "MATCH (a {tenantId:$t})-[r]->(b {tenantId:$t}) "
+            "RETURN a.id AS src, type(r) AS rel, b.id AS tgt LIMIT $lim",
+            t=tenant, lim=limit * 3,
+        )
+        for r in recs:
+            if r["src"] and r["tgt"]:
+                edges.append({
+                    "source": r["src"],
+                    "target": r["tgt"],
+                    "type": r["rel"],
+                })
+
+    return {"nodes": nodes, "edges": edges}
+
+
 @router.get("/health")
 def health():
     """Basic health check — verifies Neo4j connectivity."""

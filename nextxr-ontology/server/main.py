@@ -123,36 +123,57 @@ def _seed_facility(writer: GraphWriter, tenant: str) -> str:
 
 
 def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
-    """Background thread: run simulated feed through behavior registry."""
+    """Background thread: run simulated feed through behavior registry.
+    Loops continuously with fresh simulations until stopped."""
     global _feed_state
 
     try:
         writer = GraphWriter(changelog=cl)
         query = GraphQuery()
 
-        registry = BehaviorRegistry()
-        registry.register(TemperatureThresholdRule(offset_c=3.0, duration_minutes=3.0))
-        registry.register(TemperatureZScoreBaseline(warmup=12, z_threshold=3.0))
-        registry.register(ThermalPhysicsBehavior())
+        run_number = 0
 
-        loop = FindingsLoop(registry, writer, query)
-        samples = list(simulate_temperature(tenant, ahu_id, setpoint=22.0, minutes=60))
-
-        for sample in samples:
+        while True:
+            # Check if stopped
             with _feed_lock:
                 if not _feed_state["running"]:
                     break
 
-            outcomes = loop.process(sample)
+            # Fresh behaviors each run so baselines reset cleanly
+            registry = BehaviorRegistry()
+            registry.register(TemperatureThresholdRule(offset_c=3.0, duration_minutes=3.0))
+            registry.register(TemperatureZScoreBaseline(warmup=12, z_threshold=3.0))
+            registry.register(ThermalPhysicsBehavior())
+
+            loop = FindingsLoop(registry, writer, query)
+            samples = list(simulate_temperature(tenant, ahu_id, setpoint=22.0, minutes=60))
 
             with _feed_lock:
-                _feed_state["samples_processed"] += 1
-                _feed_state["latest_value"] = sample.value
-                _feed_state["latest_timestamp"] = sample.timestamp.isoformat()
-                _feed_state["findings_emitted"] += len(outcomes)
+                _feed_state["run"] = run_number
 
-            # Pace the feed — 0.5s per sample so the dashboard can show progress
-            time.sleep(0.5)
+            for sample in samples:
+                with _feed_lock:
+                    if not _feed_state["running"]:
+                        break
+
+                outcomes = loop.process(sample)
+
+                with _feed_lock:
+                    _feed_state["samples_processed"] += 1
+                    _feed_state["latest_value"] = sample.value
+                    _feed_state["latest_timestamp"] = sample.timestamp.isoformat()
+                    _feed_state["findings_emitted"] += len(outcomes)
+
+                # Pace the feed — 0.5s per sample so the dashboard can show progress
+                time.sleep(0.5)
+
+            run_number += 1
+
+            # Brief pause between runs
+            with _feed_lock:
+                if not _feed_state["running"]:
+                    break
+            time.sleep(2)
 
         with _feed_lock:
             _feed_state["running"] = False

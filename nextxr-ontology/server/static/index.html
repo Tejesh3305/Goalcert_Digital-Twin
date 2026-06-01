@@ -435,6 +435,26 @@ body {
   letter-spacing: 0.5px;
 }
 
+/* ── GRAPH VIS ──────────────────────────────── */
+.graph-section {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--ink-15);
+  border-bottom: 1px solid var(--ink-15);
+}
+
+.graph-canvas-wrap {
+  height: 320px;
+  position: relative;
+  background: #faf8f5;
+  cursor: grab;
+}
+
+.graph-canvas-wrap:active { cursor: grabbing; }
+
+.graph-canvas-wrap canvas {
+  width: 100%; height: 100%; display: block;
+}
+
 /* ── SLIDE-OUT DETAIL ───────────────────────── */
 .slideout {
   position: fixed;
@@ -648,6 +668,17 @@ body {
     </div>
     <div class="panel-scroll" id="fnd-list">
       <div class="empty-state">No anomalies detected</div>
+    </div>
+  </div>
+
+  <!-- GRAPH VISUALIZATION -->
+  <div class="graph-section">
+    <div class="panel-head">
+      <span class="section-title">Graph Topology</span>
+      <span class="panel-count" id="graph-count"></span>
+    </div>
+    <div class="graph-canvas-wrap">
+      <canvas id="graph-canvas"></canvas>
     </div>
   </div>
 
@@ -1012,9 +1043,223 @@ function closeDetail() {
 
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
 
+// ── Force-directed graph ──────────────────────────
+const graphState = { nodes: [], edges: [], sim: null };
+
+const CATEGORY_COLORS = {
+  PhysicalAsset: "#1a1714",
+  Location: "#1d4ed8",
+  Finding: "#b45309",
+  Incident: "#c23616",
+  Process: "#7c3aed",
+  Observation: "#0891b2",
+  Actor: "#4f46e5",
+  Capability: "#059669",
+  Document: "#6b7280",
+  MobileAsset: "#92400e",
+};
+
+async function pollGraph() {
+  try {
+    const d = await (await fetch(`${A}/topology?tenant=${T}`)).json();
+    document.getElementById("graph-count").textContent =
+      `${d.nodes.length} nodes, ${d.edges.length} edges`;
+
+    // Only reinitialize if topology changed
+    const sig = d.nodes.map(n => n.id).sort().join(",") + "|" + d.edges.length;
+    if (graphState._sig === sig) return;
+    graphState._sig = sig;
+
+    // Initialize node positions
+    const canvas = document.getElementById("graph-canvas");
+    const W = canvas.parentElement.clientWidth;
+    const H = canvas.parentElement.clientHeight;
+    const cx = W / 2, cy = H / 2;
+
+    const existing = {};
+    for (const n of graphState.nodes) existing[n.id] = n;
+
+    graphState.nodes = d.nodes.map((n, i) => {
+      const prev = existing[n.id];
+      return {
+        ...n,
+        x: prev ? prev.x : cx + (Math.random() - 0.5) * 200,
+        y: prev ? prev.y : cy + (Math.random() - 0.5) * 200,
+        vx: 0, vy: 0,
+        radius: n.label === "Finding" ? 6 : n.label === "Incident" ? 8 : 10,
+      };
+    });
+    graphState.edges = d.edges;
+
+    if (!graphState.sim) {
+      graphState.sim = true;
+      runSimulation();
+    }
+  } catch {}
+}
+
+function runSimulation() {
+  const canvas = document.getElementById("graph-canvas");
+  const wrap = canvas.parentElement;
+  let animFrame;
+
+  function tick() {
+    const nodes = graphState.nodes;
+    const edges = graphState.edges;
+    if (!nodes.length) { animFrame = requestAnimationFrame(tick); return; }
+
+    const W = wrap.clientWidth;
+    const H = wrap.clientHeight;
+    const cx = W / 2, cy = H / 2;
+    const nodeMap = {};
+    for (const n of nodes) nodeMap[n.id] = n;
+
+    // Forces
+    for (const n of nodes) {
+      // Center gravity
+      n.vx += (cx - n.x) * 0.002;
+      n.vy += (cy - n.y) * 0.002;
+
+      // Repulsion between all nodes
+      for (const m of nodes) {
+        if (n === m) continue;
+        const dx = n.x - m.x, dy = n.y - m.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        if (dist < 200) {
+          const force = 300 / (dist * dist);
+          n.vx += (dx / dist) * force;
+          n.vy += (dy / dist) * force;
+        }
+      }
+    }
+
+    // Spring attraction along edges
+    for (const e of edges) {
+      const src = nodeMap[e.source], tgt = nodeMap[e.target];
+      if (!src || !tgt) continue;
+      const dx = tgt.x - src.x, dy = tgt.y - src.y;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const force = (dist - 80) * 0.01;
+      src.vx += (dx / dist) * force;
+      src.vy += (dy / dist) * force;
+      tgt.vx -= (dx / dist) * force;
+      tgt.vy -= (dy / dist) * force;
+    }
+
+    // Apply velocity with damping
+    for (const n of nodes) {
+      n.vx *= 0.85;
+      n.vy *= 0.85;
+      n.x += n.vx;
+      n.y += n.vy;
+      // Boundary
+      n.x = Math.max(20, Math.min(W - 20, n.x));
+      n.y = Math.max(20, Math.min(H - 20, n.y));
+    }
+
+    drawGraph(canvas, W, H, nodes, edges, nodeMap);
+    animFrame = requestAnimationFrame(tick);
+  }
+
+  tick();
+}
+
+function drawGraph(canvas, W, H, nodes, edges, nodeMap) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + "px";
+  canvas.style.height = H + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  // Draw edges
+  for (const e of edges) {
+    const src = nodeMap[e.source], tgt = nodeMap[e.target];
+    if (!src || !tgt) continue;
+
+    ctx.beginPath();
+    ctx.moveTo(src.x, src.y);
+    ctx.lineTo(tgt.x, tgt.y);
+    ctx.strokeStyle = "rgba(26,23,20,0.12)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Edge label at midpoint
+    const mx = (src.x + tgt.x) / 2;
+    const my = (src.y + tgt.y) / 2;
+    ctx.fillStyle = "rgba(26,23,20,0.25)";
+    ctx.font = "8px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(e.type, mx, my - 4);
+
+    // Arrow
+    const angle = Math.atan2(tgt.y - src.y, tgt.x - src.x);
+    const aLen = 6;
+    const ax = tgt.x - Math.cos(angle) * (tgt.radius + 4);
+    const ay = tgt.y - Math.sin(angle) * (tgt.radius + 4);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax - aLen * Math.cos(angle - 0.4), ay - aLen * Math.sin(angle - 0.4));
+    ctx.lineTo(ax - aLen * Math.cos(angle + 0.4), ay - aLen * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fillStyle = "rgba(26,23,20,0.2)";
+    ctx.fill();
+  }
+
+  // Draw nodes
+  for (const n of nodes) {
+    const color = CATEGORY_COLORS[n.label] || "#6b7280";
+
+    // Glow for findings
+    if (n.label === "Finding" && n.severity === "critical") {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.radius + 4, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(194,54,22,0.15)";
+      ctx.fill();
+    }
+
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.radius, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    // White center for non-finding nodes
+    if (n.label !== "Finding" && n.label !== "Incident") {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.radius - 2.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#faf8f5";
+      ctx.fill();
+    }
+
+    // Label
+    const name = n.displayName || n.label;
+    ctx.fillStyle = "var(--ink)";
+    ctx.font = "10px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#1a1714";
+    ctx.fillText(name, n.x, n.y + n.radius + 12);
+  }
+}
+
+// Make graph nodes clickable
+document.getElementById("graph-canvas").addEventListener("click", function(e) {
+  const rect = this.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  for (const n of graphState.nodes) {
+    const dx = n.x - mx, dy = n.y - my;
+    if (dx * dx + dy * dy < (n.radius + 4) * (n.radius + 4)) {
+      openDetail(n.id);
+      break;
+    }
+  }
+});
+
 // ── Poll loop ─────────────────────────────────────
 async function poll() {
-  await Promise.all([pollHealth(), pollStats(), pollFeed(), pollEntities(), pollFindings(), pollLog()]);
+  await Promise.all([pollHealth(), pollStats(), pollFeed(), pollEntities(), pollFindings(), pollLog(), pollGraph()]);
 }
 
 poll();
