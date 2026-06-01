@@ -33,7 +33,7 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +56,7 @@ from behaviors.diagnosis import DiagnosisEngine
 from server.query_api import router as query_router
 from server.write_api import router as write_router
 from server.schema_routes import router as schema_router
+from server.twins_routes import router as twins_router
 
 # ── App setup ───────────────────────────────────────────────────────
 
@@ -76,6 +77,30 @@ app.add_middleware(AuthMiddleware)
 app.include_router(query_router)
 app.include_router(write_router)
 app.include_router(schema_router)
+app.include_router(twins_router)
+
+
+# ── Global DB-down handler ──────────────────────────────────────────
+# Any endpoint that touches Neo4j while it's unreachable (e.g. Docker off)
+# raises a driver connection error. Instead of a raw 500, convert it once,
+# here, into a clean 503 with guidance — so every current and future
+# DB-backed route degrades the same friendly way.
+from neo4j.exceptions import ServiceUnavailable, SessionExpired, AuthError  # noqa: E402
+from fastapi.responses import JSONResponse  # noqa: E402
+
+
+@app.exception_handler(ServiceUnavailable)
+@app.exception_handler(SessionExpired)
+@app.exception_handler(AuthError)
+async def _neo4j_down_handler(request, exc):
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database is offline. Start it with "
+                           "`docker compose up -d` (or ./start.ps1), wait for "
+                           "Neo4j on :7687, then retry.",
+                 "neo4j": "unreachable"},
+    )
+
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
@@ -98,26 +123,44 @@ _feed_lock = threading.Lock()
 # ── Seed + Feed ─────────────────────────────────────────────────────
 
 def _ensure_schema():
-    """Apply graph schema (idempotent, silenced)."""
+    """Apply graph schema (idempotent, silenced). Verifies connectivity first
+    so we fail fast (one timeout) when Neo4j is down instead of grinding through
+    every constraint statement."""
+    get_driver().verify_connectivity()  # raises fast if unreachable
     from graph import schema
     with contextlib.redirect_stdout(io.StringIO()):
-        schema.apply_schema(dry_run=False)
-    # apply_schema closes the driver; re-acquire
-    get_driver()
+        # close=False: keep the shared driver alive for cached writers/queries.
+        schema.apply_schema(dry_run=False, close=False)
 
 
 def _seed_facility(writer: GraphWriter, tenant: str) -> str:
-    """Seed a demo HVAC facility if it doesn't exist. Returns the AHU node_id."""
+    """Resolve the asset the feed should target for this tenant.
+
+    Order of preference:
+      1. If the tenant is a registered twin with a seed_asset_id, use it.
+      2. Else find an existing AirHandler / PhysicalAsset in the graph.
+      3. Else seed a demo HVAC facility (back-compat for the default tenant).
+    Returns the target asset's node_id."""
+    # 1. Registered twin?
+    try:
+        from twins import TwinRegistry
+        twin = TwinRegistry().get(tenant)
+        if twin and twin.seed_asset_id:
+            return twin.seed_asset_id
+    except Exception:
+        pass
+
+    # 2. Existing asset?
     query = GraphQuery()
-    existing = query.list_by_label(tenant, "PhysicalAsset", limit=1)
+    existing = query.list_by_label(tenant, "PhysicalAsset", limit=50)
     if existing:
-        # Already seeded — find the AHU
-        for node in query.list_by_label(tenant, "PhysicalAsset", limit=50):
+        for node in existing:
             if "AHU" in node.get("displayName", ""):
                 return node["id"]
         return existing[0]["id"]
 
-    site = writer.create(
+    # 3. Seed a demo facility.
+    writer.create(
         tenant_id=tenant, canonical_type=CORE + "Site",
         actor="seed", properties={"displayName": "Demo Plant"},
     )
@@ -272,26 +315,71 @@ def stop_feed():
     return {"status": "stopped"}
 
 
-# ── Dashboard serving ───────────────────────────────────────────────
+# ── Frontend serving (built React app) ──────────────────────────────
+#
+# The React app (frontend/) builds to frontend/dist. We serve its static
+# assets and fall back to index.html for any non-API path so client-side
+# routing works (SPA). If the app hasn't been built yet, we serve a friendly
+# placeholder telling you how to build it.
 
-DASHBOARD_DIR = ROOT / "server" / "static"
+FRONTEND_DIST = ROOT.parent / "frontend" / "dist"
+
+if (FRONTEND_DIST / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"),
+              name="assets")
+
+
+_PLACEHOLDER = """<!doctype html><html><head><meta charset=utf-8>
+<title>NextXR — build the frontend</title>
+<style>body{font-family:system-ui;background:#0f1115;color:#e6e8eb;
+display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.box{max-width:560px;padding:32px;line-height:1.6}code{background:#1b1e26;
+padding:2px 6px;border-radius:4px;color:#7aa2f7}h1{color:#7aa2f7}</style></head>
+<body><div class=box><h1>NextXR platform is running</h1>
+<p>The API is live at <code>/api/v1</code> and <code>/docs</code>, but the React
+frontend hasn't been built yet.</p>
+<p>Build it once with:</p>
+<pre><code>cd frontend
+npm install
+npm run build</code></pre>
+<p>Then reload this page. For live development run <code>npm run dev</code>
+(Vite proxies the API to this server).</p></div></body></html>"""
 
 
 @app.get("/", response_class=HTMLResponse)
-def dashboard():
-    """Serve the live dashboard."""
-    index = DASHBOARD_DIR / "index.html"
-    if index.exists():
-        return HTMLResponse(content=index.read_text(), status_code=200)
-    return HTMLResponse(content="<h1>Dashboard not found</h1>", status_code=404)
+def index():
+    """Serve the built React app (or a build placeholder)."""
+    idx = FRONTEND_DIST / "index.html"
+    if idx.exists():
+        return HTMLResponse(content=idx.read_text(encoding="utf-8"))
+    return HTMLResponse(content=_PLACEHOLDER)
+
+
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+def spa_fallback(full_path: str):
+    """SPA fallback: any non-API, non-asset path returns index.html so the
+    client router can handle it. API routes are matched first by FastAPI."""
+    # Never swallow API or docs paths.
+    if full_path.startswith(("api/", "docs", "openapi.json", "redoc")):
+        raise HTTPException(status_code=404, detail="Not found")
+    idx = FRONTEND_DIST / "index.html"
+    if idx.exists():
+        return HTMLResponse(content=idx.read_text(encoding="utf-8"))
+    return HTMLResponse(content=_PLACEHOLDER)
 
 
 # ── Startup ─────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 def on_startup():
-    """Apply schema on boot so the server is ready immediately."""
-    _ensure_schema()
+    """Apply the graph schema on boot, best-effort. If Neo4j is unreachable
+    (e.g. Docker is off), we log and continue — the server still serves the
+    frontend and the bus/schema/twins APIs. Schema is re-applied lazily when a
+    twin is created or the feed starts."""
+    try:
+        _ensure_schema()
+    except Exception as e:
+        print(f"[startup] schema apply skipped (Neo4j unavailable): {e}")
 
 
 if __name__ == "__main__":

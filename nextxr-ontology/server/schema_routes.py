@@ -74,6 +74,49 @@ def class_properties(name: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/asset-types")
+def asset_types():
+    """Instantiable entity types across core + packs, grouped by taxonomy
+    category. This is what the 'Add Asset' UI dropdown consumes — it spans both
+    the core ontology and loaded packs (e.g. HVAC), which `/types` does not."""
+    from rdflib import RDF, URIRef
+    from rdflib.namespace import OWL, RDFS
+
+    svc = _get_svc()
+    g = svc.g
+    NXR = "https://ontology.nextxr.io/v3/core#"
+    tax = URIRef(NXR + "taxonomyCategory")
+    is_abstract = URIRef(NXR + "isAbstract")
+    is_structural = URIRef(NXR + "isStructural")
+
+    grouped: dict[str, list] = {}
+    for c in g.subjects(RDF.type, OWL.Class):
+        iri = str(c)
+        if not iri.startswith("https://ontology.nextxr.io/"):
+            continue
+        # Skip abstract / structural plumbing classes.
+        if (c, is_abstract, None) in g and g.value(c, is_abstract):
+            continue
+        if (c, is_structural, None) in g and g.value(c, is_structural):
+            continue
+        cat = g.value(c, tax)
+        if cat is None:
+            continue
+        local = iri.split("#")[-1]
+        label_node = g.value(c, RDFS.label)
+        label = str(label_node) if label_node else local
+        prefix = "hvac" if "/hvac#" in iri else "nxr"
+        grouped.setdefault(str(cat), []).append({
+            "id": f"{prefix}:{local}",
+            "iri": iri,
+            "label": label,
+            "category": str(cat),
+        })
+    for cat in grouped:
+        grouped[cat].sort(key=lambda x: x["label"])
+    return {"categories": grouped}
+
+
 @router.post("/validate")
 def validate(turtle: str = Body(..., media_type="text/turtle")):
     """Run a proposed Turtle fragment through the SHACL write gate."""

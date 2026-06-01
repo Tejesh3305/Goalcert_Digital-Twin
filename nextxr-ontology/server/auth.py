@@ -86,14 +86,27 @@ def check_write_access(key_info: ApiKeyInfo) -> bool:
 _PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/redoc"}
 
 
+def _is_public(path: str, method: str) -> bool:
+    """The frontend (SPA) and its assets are public. Only the API surface
+    (/api/*) is auth-controlled. Non-API GETs serve the app shell."""
+    if path in _PUBLIC_PATHS:
+        return True
+    if path.startswith(("/static", "/assets")):
+        return True
+    # Any non-API GET is a client-router path -> serve the SPA shell publicly.
+    if method == "GET" and not path.startswith("/api"):
+        return True
+    return False
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     """FastAPI middleware that enforces API key authentication."""
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
 
-        # Public paths (dashboard, docs)
-        if path in _PUBLIC_PATHS or path.startswith("/static"):
+        # Public paths (frontend app, assets, docs)
+        if _is_public(path, request.method):
             return await call_next(request)
 
         # Require API key

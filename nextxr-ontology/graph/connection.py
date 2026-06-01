@@ -34,6 +34,14 @@ def get_driver(uri=None, user=None, password=None):
                 user or os.getenv("NEO4J_USER", _DEFAULT_USER),
                 password or os.getenv("NEO4J_PASSWORD", _DEFAULT_PASSWORD),
             ),
+            # Fail fast when Neo4j is down (e.g. Docker off) so the server still
+            # boots and serves the frontend + bus/schema APIs instead of hanging
+            # on the default 60s connection-acquisition timeout.
+            connection_timeout=float(os.getenv("NEO4J_CONN_TIMEOUT", "4")),
+            connection_acquisition_timeout=float(
+                os.getenv("NEO4J_ACQ_TIMEOUT", "4")),
+            max_transaction_retry_time=float(
+                os.getenv("NEO4J_RETRY_TIME", "4")),
         )
     return _driver
 

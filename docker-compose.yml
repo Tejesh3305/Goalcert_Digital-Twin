@@ -18,7 +18,30 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    container_name: nxr-redis
+    ports:
+      - "6379:6379"   # event bus (Redis Streams)
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # The server runs in a container ONLY when you opt in with the "full" profile:
+  #     docker compose --profile full up -d
+  # By default `docker compose up -d` starts just Neo4j + Redis, and you run the
+  # backend locally with `python -m server.main` (live code, no image rebuild).
+  # This avoids a stale-image container grabbing port 8000 out from under your
+  # local server — the cause of the "old code / Driver closed" confusion.
+  # NOTE: when using this profile, rebuild after code changes:
+  #     docker compose --profile full up -d --build
   server:
+    profiles: ["full"]
     build:
       context: .
       dockerfile: Dockerfile
@@ -28,10 +51,14 @@ services:
     depends_on:
       neo4j:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: nextxr2026
+      NXR_REDIS_URL: redis://redis:6379/0
 
 volumes:
   neo4j_data:
+  redis_data:

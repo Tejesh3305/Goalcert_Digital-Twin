@@ -64,8 +64,14 @@ def discover_taxonomy_categories():
     return sorted(categories)
 
 
-def apply_schema(dry_run=False):
-    """Create uniqueness constraints and indexes for every taxonomy category."""
+def apply_schema(dry_run=False, close=True):
+    """Create uniqueness constraints and indexes for every taxonomy category.
+
+    `close` controls whether the shared Neo4j driver is closed when done. The
+    CLI (`python -m graph.schema`) wants it closed; in-process callers (the
+    server, twin seeding) must pass close=False, otherwise they'd close the
+    singleton driver out from under cached GraphWriter/GraphQuery instances
+    ("Driver closed" errors)."""
     categories = discover_taxonomy_categories()
     print(f"Discovered {len(categories)} taxonomy categories from ontology:")
     for c in categories:
@@ -135,7 +141,8 @@ def apply_schema(dry_run=False):
                 print(f"  [!!] {name}: {e}")
 
     print("\nSchema applied.")
-    close_driver()
+    if close:
+        close_driver()
 
 
 if __name__ == "__main__":

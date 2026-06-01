@@ -15,3 +15,8 @@ pydantic>=2.0
 # stdlib only (sqlite3, hashlib, json, math) — no new dependencies.
 # Optional Tier-B upgrade: scikit-learn (IsolationForest) slots behind the
 # same Behavior interface; the shipped z-score baseline is dependency-free.
+
+# Event bus (Redis Streams). The bus is best-effort with an automatic
+# in-memory fallback, so this dependency is OPTIONAL at runtime: if redis
+# isn't installed or the server is unreachable, the platform still runs.
+redis>=5.0

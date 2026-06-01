@@ -42,7 +42,13 @@ def _validate_rel_type(rel_type: str) -> str:
 
 class GraphQuery:
     def __init__(self):
-        self.driver = get_driver()
+        pass
+
+    @property
+    def driver(self):
+        """Resolve the live singleton each use — never hold a stale (possibly
+        closed) driver reference."""
+        return get_driver()
 
     def get_node(self, tenant_id: str, node_id: str) -> Optional[dict]:
         with self.driver.session() as s:

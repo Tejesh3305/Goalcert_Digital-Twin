@@ -28,6 +28,7 @@ from fastapi import APIRouter, HTTPException, Query
 from graph.connection import get_driver
 from graph.query import GraphQuery, LEGAL_LABELS
 from changelog.service import ChangeLog
+from bus import get_event_bus
 
 router = APIRouter(prefix="/api/v1", tags=["graph"])
 
@@ -49,6 +50,18 @@ def _get_changelog() -> ChangeLog:
     return _changelog
 
 
+# ── Graceful-degradation helper ─────────────────────────────────────
+# Neo4j-backed reads should not 500 the polled UI when the database is down
+# (e.g. Docker off). They return empty results + a `degraded: true` flag so the
+# frontend can show "database offline" instead of breaking. Real query errors
+# (bad label, etc.) are still raised before we get here.
+
+def _is_conn_error(exc: Exception) -> bool:
+    """True if this looks like Neo4j being unreachable (vs. a query bug)."""
+    from neo4j.exceptions import ServiceUnavailable, SessionExpired, AuthError
+    return isinstance(exc, (ServiceUnavailable, SessionExpired, AuthError, OSError))
+
+
 # ── Entities ────────────────────────────────────────────────────────
 
 @router.get("/entities")
@@ -57,9 +70,15 @@ def list_entities(tenant: str, label: str = "PhysicalAsset", limit: int = 100):
     if label not in LEGAL_LABELS:
         raise HTTPException(status_code=400,
                             detail=f"Unknown label {label!r}. Legal: {sorted(LEGAL_LABELS)}")
-    q = _get_query()
-    nodes = q.list_by_label(tenant, label, limit=limit)
-    return {"tenant": tenant, "label": label, "count": len(nodes), "nodes": nodes}
+    try:
+        q = _get_query()
+        nodes = q.list_by_label(tenant, label, limit=limit)
+        return {"tenant": tenant, "label": label, "count": len(nodes), "nodes": nodes}
+    except Exception as e:
+        if _is_conn_error(e):
+            return {"tenant": tenant, "label": label, "count": 0, "nodes": [],
+                    "degraded": True}
+        raise
 
 
 @router.get("/entities/{node_id}")
@@ -78,12 +97,17 @@ def get_entity(node_id: str, tenant: str):
 @router.get("/findings")
 def list_findings(tenant: str, entity_id: str = None, limit: int = 50):
     """List Finding nodes, optionally filtered by the entity they flag."""
-    q = _get_query()
-    if entity_id:
-        findings = q.get_findings(tenant, flagged_entity_id=entity_id)
-    else:
-        findings = q.get_findings(tenant)
-    return {"tenant": tenant, "count": len(findings[:limit]), "findings": findings[:limit]}
+    try:
+        q = _get_query()
+        if entity_id:
+            findings = q.get_findings(tenant, flagged_entity_id=entity_id)
+        else:
+            findings = q.get_findings(tenant)
+        return {"tenant": tenant, "count": len(findings[:limit]), "findings": findings[:limit]}
+    except Exception as e:
+        if _is_conn_error(e):
+            return {"tenant": tenant, "count": 0, "findings": [], "degraded": True}
+        raise
 
 
 # ── Change Log ──────────────────────────────────────────────────────
@@ -133,44 +157,52 @@ def tenant_changelog(tenant: str, limit: int = 50):
 
 @router.get("/stats")
 def stats(tenant: str):
-    """Quick KPI summary: entity counts by label, finding counts by severity."""
-    q = _get_query()
-    driver = get_driver()
+    """Quick KPI summary: entity counts by label, finding counts by severity.
+    Degrades gracefully: if Neo4j is down, graph counts are empty but the
+    SQLite-backed change-log count still reports, and `degraded: true` is set."""
+    label_counts = {}
+    severity_counts = {}
+    latest_findings = []
+    degraded = False
 
-    with driver.session() as s:
-        # Count entities per label
-        label_counts = {}
-        for label in ["PhysicalAsset", "Location", "Finding", "Incident",
-                      "Process", "Observation", "Capability", "Document",
-                      "Actor", "MobileAsset"]:
-            rec = s.run(
-                f"MATCH (n:{label} {{tenantId:$t}}) RETURN count(n) AS c",
+    try:
+        driver = get_driver()
+        with driver.session() as s:
+            for label in ["PhysicalAsset", "Location", "Finding", "Incident",
+                          "Process", "Observation", "Capability", "Document",
+                          "Actor", "MobileAsset"]:
+                rec = s.run(
+                    f"MATCH (n:{label} {{tenantId:$t}}) RETURN count(n) AS c",
+                    t=tenant,
+                ).single()
+                cnt = rec["c"] if rec else 0
+                if cnt > 0:
+                    label_counts[label] = cnt
+
+            recs = s.run(
+                "MATCH (f:Finding {tenantId:$t}) RETURN f.severity AS sev, count(f) AS c",
                 t=tenant,
-            ).single()
-            cnt = rec["c"] if rec else 0
-            if cnt > 0:
-                label_counts[label] = cnt
+            )
+            for r in recs:
+                if r["sev"]:
+                    severity_counts[r["sev"]] = r["c"]
 
-        # Findings by severity
-        severity_counts = {}
-        recs = s.run(
-            "MATCH (f:Finding {tenantId:$t}) RETURN f.severity AS sev, count(f) AS c",
-            t=tenant,
-        )
-        for r in recs:
-            if r["sev"]:
-                severity_counts[r["sev"]] = r["c"]
+            latest_recs = s.run(
+                "MATCH (f:Finding {tenantId:$t}) "
+                "RETURN properties(f) AS p ORDER BY f.createdAt DESC LIMIT 5",
+                t=tenant,
+            )
+            latest_findings = [dict(r["p"]) for r in latest_recs]
+    except Exception as e:
+        if not _is_conn_error(e):
+            raise
+        degraded = True
 
-        # Latest findings (top 5)
-        latest_recs = s.run(
-            "MATCH (f:Finding {tenantId:$t}) "
-            "RETURN properties(f) AS p ORDER BY f.createdAt DESC LIMIT 5",
-            t=tenant,
-        )
-        latest_findings = [dict(r["p"]) for r in latest_recs]
-
-    cl = _get_changelog()
-    event_count = cl.count(tenant)
+    # Change-log count is SQLite-backed — available even when Neo4j is down.
+    try:
+        event_count = _get_changelog().count(tenant)
+    except Exception:
+        event_count = 0
 
     return {
         "tenant": tenant,
@@ -180,6 +212,7 @@ def stats(tenant: str):
         "total_findings": sum(severity_counts.values()),
         "changelog_events": event_count,
         "latest_findings": latest_findings,
+        "degraded": degraded,
     }
 
 
@@ -189,8 +222,15 @@ def stats(tenant: str):
 def topology(tenant: str):
     """Return infrastructure nodes + edges with finding counts per entity.
     Findings are NOT returned as nodes — they're aggregated as counts on
-    the entities they flag, keeping the graph clean and readable."""
-    driver = get_driver()
+    the entities they flag, keeping the graph clean and readable.
+    Degrades gracefully to an empty graph when Neo4j is unreachable."""
+    try:
+        driver = get_driver()
+        driver.verify_connectivity()
+    except Exception as e:
+        if _is_conn_error(e):
+            return {"nodes": [], "edges": [], "finding_counts": {}, "degraded": True}
+        raise
     nodes = []
     edges = []
     seen = set()
@@ -259,12 +299,91 @@ def topology(tenant: str):
     return {"nodes": nodes, "edges": edges, "finding_counts": finding_counts}
 
 
+# ── Event bus ───────────────────────────────────────────────────────
+
+@router.get("/bus/stats")
+def bus_stats():
+    """Event-bus backend + counters (backend, published, skipped, errors).
+    Lets the dashboard show which bus is live (redis / memory / null)."""
+    return get_event_bus().stats()
+
+
+@router.get("/bus/events")
+def bus_events(tenant: str, last_id: str = "0", count: int = 100):
+    """Read events from a tenant's stream after `last_id`. Returns each event
+    plus the stream message id (pass it back as `last_id` to page forward).
+    This is the read path the SSE feed and agents will build on."""
+    bus = get_event_bus()
+    items = bus.read(tenant, last_id=last_id, count=count)
+    events = [{"message_id": mid, "event": ev.to_dict()} for mid, ev in items]
+    next_id = items[-1][0] if items else last_id
+    return {"tenant": tenant, "count": len(events),
+            "next_id": next_id, "events": events}
+
+
+@router.get("/bus/stream")
+async def bus_stream(tenant: str, last_id: str = "$"):
+    """Server-Sent Events stream of a tenant's live mutations, straight off the
+    event bus. The frontend's `useEventStream` hook subscribes here for a true
+    push feed (no polling). `last_id="$"` means 'only new events from now'.
+
+    Each SSE message is `data: <json BusEvent>\\n\\n`. A keepalive comment is
+    sent periodically so proxies don't close an idle connection."""
+    import asyncio
+    import json as _json
+    from starlette.responses import StreamingResponse
+
+    bus = get_event_bus()
+    # "$" (Redis convention for 'new only') -> resolve to the current tail so
+    # both Redis and the in-memory bus behave the same.
+    if last_id == "$":
+        tail = bus.read(tenant, last_id="0", count=10_000)
+        cursor = tail[-1][0] if tail else "0"
+    else:
+        cursor = last_id
+
+    async def gen():
+        nonlocal cursor
+        # Greet immediately so the client knows the stream is open.
+        yield f"event: ready\ndata: {_json.dumps({'tenant': tenant})}\n\n"
+        idle = 0
+        while True:
+            items = bus.read(tenant, last_id=cursor, count=100)
+            if items:
+                idle = 0
+                for mid, ev in items:
+                    cursor = mid
+                    yield f"data: {_json.dumps(ev.to_dict())}\n\n"
+            else:
+                idle += 1
+                if idle >= 15:  # ~15s with no events -> keepalive comment
+                    idle = 0
+                    yield ": keepalive\n\n"
+            await asyncio.sleep(1.0)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
+
+
 @router.get("/health")
 def health():
-    """Basic health check — verifies Neo4j connectivity."""
+    """Health check — ALWAYS returns 200 so the frontend can tell "server up,
+    database down" (degraded) from "server unreachable" (network error). The
+    body carries the real component status:
+
+      status: "healthy"   — server + Neo4j both up
+              "degraded"  — server up, Neo4j unreachable (e.g. Docker off)
+      neo4j:  "connected" | "unreachable"
+      bus:    event-bus backend stats (redis / memory / null)
+
+    Returning 503 here made the whole UI look dead whenever Neo4j was down,
+    even though the app shell, twins registry, schema, and event bus all work.
+    The frontend now shows an amber 'degraded' state instead."""
+    bus_info = get_event_bus().stats()
     try:
-        driver = get_driver()
-        driver.verify_connectivity()
-        return {"status": "healthy", "neo4j": "connected"}
+        get_driver().verify_connectivity()
+        return {"status": "healthy", "neo4j": "connected", "bus": bus_info}
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Neo4j unreachable: {e}")
+        return {"status": "degraded", "neo4j": "unreachable",
+                "bus": bus_info, "detail": str(e)}

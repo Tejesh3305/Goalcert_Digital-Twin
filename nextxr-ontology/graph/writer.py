@@ -39,6 +39,7 @@ from rdflib.namespace import Namespace  # noqa: E402
 from graph.connection import get_driver  # noqa: E402
 from changelog.service import ChangeLog  # noqa: E402
 from graph.state_machine import validate_transition  # noqa: E402
+from bus import BusEvent, get_event_bus  # noqa: E402
 
 NXR = "https://ontology.nextxr.io/v3/core#"
 TAXONOMY_PRED = URIRef(NXR + "taxonomyCategory")
@@ -141,10 +142,37 @@ def _subject_iri(node_id: str) -> str:
 class GraphWriter:
     """The one component allowed to mutate the graph."""
 
-    def __init__(self, changelog: Optional[ChangeLog] = None):
-        self.driver = get_driver()
+    def __init__(self, changelog: Optional[ChangeLog] = None, bus=None):
         self.changelog = changelog or ChangeLog()
+        # The live fan-out bus. Defaults to the process-wide singleton (Redis if
+        # reachable, else in-memory). Publishing is best-effort and happens AFTER
+        # the Change Log append — the bus can never affect a write.
+        self.bus = bus if bus is not None else get_event_bus()
         self._label_cache: dict[str, Optional[str]] = {}
+
+    @property
+    def driver(self):
+        """Always resolve the live singleton driver. Never cache it at init —
+        the shared driver can be closed/recreated (e.g. when schema is applied),
+        and a stale reference would raise 'Driver closed'."""
+        return get_driver()
+
+    # ---- event-bus fan-out -------------------------------------------
+    def _publish_event(self, *, event_id, tenant_id, entity_id, entity_type,
+                       label, action, actor, ts, field_changes=None) -> None:
+        """Publish one committed mutation to the event bus. BEST-EFFORT: this
+        mirrors the Change Log event the write just produced, and must never
+        raise or affect the write. The Change Log remains the durable record."""
+        try:
+            self.bus.publish(BusEvent(
+                event_id=event_id, tenant_id=tenant_id, entity_id=entity_id,
+                entity_type=entity_type, label=label, action=action,
+                actor=actor, ts=ts, field_changes=field_changes,
+            ))
+        except Exception:
+            # Defensive: bus implementations already swallow their own errors,
+            # but the write path must be bulletproof regardless.
+            pass
 
     # ---- ontology label resolution -----------------------------------
     def resolve_label(self, canonical_type: str) -> Optional[str]:
@@ -320,6 +348,13 @@ class GraphWriter:
         # ---- STAMP changeLogRef back onto the node ----
         self._stamp_change_log_ref(tenant_id, node_id, ev.event_id)
 
+        # ---- PUBLISH to the live event bus (best-effort) ----
+        self._publish_event(
+            event_id=ev.event_id, tenant_id=tenant_id, entity_id=node_id,
+            entity_type=canonical_type, label=label, action="create",
+            actor=actor, ts=ev.ts, field_changes=field_changes,
+        )
+
         return WriteResult(ok=True, node_id=node_id, label=label,
                            canonical_type=canonical_type, event_id=ev.event_id)
 
@@ -366,12 +401,18 @@ class GraphWriter:
             s.execute_write(self._tx_relate, tenant_id, source_id, target_id,
                             rel_type, iri, props["updatedAt"])
 
+        rel_changes = {iri: {"old": None, "new": target_id}}
         ev = self.changelog.append(
             tenant_id=tenant_id, entity_id=source_id,
             entity_type=canonical_type, actor=actor, action="update",
-            field_changes={iri: {"old": None, "new": target_id}},
+            field_changes=rel_changes,
         )
         self._stamp_change_log_ref(tenant_id, source_id, ev.event_id)
+        self._publish_event(
+            event_id=ev.event_id, tenant_id=tenant_id, entity_id=source_id,
+            entity_type=canonical_type, label=label, action="update",
+            actor=actor, ts=ev.ts, field_changes=rel_changes,
+        )
         return WriteResult(ok=True, node_id=source_id, label=label,
                            canonical_type=canonical_type, event_id=ev.event_id)
 
@@ -485,6 +526,11 @@ class GraphWriter:
             field_changes=field_changes,
         )
         self._stamp_change_log_ref(tenant_id, node_id, ev.event_id)
+        self._publish_event(
+            event_id=ev.event_id, tenant_id=tenant_id, entity_id=node_id,
+            entity_type=canonical_type, label=label, action="update",
+            actor=actor, ts=ev.ts, field_changes=field_changes,
+        )
 
         return WriteResult(ok=True, node_id=node_id, label=label,
                            canonical_type=canonical_type, event_id=ev.event_id)
@@ -513,10 +559,15 @@ class GraphWriter:
 
         # Emit changelog
         field_changes = {k: {"old": v, "new": None} for k, v in snapshot.items()}
-        self.changelog.append(
+        ev = self.changelog.append(
             tenant_id=tenant_id, entity_id=node_id,
             entity_type=canonical_type, actor=actor, action="delete",
             field_changes=field_changes,
+        )
+        self._publish_event(
+            event_id=ev.event_id, tenant_id=tenant_id, entity_id=node_id,
+            entity_type=canonical_type, label=label, action="delete",
+            actor=actor, ts=ev.ts, field_changes=field_changes,
         )
 
         return WriteResult(ok=True, node_id=node_id, label=label,
