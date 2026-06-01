@@ -583,6 +583,38 @@ body {
 }
 
 .rel-target { font-weight: 500; }
+
+/* ── TOAST NOTIFICATIONS ────────────────────── */
+.toast-container {
+  position: fixed;
+  top: 56px;
+  right: 20px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  max-width: 380px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  animation: toast-in 0.25s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast.success { background: var(--green-bg); color: var(--green); border-left: 3px solid var(--green); }
+.toast.error { background: var(--red-bg); color: var(--red); border-left: 3px solid var(--red); }
+.toast.info { background: var(--blue-bg); color: var(--blue); border-left: 3px solid var(--blue); }
+
+@keyframes toast-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
 </style>
 </head>
 <body>
@@ -715,9 +747,20 @@ body {
   <div class="slideout-body" id="so-body"></div>
 </div>
 
+<div class="toast-container" id="toasts"></div>
+
 <script>
 const T = "demo-tenant";
 const A = "/api/v1";
+
+function toast(msg, type = "info") {
+  const container = document.getElementById("toasts");
+  const el = document.createElement("div");
+  el.className = "toast " + type;
+  el.textContent = msg;
+  container.appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; setTimeout(() => el.remove(), 300); }, 4000);
+}
 const hist = [];
 const MAX_H = 150;
 let prevSampleCount = -1;
@@ -771,7 +814,15 @@ async function pollFeed() {
 
     if (d.latest_value != null && d.samples_processed !== prevSampleCount) {
       prevSampleCount = d.samples_processed;
-      hist.push(d.latest_value);
+      // Only push if the value actually changed or is new (avoid loop reset dips)
+      const lastVal = hist.length ? hist[hist.length - 1] : null;
+      if (lastVal === null || Math.abs(d.latest_value - lastVal) < 10) {
+        hist.push(d.latest_value);
+      } else {
+        // Big jump means feed restarted — clear history
+        hist.length = 0;
+        hist.push(d.latest_value);
+      }
       if (hist.length > MAX_H) hist.shift();
 
       const v = d.latest_value.toFixed(1);
@@ -922,8 +973,8 @@ async function createEntity() {
   const nameEl = document.getElementById("create-name");
   const type = typeEl.value;
   const name = nameEl.value.trim();
-  if (!type) return alert("Select a type first");
-  if (!name) return alert("Enter a display name");
+  if (!type) { toast("Select a type first", "error"); return; }
+  if (!name) { toast("Enter a display name", "error"); return; }
 
   try {
     const r = await fetch(`${A}/entities`, {
@@ -939,20 +990,20 @@ async function createEntity() {
     const d = await r.json();
     if (r.ok) {
       nameEl.value = "";
-      poll(); // Refresh immediately
+      toast(`Created ${name}`, "success");
+      poll();
     } else {
-      alert("Create failed: " + (d.detail?.error || d.detail || JSON.stringify(d)));
+      toast(d.detail?.error || d.detail || "Create failed", "error");
     }
-  } catch (e) { alert("Error: " + e.message); }
+  } catch (e) { toast("Network error: " + e.message, "error"); }
 }
 
 async function deleteEntity(nodeId) {
-  if (!confirm("Delete this entity?")) return;
   try {
     const r = await fetch(`${A}/entities/${nodeId}?tenant=${T}&actor=dashboard`, { method: "DELETE" });
-    if (r.ok) { closeDetail(); poll(); }
-    else { const d = await r.json(); alert("Delete failed: " + (d.detail?.error || "")); }
-  } catch (e) { alert("Error: " + e.message); }
+    if (r.ok) { closeDetail(); toast("Entity deleted", "success"); poll(); }
+    else { const d = await r.json(); toast(d.detail?.error || "Delete failed", "error"); }
+  } catch (e) { toast("Network error", "error"); }
 }
 
 async function updateStatus(nodeId, newStatus) {
@@ -963,18 +1014,24 @@ async function updateStatus(nodeId, newStatus) {
       body: JSON.stringify({ tenant: T, actor: "dashboard", properties: { status: newStatus } }),
     });
     const d = await r.json();
-    if (r.ok) { openDetail(nodeId); poll(); }
-    else { alert("Status change failed: " + (d.detail?.error || d.detail || "")); }
-  } catch (e) { alert("Error: " + e.message); }
+    if (r.ok) { toast(`Status → ${newStatus}`, "success"); openDetail(nodeId); poll(); }
+    else { toast(d.detail?.error || d.detail || "Status change rejected", "error"); }
+  } catch (e) { toast("Network error", "error"); }
 }
 
 // ── Entities ──────────────────────────────────────
+// Entity list excludes Finding — those go in the Findings panel
+const ENTITY_CATEGORIES = ["PhysicalAsset", "Location", "Incident", "Process",
+  "Actor", "Capability", "Document", "MobileAsset", "Observation"];
+
 async function pollEntities() {
   try {
     let all = [];
-    for (const lb of categories) {
-      const d = await (await fetch(`${A}/entities?tenant=${T}&label=${lb}&limit=30`)).json();
-      for (const n of d.nodes) all.push({ ...n, _label: lb });
+    for (const lb of ENTITY_CATEGORIES) {
+      try {
+        const d = await (await fetch(`${A}/entities?tenant=${T}&label=${lb}&limit=30`)).json();
+        for (const n of d.nodes) all.push({ ...n, _label: lb });
+      } catch {}
     }
 
     const el = document.getElementById("ent-list");
