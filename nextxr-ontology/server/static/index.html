@@ -543,15 +543,29 @@
         const node = d.node;
         const rels = d.relationships || [];
 
+        const typeName = node.canonicalType ? node.canonicalType.split("#").pop() : "";
         document.getElementById("modal-title").textContent =
-          node.displayName || node.canonicalType?.split("#").pop() || nodeId;
+          (node.displayName || typeName || nodeId);
 
+        // Properties table — show important fields first, skip internal noise
+        const priority = ["displayName", "canonicalType", "status", "id", "tenantId",
+          "setpoint", "severity", "tier", "confidence", "message", "behaviorId",
+          "createdBy", "createdAt", "updatedAt", "changeLogRef"];
+        const shown = new Set();
         let html = '<table class="prop-table">';
-        const skip = new Set(["_label"]);
+        for (const k of priority) {
+          if (node[k] !== undefined && node[k] !== null) {
+            shown.add(k);
+            let v = node[k];
+            if (k === "canonicalType") v = v.split("#").pop();
+            if (typeof v === "string" && v.length > 80) v = v.substring(0, 80) + "...";
+            html += `<tr><td>${k}</td><td>${v}</td></tr>`;
+          }
+        }
         for (const [k, v] of Object.entries(node)) {
-          if (skip.has(k)) continue;
+          if (shown.has(k) || k === "_label") continue;
           let display = v;
-          if (typeof v === "string" && v.length > 60) display = v.substring(0, 60) + "...";
+          if (typeof display === "string" && display.length > 80) display = display.substring(0, 80) + "...";
           html += `<tr><td>${k}</td><td>${display}</td></tr>`;
         }
         html += '</table>';
@@ -560,7 +574,11 @@
           html += '<h3 style="margin:16px 0 8px;font-size:12px;color:var(--text-dim)">RELATIONSHIPS</h3>';
           html += '<ul class="rel-list">';
           for (const r of rels) {
-            html += `<li><span class="rel-type">${r.type || r.rel_type}</span> &rarr; ${r.target?.displayName || r.target_id || ""} <span style="color:var(--text-dim);font-size:10px">${(r.target?.id || r.target_id || "").substring(0, 8)}</span></li>`;
+            const relType = r.rel || r.type || r.rel_type || "";
+            const target = r.node || r.target || {};
+            const targetName = target.displayName || target.id?.substring(0, 12) || "";
+            const targetId = (target.id || "").substring(0, 8);
+            html += `<li><span class="rel-type">${relType}</span> &rarr; ${targetName} <span style="color:var(--text-dim);font-size:10px">${targetId}</span></li>`;
           }
           html += '</ul>';
         }
@@ -598,11 +616,12 @@
         el.innerHTML = d.findings.map(f => {
           const evidence = f.evidence ? `<div class="finding-evidence">${f.evidence}</div>` : '';
           const confidence = f.confidence ? ` | conf: ${(f.confidence * 100).toFixed(0)}%` : '';
+          const ts = f.createdAt ? new Date(f.createdAt).toLocaleTimeString() : '';
           return `
-            <div class="finding-row">
+            <div class="finding-row" onclick="showEntity('${f.id}')" style="cursor:pointer">
               <div class="finding-header">
                 <span class="severity-badge ${f.severity || 'info'}">${f.severity || 'info'}</span>
-                <span style="font-size:10px;color:var(--text-dim)">${f.tier || ''}</span>
+                <span style="font-size:10px;color:var(--text-dim)">Tier ${f.tier || '?'} | ${ts}</span>
               </div>
               <div class="finding-message">${f.displayName || f.message || ''}</div>
               <div class="finding-meta">${f.behaviorId || ''}${confidence}</div>
