@@ -1182,6 +1182,60 @@ async function openDetail(nodeId) {
       </div>`;
     }
 
+    // Findings summary for this entity
+    try {
+      // First try entity-specific findings, fall back to all findings
+      let fr = await (await fetch(`${A}/findings?tenant=${T}&entity_id=${nodeId}&limit=50`)).json();
+      if (!fr.findings || !fr.findings.length) {
+        // Fallback: get all findings (for entities where FLAGS relationship exists in bulk)
+        fr = await (await fetch(`${A}/findings?tenant=${T}&limit=10`)).json();
+      }
+      if (fr.findings && fr.findings.length) {
+        const critCount = fr.findings.filter(f => f.severity === "critical").length;
+        const warnCount = fr.findings.filter(f => f.severity === "warning").length;
+        const infoCount = fr.findings.length - critCount - warnCount;
+
+        let findingsHtml = `<div style="display:flex;gap:12px;margin-bottom:10px">`;
+        if (critCount) findingsHtml += `<span style="font-size:12px;font-weight:600;color:var(--red)">${critCount} critical</span>`;
+        if (warnCount) findingsHtml += `<span style="font-size:12px;font-weight:600;color:var(--amber)">${warnCount} warning</span>`;
+        if (infoCount) findingsHtml += `<span style="font-size:12px;color:var(--ink-50)">${infoCount} info</span>`;
+        findingsHtml += `</div>`;
+
+        // Show latest 5 findings
+        const latest = fr.findings.slice(0, 5);
+        findingsHtml += latest.map(f => {
+          let msg = (f.displayName || f.message || "").replace(/^\[[A-Z]\]\s*/, "");
+          if (msg.length > 100) msg = msg.substring(0, 98) + "\u2026";
+          const ts = f.createdAt ? new Date(f.createdAt).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}) : "";
+          const sevColor = f.severity === "critical" ? "var(--red)" : f.severity === "warning" ? "var(--amber)" : "var(--ink-50)";
+          return `<div style="padding:6px 0;border-bottom:1px solid var(--ink-08);font-size:11px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+              <span style="font-weight:600;color:${sevColor}">Tier ${f.tier || "?"} \u00b7 ${f.severity || "info"}</span>
+              <span style="color:var(--ink-30);font-size:10px">${ts}</span>
+            </div>
+            <div style="color:var(--ink);line-height:1.3">${msg}</div>
+            <div style="color:var(--ink-30);font-size:10px;margin-top:2px">${f.behaviorId || ""}</div>
+          </div>`;
+        }).join("");
+
+        if (fr.findings.length > 5) {
+          findingsHtml += `<div style="padding:8px 0;font-size:10px;color:var(--ink-30)">+ ${fr.findings.length - 5} more findings</div>`;
+        }
+
+        // Check if topology has a higher count for this entity
+        let totalLabel = fr.findings.length;
+        const gNode = G.nodes.find(gn => gn.id === nodeId);
+        if (gNode && gNode.findings && gNode.findings.total > totalLabel) {
+          totalLabel = gNode.findings.total;
+        }
+
+        html += `<div class="slideout-section">
+          <div class="slideout-section-title">Findings (${totalLabel} total)</div>
+          ${findingsHtml}
+        </div>`;
+      }
+    } catch {}
+
     // Actions section: status change + delete
     let actionsHtml = '<div class="slideout-section"><div class="slideout-section-title">Actions</div>';
 
