@@ -1228,16 +1228,16 @@ function closeDetail() {
 
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
 
-// ── Force-directed graph ──────────────────────────
+// ── Graph topology ────────────────────────────────
+// Infrastructure-only view. Findings shown as count badges on nodes.
 const G = { nodes: [], edges: [], running: false, hover: null };
 
 const CAT_STYLE = {
-  PhysicalAsset: { color: "#1a1714", r: 18, shape: "rect" },
-  Location:      { color: "#1d4ed8", r: 14, shape: "circle" },
-  Finding:       { color: "#b45309", r: 8,  shape: "diamond" },
-  Incident:      { color: "#c23616", r: 10, shape: "diamond" },
-  Process:       { color: "#7c3aed", r: 12, shape: "circle" },
-  Observation:   { color: "#0891b2", r: 8,  shape: "circle" },
+  PhysicalAsset: { color: "#1a1714", r: 24, shape: "rect" },
+  Location:      { color: "#1d4ed8", r: 20, shape: "circle" },
+  Incident:      { color: "#c23616", r: 16, shape: "diamond" },
+  Process:       { color: "#7c3aed", r: 16, shape: "circle" },
+  Observation:   { color: "#0891b2", r: 14, shape: "circle" },
   Actor:         { color: "#4f46e5", r: 12, shape: "circle" },
   Capability:    { color: "#059669", r: 10, shape: "circle" },
   Document:      { color: "#6b7280", r: 10, shape: "circle" },
@@ -1245,15 +1245,8 @@ const CAT_STYLE = {
 };
 
 function nodeLabel(n) {
-  // Short labels only: use displayName for assets/locations, category for findings
-  if (n.label === "Finding") {
-    const sev = n.severity === "critical" ? "CRIT" : "WARN";
-    return `${sev} Finding`;
-  }
-  if (n.label === "Incident") return "Incident";
   if (n.displayName) {
-    // Truncate long names
-    return n.displayName.length > 18 ? n.displayName.substring(0, 16) + ".." : n.displayName;
+    return n.displayName.length > 20 ? n.displayName.substring(0, 18) + ".." : n.displayName;
   }
   return n.label;
 }
@@ -1261,8 +1254,9 @@ function nodeLabel(n) {
 async function pollGraph() {
   try {
     const d = await (await fetch(`${A}/topology?tenant=${T}`)).json();
+    const totalFindings = Object.values(d.finding_counts || {}).reduce((s, c) => s + (c.total || 0), 0);
     document.getElementById("graph-count").textContent =
-      `${d.nodes.length} nodes \u00b7 ${d.edges.length} edges`;
+      `${d.nodes.length} nodes \u00b7 ${d.edges.length} edges \u00b7 ${totalFindings} findings`;
 
     const sig = d.nodes.map(n => n.id).sort().join(",") + "|" + d.edges.length;
     if (G._sig === sig) return;
@@ -1271,55 +1265,25 @@ async function pollGraph() {
     const canvas = document.getElementById("graph-canvas");
     const W = canvas.parentElement.clientWidth;
     const H = canvas.parentElement.clientHeight;
-
-    // Layout: place infrastructure nodes in a structured way, findings orbit
-    const infra = d.nodes.filter(n => n.label !== "Finding" && n.label !== "Incident");
-    const findings = d.nodes.filter(n => n.label === "Finding" || n.label === "Incident");
     const cx = W / 2, cy = H / 2;
 
     const prev = {};
     for (const n of G.nodes) prev[n.id] = n;
 
-    const allNodes = [];
-
-    // Infrastructure: spread evenly across center
-    const spacing = Math.min(W, H) * 0.25;
-    infra.forEach((n, i) => {
-      const angle = (i / Math.max(infra.length, 1)) * Math.PI * 2 - Math.PI / 2;
+    // Place nodes in a circle — simple, clean, readable
+    const spacing = Math.min(W, H) * 0.3;
+    G.nodes = d.nodes.map((n, i) => {
+      const angle = (i / Math.max(d.nodes.length, 1)) * Math.PI * 2 - Math.PI / 2;
       const p = prev[n.id];
-      allNodes.push({
+      const style = CAT_STYLE[n.label] || CAT_STYLE.Document;
+      return {
         ...n,
         x: p ? p.x : cx + Math.cos(angle) * spacing,
         y: p ? p.y : cy + Math.sin(angle) * spacing,
         vx: 0, vy: 0,
-        r: (CAT_STYLE[n.label] || CAT_STYLE.Document).r,
-      });
+        r: style.r,
+      };
     });
-
-    // Findings: place near their flagged target
-    const edgeMap = {};
-    for (const e of d.edges) {
-      if (e.type === "FLAGS") edgeMap[e.source] = e.target;
-    }
-
-    findings.forEach((n, i) => {
-      const targetId = edgeMap[n.id];
-      const target = allNodes.find(a => a.id === targetId);
-      const p = prev[n.id];
-      const bx = target ? target.x : cx;
-      const by = target ? target.y : cy;
-      const jitter = 40 + i * 15;
-      const angle = (i / Math.max(findings.length, 1)) * Math.PI * 2;
-      allNodes.push({
-        ...n,
-        x: p ? p.x : bx + Math.cos(angle) * jitter,
-        y: p ? p.y : by + Math.sin(angle) * jitter,
-        vx: 0, vy: 0,
-        r: (CAT_STYLE[n.label] || CAT_STYLE.Document).r,
-      });
-    });
-
-    G.nodes = allNodes;
     G.edges = d.edges;
 
     if (!G.running) {
@@ -1403,62 +1367,77 @@ function renderGraph(canvas, W, H, nodes, edges, map) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  // Edges
+  if (!nodes.length) {
+    ctx.fillStyle = "#b8b3ac";
+    ctx.font = "12px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Start the feed to populate the graph", W / 2, H / 2);
+    return;
+  }
+
+  // Edges — clean lines with subtle arrows
   for (const e of edges) {
     const s = map[e.source], t = map[e.target];
     if (!s || !t) continue;
 
     const angle = Math.atan2(t.y - s.y, t.x - s.x);
-    const sx = s.x + Math.cos(angle) * s.r;
-    const sy = s.y + Math.sin(angle) * s.r;
-    const tx = t.x - Math.cos(angle) * t.r;
-    const ty = t.y - Math.sin(angle) * t.r;
+    const sx = s.x + Math.cos(angle) * (s.r + 2);
+    const sy = s.y + Math.sin(angle) * (s.r + 2);
+    const tx = t.x - Math.cos(angle) * (t.r + 2);
+    const ty = t.y - Math.sin(angle) * (t.r + 2);
 
     ctx.beginPath();
     ctx.moveTo(sx, sy);
     ctx.lineTo(tx, ty);
-    ctx.strokeStyle = e.type === "FLAGS" ? "rgba(180,83,9,0.3)" : "rgba(26,23,20,0.1)";
-    ctx.lineWidth = e.type === "FLAGS" ? 1.5 : 1;
+    ctx.strokeStyle = "rgba(26,23,20,0.15)";
+    ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Small arrow at target end
-    const aLen = 5;
+    // Arrow
+    const aLen = 7;
     ctx.beginPath();
     ctx.moveTo(tx, ty);
-    ctx.lineTo(tx - aLen * Math.cos(angle - 0.35), ty - aLen * Math.sin(angle - 0.35));
-    ctx.lineTo(tx - aLen * Math.cos(angle + 0.35), ty - aLen * Math.sin(angle + 0.35));
+    ctx.lineTo(tx - aLen * Math.cos(angle - 0.3), ty - aLen * Math.sin(angle - 0.3));
+    ctx.lineTo(tx - aLen * Math.cos(angle + 0.3), ty - aLen * Math.sin(angle + 0.3));
     ctx.closePath();
-    ctx.fillStyle = e.type === "FLAGS" ? "rgba(180,83,9,0.35)" : "rgba(26,23,20,0.15)";
+    ctx.fillStyle = "rgba(26,23,20,0.2)";
     ctx.fill();
+
+    // Edge label at midpoint
+    const mx = (sx + tx) / 2, my = (sy + ty) / 2;
+    ctx.font = "8px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "rgba(26,23,20,0.3)";
+    ctx.fillText(e.type.replace(/_/g, " "), mx, my - 5);
   }
 
   // Nodes
   for (const n of nodes) {
     const style = CAT_STYLE[n.label] || CAT_STYLE.Document;
     const isHover = G.hover === n.id;
+    const fc = n.findings;
+    const hasCrit = fc && fc.critical > 0;
+    const hasFindings = fc && fc.total > 0;
 
-    // Critical finding pulse
-    if (n.label === "Finding" && n.severity === "critical") {
+    // Outer glow ring if has findings
+    if (hasFindings) {
       ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r + 6, 0, Math.PI * 2);
-      ctx.fillStyle = "rgba(194,54,22,0.1)";
+      ctx.arc(n.x, n.y, n.r + 8, 0, Math.PI * 2);
+      ctx.fillStyle = hasCrit ? "rgba(194,54,22,0.08)" : "rgba(180,83,9,0.06)";
       ctx.fill();
     }
 
     ctx.save();
-
     if (style.shape === "rect") {
-      // Rounded rect for assets
-      const hw = n.r, hh = n.r * 0.7;
+      const hw = n.r, hh = n.r * 0.65;
       ctx.beginPath();
-      roundRect(ctx, n.x - hw, n.y - hh, hw * 2, hh * 2, 3);
+      roundRect(ctx, n.x - hw, n.y - hh, hw * 2, hh * 2, 4);
       ctx.fillStyle = isHover ? style.color : "#fff";
       ctx.fill();
-      ctx.strokeStyle = style.color;
-      ctx.lineWidth = isHover ? 2.5 : 1.5;
+      ctx.strokeStyle = hasCrit ? "#c23616" : style.color;
+      ctx.lineWidth = isHover ? 3 : hasCrit ? 2 : 1.5;
       ctx.stroke();
     } else if (style.shape === "diamond") {
-      // Diamond for findings
       const s = n.r;
       ctx.beginPath();
       ctx.moveTo(n.x, n.y - s);
@@ -1466,34 +1445,55 @@ function renderGraph(canvas, W, H, nodes, edges, map) {
       ctx.lineTo(n.x, n.y + s);
       ctx.lineTo(n.x - s, n.y);
       ctx.closePath();
-      ctx.fillStyle = n.severity === "critical" ? "#c23616" : style.color;
+      ctx.fillStyle = isHover ? style.color : "#fff";
       ctx.fill();
-      if (isHover) { ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke(); }
+      ctx.strokeStyle = style.color;
+      ctx.lineWidth = isHover ? 3 : 1.5;
+      ctx.stroke();
     } else {
-      // Circle for locations/others
       ctx.beginPath();
       ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
       ctx.fillStyle = isHover ? style.color : "#fff";
       ctx.fill();
       ctx.strokeStyle = style.color;
-      ctx.lineWidth = isHover ? 2.5 : 1.5;
+      ctx.lineWidth = isHover ? 3 : 1.5;
       ctx.stroke();
     }
-
     ctx.restore();
 
-    // Label below node
-    const lbl = nodeLabel(n);
-    ctx.font = (isHover ? "600 " : "") + "10px -apple-system, sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillStyle = isHover ? style.color : "#1a1714";
-    ctx.fillText(lbl, n.x, n.y + n.r + 14);
+    // Finding count badge (top-right of node)
+    if (hasFindings) {
+      const bx = n.x + n.r - 2, by = n.y - n.r + 2;
+      const br = Math.max(8, 5 + String(fc.total).length * 3);
+      ctx.beginPath();
+      ctx.arc(bx, by, br, 0, Math.PI * 2);
+      ctx.fillStyle = hasCrit ? "#c23616" : "#b45309";
+      ctx.fill();
+      ctx.font = "bold 9px -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#fff";
+      ctx.fillText(fc.total, bx, by + 3);
+    }
 
-    // Category tag above node (only for infrastructure)
-    if (n.label !== "Finding" && n.label !== "Incident") {
-      ctx.font = "8px -apple-system, sans-serif";
-      ctx.fillStyle = style.color + "88";
-      ctx.fillText(n.label.toUpperCase(), n.x, n.y - n.r - 6);
+    // Category label above
+    ctx.font = "8px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = style.color + "77";
+    ctx.fillText(n.label.toUpperCase(), n.x, n.y - n.r - 8);
+
+    // Name below
+    const lbl = nodeLabel(n);
+    ctx.font = (isHover ? "600 " : "500 ") + "11px -apple-system, sans-serif";
+    ctx.fillStyle = isHover ? style.color : "#1a1714";
+    ctx.fillText(lbl, n.x, n.y + n.r + 16);
+
+    // Status below name
+    if (n.status) {
+      ctx.font = "9px -apple-system, sans-serif";
+      ctx.fillStyle = n.status === "running" ? "#1b7a3d" :
+                      n.status === "fault" ? "#c23616" :
+                      n.status === "degraded" ? "#b45309" : "#8a857e";
+      ctx.fillText(n.status, n.x, n.y + n.r + 28);
     }
   }
 }

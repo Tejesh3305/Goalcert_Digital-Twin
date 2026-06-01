@@ -186,49 +186,77 @@ def stats(tenant: str):
 # ── Health ──────────────────────────────────────────────────────────
 
 @router.get("/topology")
-def topology(tenant: str, limit: int = 200):
-    """Return all nodes and edges for the tenant, suitable for graph visualization."""
+def topology(tenant: str):
+    """Return infrastructure nodes + edges with finding counts per entity.
+    Findings are NOT returned as nodes — they're aggregated as counts on
+    the entities they flag, keeping the graph clean and readable."""
     driver = get_driver()
     nodes = []
     edges = []
     seen = set()
 
-    with driver.session() as s:
-        # Get all nodes (across labels)
-        recs = s.run(
-            "MATCH (n {tenantId:$t}) RETURN labels(n) AS labels, properties(n) AS p "
-            "ORDER BY n.createdAt LIMIT $lim",
-            t=tenant, lim=limit,
-        )
-        for r in recs:
-            props = dict(r["p"])
-            nid = props.get("id")
-            if nid and nid not in seen:
-                seen.add(nid)
-                label_list = [lb for lb in r["labels"] if lb in LEGAL_LABELS]
-                nodes.append({
-                    "id": nid,
-                    "label": label_list[0] if label_list else "Unknown",
-                    "displayName": props.get("displayName", ""),
-                    "status": props.get("status"),
-                    "severity": props.get("severity"),
-                })
+    # Categories that are "infrastructure" (not findings)
+    infra_labels = {"PhysicalAsset", "Location", "Incident", "Process",
+                    "Actor", "Capability", "Document", "MobileAsset", "Observation"}
 
-        # Get all edges
+    with driver.session() as s:
+        # Get infrastructure nodes only
+        for label in infra_labels:
+            recs = s.run(
+                f"MATCH (n:{label} {{tenantId:$t}}) "
+                f"RETURN properties(n) AS p LIMIT 50",
+                t=tenant,
+            )
+            for r in recs:
+                props = dict(r["p"])
+                nid = props.get("id")
+                if nid and nid not in seen:
+                    seen.add(nid)
+                    nodes.append({
+                        "id": nid,
+                        "label": label,
+                        "displayName": props.get("displayName", ""),
+                        "status": props.get("status"),
+                        "severity": props.get("severity"),
+                    })
+
+        # Count findings per flagged entity
+        recs = s.run(
+            "MATCH (f:Finding {tenantId:$t})-[:FLAGS]->(e) "
+            "RETURN e.id AS entity_id, f.severity AS sev, count(f) AS cnt",
+            t=tenant,
+        )
+        finding_counts: dict = {}  # entity_id -> {critical: N, warning: N}
+        for r in recs:
+            eid = r["entity_id"]
+            if eid not in finding_counts:
+                finding_counts[eid] = {"critical": 0, "warning": 0, "total": 0}
+            sev = r["sev"] or "info"
+            finding_counts[eid][sev] = finding_counts[eid].get(sev, 0) + r["cnt"]
+            finding_counts[eid]["total"] += r["cnt"]
+
+        # Attach finding counts to nodes
+        for n in nodes:
+            fc = finding_counts.get(n["id"])
+            if fc:
+                n["findings"] = fc
+
+        # Get edges between infrastructure nodes only
         recs = s.run(
             "MATCH (a {tenantId:$t})-[r]->(b {tenantId:$t}) "
-            "RETURN a.id AS src, type(r) AS rel, b.id AS tgt LIMIT $lim",
-            t=tenant, lim=limit * 3,
+            "WHERE NOT 'Finding' IN labels(a) AND NOT 'Finding' IN labels(b) "
+            "RETURN a.id AS src, type(r) AS rel, b.id AS tgt LIMIT 200",
+            t=tenant,
         )
         for r in recs:
-            if r["src"] and r["tgt"]:
+            if r["src"] and r["tgt"] and r["src"] in seen and r["tgt"] in seen:
                 edges.append({
                     "source": r["src"],
                     "target": r["tgt"],
                     "type": r["rel"],
                 })
 
-    return {"nodes": nodes, "edges": edges}
+    return {"nodes": nodes, "edges": edges, "finding_counts": finding_counts}
 
 
 @router.get("/health")
