@@ -17,6 +17,7 @@
       --yellow: #eab308;
       --red: #ef4444;
       --orange: #f97316;
+      --purple: #8b5cf6;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -31,317 +32,266 @@
     header {
       background: var(--surface);
       border-bottom: 1px solid var(--border);
-      padding: 16px 24px;
+      padding: 14px 24px;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
 
-    header h1 {
-      font-size: 18px;
-      font-weight: 600;
-      letter-spacing: 1px;
-    }
-
+    header h1 { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
     header h1 span { color: var(--accent); }
 
     .header-right {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      font-size: 12px;
-      color: var(--text-dim);
+      display: flex; align-items: center; gap: 16px;
+      font-size: 12px; color: var(--text-dim);
     }
 
     .status-dot {
-      display: inline-block;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      margin-right: 6px;
+      display: inline-block; width: 8px; height: 8px;
+      border-radius: 50%; margin-right: 6px;
     }
-
     .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
     .status-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
     .status-dot.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
 
-    .container {
-      max-width: 1400px;
-      margin: 0 auto;
-      padding: 20px;
-    }
+    .container { max-width: 1440px; margin: 0 auto; padding: 20px; }
 
     /* KPI cards */
     .kpi-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 20px;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 10px; margin-bottom: 16px;
     }
 
     .kpi-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 16px;
-      text-align: center;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 14px; text-align: center;
     }
-
-    .kpi-card .value {
-      font-size: 32px;
-      font-weight: 700;
-      color: var(--accent);
-    }
-
+    .kpi-card .value { font-size: 28px; font-weight: 700; color: var(--accent); }
     .kpi-card .label {
-      font-size: 11px;
-      color: var(--text-dim);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-top: 4px;
+      font-size: 10px; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: 1px; margin-top: 2px;
     }
-
     .kpi-card.critical .value { color: var(--red); }
     .kpi-card.warning .value { color: var(--yellow); }
     .kpi-card.ok .value { color: var(--green); }
 
-    /* Main grid */
-    .main-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
-
-    @media (max-width: 900px) {
-      .main-grid { grid-template-columns: 1fr; }
-    }
-
+    /* Panels */
     .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      overflow: hidden;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden;
     }
 
     .panel-header {
-      background: var(--surface2);
-      padding: 12px 16px;
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      border-bottom: 1px solid var(--border);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      background: var(--surface2); padding: 10px 16px;
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 1px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
     }
 
     .panel-body {
-      padding: 0;
-      max-height: 400px;
-      overflow-y: auto;
+      padding: 0; max-height: 380px; overflow-y: auto;
     }
-
     .panel-body::-webkit-scrollbar { width: 4px; }
     .panel-body::-webkit-scrollbar-track { background: var(--surface); }
     .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
-    /* Entity list */
-    .entity-row {
-      display: flex;
-      align-items: center;
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--border);
-      font-size: 13px;
-      transition: background 0.15s;
+    /* Layout grids */
+    .main-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+    }
+    @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+    .full-width { grid-column: 1 / -1; }
+    .mb { margin-bottom: 14px; }
+
+    /* Feed controls */
+    .feed-bar {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
     }
 
+    button {
+      background: var(--accent); color: #fff; border: none;
+      padding: 7px 14px; border-radius: 6px; font-family: inherit;
+      font-size: 11px; cursor: pointer; font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.stop { background: var(--red); }
+    button.small { padding: 4px 10px; font-size: 10px; border-radius: 4px; }
+
+    .feed-stat { font-size: 12px; color: var(--text-dim); }
+    .feed-stat strong { color: var(--text); }
+
+    /* Temperature chart */
+    .chart-area {
+      padding: 16px; height: 140px; position: relative;
+    }
+    .chart-canvas { width: 100%; height: 100%; }
+
+    /* Entity rows */
+    .entity-row {
+      display: flex; align-items: center; padding: 9px 16px;
+      border-bottom: 1px solid var(--border); font-size: 12px;
+      transition: background 0.15s; cursor: pointer;
+    }
     .entity-row:hover { background: var(--surface2); }
     .entity-row:last-child { border-bottom: none; }
 
     .entity-label {
-      background: var(--accent);
-      color: #fff;
-      font-size: 10px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      margin-right: 12px;
-      min-width: 90px;
-      text-align: center;
-      font-weight: 600;
+      background: var(--accent); color: #fff; font-size: 9px;
+      padding: 2px 7px; border-radius: 4px; margin-right: 10px;
+      min-width: 85px; text-align: center; font-weight: 600;
     }
-
     .entity-label.Location { background: #6366f1; }
     .entity-label.Finding { background: var(--orange); }
     .entity-label.Incident { background: var(--red); }
-    .entity-label.Process { background: #8b5cf6; }
+    .entity-label.Process { background: var(--purple); }
 
     .entity-name { flex: 1; }
-    .entity-id { color: var(--text-dim); font-size: 11px; }
-
-    /* Findings */
-    .finding-row {
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      font-size: 12px;
+    .entity-id { color: var(--text-dim); font-size: 10px; }
+    .entity-status {
+      font-size: 9px; padding: 2px 6px; border-radius: 3px;
+      margin-left: 8px; font-weight: 600;
     }
+    .entity-status.running { background: var(--green); color: #000; }
+    .entity-status.active { background: var(--yellow); color: #000; }
 
+    /* Finding rows */
+    .finding-row {
+      padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px;
+    }
     .finding-row:last-child { border-bottom: none; }
 
     .finding-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 4px;
+      display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;
     }
 
     .severity-badge {
-      font-size: 10px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 700;
-      text-transform: uppercase;
+      font-size: 9px; padding: 2px 7px; border-radius: 4px;
+      font-weight: 700; text-transform: uppercase;
     }
-
     .severity-badge.critical { background: var(--red); color: #fff; }
     .severity-badge.warning { background: var(--yellow); color: #000; }
     .severity-badge.info { background: var(--accent); color: #fff; }
 
-    .finding-message { color: var(--text); margin-top: 4px; }
-    .finding-meta { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
-
-    /* Feed */
-    .feed-controls {
-      padding: 16px;
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      border-bottom: 1px solid var(--border);
+    .finding-message { color: var(--text); margin-top: 3px; }
+    .finding-meta { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
+    .finding-evidence {
+      margin-top: 6px; padding: 6px 10px; background: var(--surface2);
+      border-radius: 4px; font-size: 10px; color: var(--text-dim);
     }
 
-    button {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      padding: 8px 16px;
-      border-radius: 6px;
-      font-family: inherit;
-      font-size: 12px;
-      cursor: pointer;
-      font-weight: 600;
-      transition: opacity 0.15s;
-    }
-
-    button:hover { opacity: 0.85; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    button.stop { background: var(--red); }
-
-    .feed-stat {
-      font-size: 12px;
-      color: var(--text-dim);
-    }
-
-    .feed-stat strong { color: var(--text); }
-
-    /* Changelog */
+    /* Changelog rows */
     .event-row {
-      display: flex;
-      align-items: center;
-      padding: 8px 16px;
-      border-bottom: 1px solid var(--border);
-      font-size: 12px;
-      gap: 12px;
+      display: flex; align-items: center; padding: 7px 16px;
+      border-bottom: 1px solid var(--border); font-size: 11px; gap: 10px;
     }
-
     .event-row:last-child { border-bottom: none; }
 
     .event-action {
-      font-size: 10px;
-      padding: 2px 6px;
-      border-radius: 3px;
-      font-weight: 700;
-      min-width: 55px;
-      text-align: center;
+      font-size: 9px; padding: 2px 6px; border-radius: 3px;
+      font-weight: 700; min-width: 50px; text-align: center;
     }
-
     .event-action.create { background: var(--green); color: #000; }
     .event-action.update { background: var(--accent); color: #fff; }
     .event-action.delete { background: var(--red); color: #fff; }
 
-    .event-actor { color: var(--text-dim); min-width: 100px; }
-    .event-entity { flex: 1; }
-    .event-time { color: var(--text-dim); font-size: 11px; }
+    .event-actor { color: var(--text-dim); min-width: 80px; }
+    .event-entity { flex: 1; font-family: inherit; }
+    .event-time { color: var(--text-dim); font-size: 10px; }
 
-    .empty { padding: 24px; text-align: center; color: var(--text-dim); font-size: 13px; }
+    .empty { padding: 20px; text-align: center; color: var(--text-dim); font-size: 12px; }
 
-    /* Live temp display */
-    .temp-display {
-      text-align: center;
-      padding: 20px;
+    /* Detail modal */
+    .modal-overlay {
+      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; width: 600px; max-width: 90vw; max-height: 80vh;
+      overflow-y: auto; padding: 0;
+    }
+    .modal-header {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .modal-header h2 { font-size: 14px; font-weight: 600; }
+    .modal-close {
+      background: none; border: none; color: var(--text-dim);
+      font-size: 18px; cursor: pointer; padding: 0;
+    }
+    .modal-close:hover { color: var(--text); }
+
+    .modal-body { padding: 16px 20px; }
+
+    .prop-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .prop-table td {
+      padding: 6px 8px; border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+    .prop-table td:first-child {
+      color: var(--text-dim); width: 140px; font-weight: 600;
     }
 
-    .temp-value {
-      font-size: 48px;
-      font-weight: 700;
-    }
-
-    .temp-value.normal { color: var(--green); }
-    .temp-value.elevated { color: var(--yellow); }
-    .temp-value.critical { color: var(--red); }
-
-    .temp-label {
+    .rel-list { list-style: none; padding: 0; }
+    .rel-list li {
+      padding: 6px 0; border-bottom: 1px solid var(--border);
       font-size: 12px;
-      color: var(--text-dim);
-      margin-top: 4px;
     }
-
-    .full-width {
-      grid-column: 1 / -1;
-    }
+    .rel-type { color: var(--accent); font-weight: 600; margin-right: 8px; }
   </style>
 </head>
 <body>
   <header>
     <h1>NEXT<span>XR</span> DIGITAL TWIN</h1>
     <div class="header-right">
-      <span id="neo4j-status"><span class="status-dot" id="health-dot"></span>Neo4j</span>
-      <span id="tenant-display">tenant: demo-tenant</span>
+      <span><span class="status-dot" id="health-dot"></span>Neo4j</span>
+      <span>tenant: demo-tenant</span>
       <span id="clock"></span>
     </div>
   </header>
 
   <div class="container">
-    <!-- KPI Row -->
+    <!-- KPIs -->
     <div class="kpi-row">
       <div class="kpi-card ok">
         <div class="value" id="kpi-entities">--</div>
-        <div class="label">Total Entities</div>
+        <div class="label">Entities</div>
       </div>
       <div class="kpi-card">
         <div class="value" id="kpi-assets">--</div>
-        <div class="label">Physical Assets</div>
+        <div class="label">Assets</div>
       </div>
-      <div class="kpi-card warning" id="kpi-findings-card">
+      <div class="kpi-card">
+        <div class="value" id="kpi-locations">--</div>
+        <div class="label">Locations</div>
+      </div>
+      <div class="kpi-card warning">
         <div class="value" id="kpi-findings">--</div>
-        <div class="label">Active Findings</div>
+        <div class="label">Findings</div>
       </div>
-      <div class="kpi-card critical" id="kpi-incidents-card">
-        <div class="value" id="kpi-incidents">--</div>
-        <div class="label">Incidents</div>
+      <div class="kpi-card critical">
+        <div class="value" id="kpi-critical">--</div>
+        <div class="label">Critical</div>
       </div>
       <div class="kpi-card">
         <div class="value" id="kpi-events">--</div>
-        <div class="label">Changelog Events</div>
+        <div class="label">Log Events</div>
       </div>
     </div>
 
-    <!-- Feed Controls + Live Temp -->
-    <div class="panel full-width" style="margin-bottom: 16px;">
+    <!-- Feed + Temperature Chart -->
+    <div class="panel full-width mb">
       <div class="panel-header">
         Live Feed
         <span class="feed-stat" id="feed-info"></span>
       </div>
-      <div class="feed-controls">
+      <div class="feed-bar">
         <button id="btn-start" onclick="startFeed()">Start Feed</button>
         <button id="btn-stop" class="stop" onclick="stopFeed()" disabled>Stop</button>
         <div class="feed-stat">
@@ -349,6 +299,9 @@
           Findings: <strong id="feed-findings">0</strong> |
           Temp: <strong id="feed-temp">--</strong>
         </div>
+      </div>
+      <div class="chart-area">
+        <canvas id="temp-chart" class="chart-canvas"></canvas>
       </div>
     </div>
 
@@ -358,7 +311,7 @@
       <div class="panel">
         <div class="panel-header">
           Entities
-          <span style="font-size: 11px; color: var(--text-dim); font-weight: 400;" id="entity-count"></span>
+          <span style="font-size:10px;color:var(--text-dim);font-weight:400" id="entity-count"></span>
         </div>
         <div class="panel-body" id="entity-list">
           <div class="empty">No entities. Start the feed to seed data.</div>
@@ -369,7 +322,7 @@
       <div class="panel">
         <div class="panel-header">
           Findings
-          <span style="font-size: 11px; color: var(--text-dim); font-weight: 400;" id="finding-count"></span>
+          <span style="font-size:10px;color:var(--text-dim);font-weight:400" id="finding-count"></span>
         </div>
         <div class="panel-body" id="finding-list">
           <div class="empty">No findings yet.</div>
@@ -380,7 +333,7 @@
       <div class="panel full-width">
         <div class="panel-header">
           Change Log
-          <span style="font-size: 11px; color: var(--text-dim); font-weight: 400;" id="event-count"></span>
+          <span style="font-size:10px;color:var(--text-dim);font-weight:400" id="event-count"></span>
         </div>
         <div class="panel-body" id="changelog-list">
           <div class="empty">No events yet.</div>
@@ -389,58 +342,174 @@
     </div>
   </div>
 
+  <!-- Entity Detail Modal -->
+  <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="modal-title">Entity Detail</h2>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
   <script>
     const TENANT = "demo-tenant";
     const API = "/api/v1";
-    let polling = null;
+
+    // Temperature history for chart
+    const tempHistory = [];
+    const MAX_POINTS = 120;
 
     // Clock
     setInterval(() => {
       document.getElementById("clock").textContent = new Date().toLocaleTimeString();
     }, 1000);
 
-    // Health check
+    // ── Chart drawing ─────────────────────────────────────────────
+    function drawChart() {
+      const canvas = document.getElementById("temp-chart");
+      if (!canvas) return;
+      const ctx = canvas.getContext("2d");
+      const dpr = window.devicePixelRatio || 1;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      canvas.style.width = rect.width + "px";
+      canvas.style.height = rect.height + "px";
+      ctx.scale(dpr, dpr);
+
+      const W = rect.width;
+      const H = rect.height;
+      const PAD = { top: 10, right: 50, bottom: 20, left: 10 };
+      const cw = W - PAD.left - PAD.right;
+      const ch = H - PAD.top - PAD.bottom;
+
+      ctx.clearRect(0, 0, W, H);
+
+      if (tempHistory.length < 2) {
+        ctx.fillStyle = "#556677";
+        ctx.font = "12px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("Waiting for feed data...", W / 2, H / 2);
+        return;
+      }
+
+      const values = tempHistory.map(p => p.value);
+      const minV = Math.min(...values, 18);
+      const maxV = Math.max(...values, 30);
+      const range = maxV - minV || 1;
+
+      const toX = i => PAD.left + (i / (MAX_POINTS - 1)) * cw;
+      const toY = v => PAD.top + ch - ((v - minV) / range) * ch;
+
+      // Setpoint line at 22C
+      const spY = toY(22);
+      ctx.strokeStyle = "#334455";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, spY);
+      ctx.lineTo(PAD.left + cw, spY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "#556677";
+      ctx.font = "9px monospace";
+      ctx.textAlign = "left";
+      ctx.fillText("setpoint 22C", PAD.left + cw + 4, spY + 3);
+
+      // Warning threshold at 25C
+      const warnY = toY(25);
+      ctx.strokeStyle = "#554400";
+      ctx.setLineDash([2, 3]);
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, warnY);
+      ctx.lineTo(PAD.left + cw, warnY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText("warn 25C", PAD.left + cw + 4, warnY + 3);
+
+      // Temperature line
+      const offset = MAX_POINTS - tempHistory.length;
+      ctx.beginPath();
+      for (let i = 0; i < tempHistory.length; i++) {
+        const x = toX(i + offset);
+        const y = toY(tempHistory[i].value);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = "#3b82f6";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Gradient fill under the line
+      const gradient = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + ch);
+      gradient.addColorStop(0, "rgba(59, 130, 246, 0.3)");
+      gradient.addColorStop(1, "rgba(59, 130, 246, 0.0)");
+      ctx.lineTo(toX(tempHistory.length - 1 + offset), PAD.top + ch);
+      ctx.lineTo(toX(offset), PAD.top + ch);
+      ctx.closePath();
+      ctx.fillStyle = gradient;
+      ctx.fill();
+
+      // Current value label
+      const last = tempHistory[tempHistory.length - 1].value;
+      const lastX = toX(MAX_POINTS - 1);
+      const lastY = toY(last);
+      ctx.beginPath();
+      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+      ctx.fillStyle = last > 25 ? "#ef4444" : last > 23 ? "#eab308" : "#22c55e";
+      ctx.fill();
+      ctx.fillStyle = ctx.fillStyle;
+      ctx.font = "bold 11px monospace";
+      ctx.textAlign = "right";
+      ctx.fillText(last.toFixed(1) + "C", lastX - 8, lastY - 8);
+
+      // Y-axis labels
+      ctx.fillStyle = "#556677";
+      ctx.font = "9px monospace";
+      ctx.textAlign = "right";
+      for (let v = Math.ceil(minV); v <= Math.floor(maxV); v += 2) {
+        ctx.fillText(v + "", PAD.left + cw + 42, toY(v) + 3);
+      }
+    }
+
+    // ── Health ─────────────────────────────────────────────────────
     async function checkHealth() {
       try {
         const r = await fetch(`${API}/health`);
-        const dot = document.getElementById("health-dot");
-        if (r.ok) {
-          dot.className = "status-dot green";
-        } else {
-          dot.className = "status-dot red";
-        }
+        document.getElementById("health-dot").className =
+          "status-dot " + (r.ok ? "green" : "red");
       } catch {
         document.getElementById("health-dot").className = "status-dot red";
       }
     }
 
-    // KPIs
+    // ── Stats ──────────────────────────────────────────────────────
     async function updateStats() {
       try {
         const r = await fetch(`${API}/stats?tenant=${TENANT}`);
         if (!r.ok) return;
         const d = await r.json();
-
         document.getElementById("kpi-entities").textContent = d.total_entities || 0;
         document.getElementById("kpi-assets").textContent = d.entity_counts?.PhysicalAsset || 0;
+        document.getElementById("kpi-locations").textContent = d.entity_counts?.Location || 0;
         document.getElementById("kpi-findings").textContent = d.total_findings || 0;
-        document.getElementById("kpi-incidents").textContent = d.entity_counts?.Incident || 0;
+        document.getElementById("kpi-critical").textContent = d.finding_severity?.critical || 0;
         document.getElementById("kpi-events").textContent = d.changelog_events || 0;
       } catch {}
     }
 
-    // Entities
+    // ── Entities ───────────────────────────────────────────────────
     async function updateEntities() {
       try {
-        const labels = ["PhysicalAsset", "Location", "Finding", "Incident", "Process", "Capability"];
+        const labels = ["PhysicalAsset", "Location", "Finding", "Incident", "Process"];
         let allNodes = [];
         for (const label of labels) {
-          const r = await fetch(`${API}/entities?tenant=${TENANT}&label=${label}&limit=20`);
+          const r = await fetch(`${API}/entities?tenant=${TENANT}&label=${label}&limit=30`);
           if (!r.ok) continue;
           const d = await r.json();
-          for (const node of d.nodes) {
-            allNodes.push({ ...node, _label: label });
-          }
+          for (const node of d.nodes) allNodes.push({ ...node, _label: label });
         }
 
         const el = document.getElementById("entity-list");
@@ -452,17 +521,64 @@
         }
 
         countEl.textContent = `${allNodes.length} total`;
-        el.innerHTML = allNodes.map(n => `
-          <div class="entity-row">
-            <span class="entity-label ${n._label}">${n._label}</span>
-            <span class="entity-name">${n.displayName || "(unnamed)"}</span>
-            <span class="entity-id">${(n.id || "").substring(0, 8)}...</span>
-          </div>
-        `).join("");
+        el.innerHTML = allNodes.map(n => {
+          const status = n.status ? `<span class="entity-status ${n.status}">${n.status}</span>` : '';
+          return `
+            <div class="entity-row" onclick="showEntity('${n.id}')">
+              <span class="entity-label ${n._label}">${n._label}</span>
+              <span class="entity-name">${n.displayName || "(unnamed)"}</span>
+              ${status}
+              <span class="entity-id">${(n.id || "").substring(0, 8)}</span>
+            </div>`;
+        }).join("");
       } catch {}
     }
 
-    // Findings
+    // ── Entity detail modal ───────────────────────────────────────
+    async function showEntity(nodeId) {
+      try {
+        const r = await fetch(`${API}/entities/${nodeId}?tenant=${TENANT}`);
+        if (!r.ok) return;
+        const d = await r.json();
+        const node = d.node;
+        const rels = d.relationships || [];
+
+        document.getElementById("modal-title").textContent =
+          node.displayName || node.canonicalType?.split("#").pop() || nodeId;
+
+        let html = '<table class="prop-table">';
+        const skip = new Set(["_label"]);
+        for (const [k, v] of Object.entries(node)) {
+          if (skip.has(k)) continue;
+          let display = v;
+          if (typeof v === "string" && v.length > 60) display = v.substring(0, 60) + "...";
+          html += `<tr><td>${k}</td><td>${display}</td></tr>`;
+        }
+        html += '</table>';
+
+        if (rels.length > 0) {
+          html += '<h3 style="margin:16px 0 8px;font-size:12px;color:var(--text-dim)">RELATIONSHIPS</h3>';
+          html += '<ul class="rel-list">';
+          for (const r of rels) {
+            html += `<li><span class="rel-type">${r.type || r.rel_type}</span> &rarr; ${r.target?.displayName || r.target_id || ""} <span style="color:var(--text-dim);font-size:10px">${(r.target?.id || r.target_id || "").substring(0, 8)}</span></li>`;
+          }
+          html += '</ul>';
+        }
+
+        document.getElementById("modal-body").innerHTML = html;
+        document.getElementById("modal").classList.add("active");
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function closeModal() {
+      document.getElementById("modal").classList.remove("active");
+    }
+
+    document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+    // ── Findings ──────────────────────────────────────────────────
     async function updateFindings() {
       try {
         const r = await fetch(`${API}/findings?tenant=${TENANT}&limit=20`);
@@ -479,23 +595,27 @@
         }
 
         countEl.textContent = `${d.count} total`;
-        el.innerHTML = d.findings.map(f => `
-          <div class="finding-row">
-            <div class="finding-header">
-              <span class="severity-badge ${f.severity || 'info'}">${f.severity || 'info'}</span>
-              <span style="font-size: 11px; color: var(--text-dim);">${f.tier || ''}</span>
-            </div>
-            <div class="finding-message">${f.displayName || f.message || ''}</div>
-            <div class="finding-meta">${(f.id || '').substring(0, 8)}... | ${f.behaviorId || ''}</div>
-          </div>
-        `).join("");
+        el.innerHTML = d.findings.map(f => {
+          const evidence = f.evidence ? `<div class="finding-evidence">${f.evidence}</div>` : '';
+          const confidence = f.confidence ? ` | conf: ${(f.confidence * 100).toFixed(0)}%` : '';
+          return `
+            <div class="finding-row">
+              <div class="finding-header">
+                <span class="severity-badge ${f.severity || 'info'}">${f.severity || 'info'}</span>
+                <span style="font-size:10px;color:var(--text-dim)">${f.tier || ''}</span>
+              </div>
+              <div class="finding-message">${f.displayName || f.message || ''}</div>
+              <div class="finding-meta">${f.behaviorId || ''}${confidence}</div>
+              ${evidence}
+            </div>`;
+        }).join("");
       } catch {}
     }
 
-    // Changelog
+    // ── Changelog ─────────────────────────────────────────────────
     async function updateChangelog() {
       try {
-        const r = await fetch(`${API}/changelog?tenant=${TENANT}&limit=20`);
+        const r = await fetch(`${API}/changelog?tenant=${TENANT}&limit=25`);
         if (!r.ok) return;
         const d = await r.json();
 
@@ -513,14 +633,14 @@
           <div class="event-row">
             <span class="event-action ${e.action}">${e.action}</span>
             <span class="event-actor">${e.actor}</span>
-            <span class="event-entity">${(e.entity_id || '').substring(0, 12)}...</span>
+            <span class="event-entity">${(e.entity_id || '').substring(0, 12)}</span>
             <span class="event-time">${e.ts ? new Date(e.ts).toLocaleTimeString() : ''}</span>
           </div>
         `).join("");
       } catch {}
     }
 
-    // Feed status
+    // ── Feed status ───────────────────────────────────────────────
     async function updateFeedStatus() {
       try {
         const r = await fetch(`${API}/feed/status`);
@@ -531,12 +651,16 @@
         document.getElementById("feed-findings").textContent = d.findings_emitted || 0;
 
         const tempEl = document.getElementById("feed-temp");
-        if (d.latest_value !== null) {
+        if (d.latest_value !== null && d.latest_value !== undefined) {
           const v = d.latest_value.toFixed(1);
-          tempEl.textContent = v + " C";
-          if (d.latest_value > 28) tempEl.style.color = "var(--red)";
-          else if (d.latest_value > 25) tempEl.style.color = "var(--yellow)";
-          else tempEl.style.color = "var(--green)";
+          tempEl.textContent = v + "C";
+          tempEl.style.color = d.latest_value > 28 ? "var(--red)" :
+                                d.latest_value > 25 ? "var(--yellow)" : "var(--green)";
+
+          // Add to chart history
+          tempHistory.push({ value: d.latest_value, ts: d.latest_timestamp });
+          if (tempHistory.length > MAX_POINTS) tempHistory.shift();
+          drawChart();
         } else {
           tempEl.textContent = "--";
         }
@@ -554,9 +678,10 @@
       } catch {}
     }
 
-    // Controls
+    // ── Feed controls ─────────────────────────────────────────────
     async function startFeed() {
       document.getElementById("btn-start").disabled = true;
+      tempHistory.length = 0; // reset chart
       await fetch(`${API}/feed/start?tenant=${TENANT}`, { method: "POST" });
     }
 
@@ -564,21 +689,20 @@
       await fetch(`${API}/feed/stop`, { method: "POST" });
     }
 
-    // Poll everything
+    // ── Poll ──────────────────────────────────────────────────────
     async function poll() {
       await Promise.all([
-        checkHealth(),
-        updateStats(),
-        updateEntities(),
-        updateFindings(),
-        updateChangelog(),
-        updateFeedStatus(),
+        checkHealth(), updateStats(), updateEntities(),
+        updateFindings(), updateChangelog(), updateFeedStatus(),
       ]);
     }
 
-    // Initial load + start polling
     poll();
-    polling = setInterval(poll, 2000);
+    setInterval(poll, 2000);
+
+    // Redraw chart on resize
+    window.addEventListener("resize", drawChart);
+    drawChart();
   </script>
 </body>
 </html>

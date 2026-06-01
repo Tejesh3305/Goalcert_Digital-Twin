@@ -50,16 +50,20 @@ from behaviors.hvac import (
 from feed.simulate import simulate_temperature, FindingsLoop
 
 from server.query_api import router as query_router
+from server.write_api import router as write_router
+from server.schema_routes import router as schema_router
 
 # ── App setup ───────────────────────────────────────────────────────
 
 app = FastAPI(
     title="NextXR Digital Twin",
     version="1.0.0",
-    description="Live dashboard + read-only API for the NextXR Digital Twin.",
+    description="Live dashboard + REST API for the NextXR Digital Twin.",
 )
 
 app.include_router(query_router)
+app.include_router(write_router)
+app.include_router(schema_router)
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
