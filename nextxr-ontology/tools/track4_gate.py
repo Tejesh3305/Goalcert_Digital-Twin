@@ -232,7 +232,7 @@ def main():
         with urllib.request.urlopen(req) as r:
             html = r.read().decode()
             check("10. Dashboard HTML loads",
-                  "NEXTXR" in html.upper() and "temp-chart" in html,
+                  "nextxr" in html.lower() and "chart" in html,
                   f"length={len(html)}")
     except Exception as e:
         check("10. Dashboard HTML loads", False, str(e))

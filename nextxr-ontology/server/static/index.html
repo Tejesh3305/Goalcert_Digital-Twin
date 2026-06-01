@@ -1,727 +1,1026 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NextXR Digital Twin</title>
-  <style>
-    :root {
-      --bg: #0a0e17;
-      --surface: #111827;
-      --surface2: #1a2332;
-      --border: #1e2d3d;
-      --text: #e2e8f0;
-      --text-dim: #8899aa;
-      --accent: #3b82f6;
-      --green: #22c55e;
-      --yellow: #eab308;
-      --red: #ef4444;
-      --orange: #f97316;
-      --purple: #8b5cf6;
-    }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NextXR Digital Twin</title>
+<style>
+@font-face {
+  font-family: 'Inst';
+  src: local('DM Sans'), local('Helvetica Neue'), local('Helvetica');
+  font-weight: 400 700;
+}
 
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --paper: #f4f1ec;
+  --paper-warm: #eae6df;
+  --ink: #1a1714;
+  --ink-50: #8a857e;
+  --ink-30: #b8b3ac;
+  --ink-15: #d9d5cf;
+  --ink-08: #e8e5e0;
+  --red: #c23616;
+  --red-bg: #fdf0ed;
+  --amber: #b45309;
+  --amber-bg: #fef7ed;
+  --green: #1b7a3d;
+  --green-bg: #edf7f0;
+  --blue: #1d4ed8;
+  --blue-bg: #eff2fb;
+  --chart-line: #1a1714;
+  --chart-fill: rgba(26,23,20,0.06);
+  --slide-width: 420px;
+}
 
-    body {
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
-    header {
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
-      padding: 14px 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
+html { font-size: 15px; }
 
-    header h1 { font-size: 18px; font-weight: 600; letter-spacing: 1px; }
-    header h1 span { color: var(--accent); }
+body {
+  font-family: 'Inst', 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
 
-    .header-right {
-      display: flex; align-items: center; gap: 16px;
-      font-size: 12px; color: var(--text-dim);
-    }
+/* ── TOPBAR ─────────────────────────────────── */
+.topbar {
+  position: sticky; top: 0; z-index: 50;
+  background: var(--ink);
+  color: var(--paper);
+  height: 48px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 24px;
+}
 
-    .status-dot {
-      display: inline-block; width: 8px; height: 8px;
-      border-radius: 50%; margin-right: 6px;
-    }
-    .status-dot.green { background: var(--green); box-shadow: 0 0 6px var(--green); }
-    .status-dot.red { background: var(--red); box-shadow: 0 0 6px var(--red); }
-    .status-dot.yellow { background: var(--yellow); box-shadow: 0 0 6px var(--yellow); }
+.topbar-brand {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
 
-    .container { max-width: 1440px; margin: 0 auto; padding: 20px; }
+.topbar-brand em {
+  font-style: normal;
+  color: var(--ink-30);
+  font-weight: 400;
+  margin-left: 2px;
+}
 
-    /* KPI cards */
-    .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-      gap: 10px; margin-bottom: 16px;
-    }
+.topbar-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.15);
+  flex-shrink: 0;
+}
 
-    .kpi-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 14px; text-align: center;
-    }
-    .kpi-card .value { font-size: 28px; font-weight: 700; color: var(--accent); }
-    .kpi-card .label {
-      font-size: 10px; color: var(--text-dim);
-      text-transform: uppercase; letter-spacing: 1px; margin-top: 2px;
-    }
-    .kpi-card.critical .value { color: var(--red); }
-    .kpi-card.warning .value { color: var(--yellow); }
-    .kpi-card.ok .value { color: var(--green); }
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.5);
+}
 
-    /* Panels */
-    .panel {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; overflow: hidden;
-    }
+.topbar-status .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
 
-    .panel-header {
-      background: var(--surface2); padding: 10px 16px;
-      font-size: 12px; font-weight: 600; text-transform: uppercase;
-      letter-spacing: 1px; border-bottom: 1px solid var(--border);
-      display: flex; justify-content: space-between; align-items: center;
-    }
+.topbar-status .dot.off { background: var(--red); }
 
-    .panel-body {
-      padding: 0; max-height: 380px; overflow-y: auto;
-    }
-    .panel-body::-webkit-scrollbar { width: 4px; }
-    .panel-body::-webkit-scrollbar-track { background: var(--surface); }
-    .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.topbar-feed {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 
-    /* Layout grids */
-    .main-grid {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
-    }
-    @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
-    .full-width { grid-column: 1 / -1; }
-    .mb { margin-bottom: 14px; }
+.topbar-feed span {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+  letter-spacing: 0.3px;
+}
 
-    /* Feed controls */
-    .feed-bar {
-      display: flex; align-items: center; gap: 10px;
-      padding: 12px 16px; border-bottom: 1px solid var(--border);
-    }
+.topbar-feed strong {
+  color: rgba(255,255,255,0.85);
+  font-weight: 600;
+}
 
-    button {
-      background: var(--accent); color: #fff; border: none;
-      padding: 7px 14px; border-radius: 6px; font-family: inherit;
-      font-size: 11px; cursor: pointer; font-weight: 600;
-      transition: opacity 0.15s;
-    }
-    button:hover { opacity: 0.85; }
-    button:disabled { opacity: 0.4; cursor: not-allowed; }
-    button.stop { background: var(--red); }
-    button.small { padding: 4px 10px; font-size: 10px; border-radius: 4px; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
 
-    .feed-stat { font-size: 12px; color: var(--text-dim); }
-    .feed-stat strong { color: var(--text); }
+.btn:hover { opacity: 0.8; }
+.btn:disabled { opacity: 0.3; cursor: default; }
 
-    /* Temperature chart */
-    .chart-area {
-      padding: 16px; height: 140px; position: relative;
-    }
-    .chart-canvas { width: 100%; height: 100%; }
+.btn-start {
+  background: var(--green);
+  color: #fff;
+}
 
-    /* Entity rows */
-    .entity-row {
-      display: flex; align-items: center; padding: 9px 16px;
-      border-bottom: 1px solid var(--border); font-size: 12px;
-      transition: background 0.15s; cursor: pointer;
-    }
-    .entity-row:hover { background: var(--surface2); }
-    .entity-row:last-child { border-bottom: none; }
+.btn-stop {
+  background: transparent;
+  color: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.2);
+}
 
-    .entity-label {
-      background: var(--accent); color: #fff; font-size: 9px;
-      padding: 2px 7px; border-radius: 4px; margin-right: 10px;
-      min-width: 85px; text-align: center; font-weight: 600;
-    }
-    .entity-label.Location { background: #6366f1; }
-    .entity-label.Finding { background: var(--orange); }
-    .entity-label.Incident { background: var(--red); }
-    .entity-label.Process { background: var(--purple); }
+.btn-stop:hover { color: #fff; border-color: rgba(255,255,255,0.5); }
 
-    .entity-name { flex: 1; }
-    .entity-id { color: var(--text-dim); font-size: 10px; }
-    .entity-status {
-      font-size: 9px; padding: 2px 6px; border-radius: 3px;
-      margin-left: 8px; font-weight: 600;
-    }
-    .entity-status.running { background: var(--green); color: #000; }
-    .entity-status.active { background: var(--yellow); color: #000; }
+/* ── METRICS STRIP ──────────────────────────── */
+.metrics {
+  display: flex;
+  border-bottom: 1px solid var(--ink-15);
+  background: var(--paper-warm);
+}
 
-    /* Finding rows */
-    .finding-row {
-      padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px;
-    }
-    .finding-row:last-child { border-bottom: none; }
+.metric {
+  flex: 1;
+  padding: 16px 20px;
+  border-right: 1px solid var(--ink-15);
+  min-width: 0;
+}
 
-    .finding-header {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 3px;
-    }
+.metric:last-child { border-right: none; }
 
-    .severity-badge {
-      font-size: 9px; padding: 2px 7px; border-radius: 4px;
-      font-weight: 700; text-transform: uppercase;
-    }
-    .severity-badge.critical { background: var(--red); color: #fff; }
-    .severity-badge.warning { background: var(--yellow); color: #000; }
-    .severity-badge.info { background: var(--accent); color: #fff; }
+.metric-val {
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
 
-    .finding-message { color: var(--text); margin-top: 3px; }
-    .finding-meta { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
-    .finding-evidence {
-      margin-top: 6px; padding: 6px 10px; background: var(--surface2);
-      border-radius: 4px; font-size: 10px; color: var(--text-dim);
-    }
+.metric-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--ink-50);
+  margin-top: 4px;
+}
 
-    /* Changelog rows */
-    .event-row {
-      display: flex; align-items: center; padding: 7px 16px;
-      border-bottom: 1px solid var(--border); font-size: 11px; gap: 10px;
-    }
-    .event-row:last-child { border-bottom: none; }
+.metric.alert .metric-val { color: var(--red); }
+.metric.warn .metric-val { color: var(--amber); }
 
-    .event-action {
-      font-size: 9px; padding: 2px 6px; border-radius: 3px;
-      font-weight: 700; min-width: 50px; text-align: center;
-    }
-    .event-action.create { background: var(--green); color: #000; }
-    .event-action.update { background: var(--accent); color: #fff; }
-    .event-action.delete { background: var(--red); color: #fff; }
+/* ── MAIN LAYOUT ────────────────────────────── */
+.main {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: auto auto;
+  min-height: calc(100vh - 48px - 80px);
+}
 
-    .event-actor { color: var(--text-dim); min-width: 80px; }
-    .event-entity { flex: 1; font-family: inherit; }
-    .event-time { color: var(--text-dim); font-size: 10px; }
+@media (max-width: 960px) {
+  .main { grid-template-columns: 1fr; }
+}
 
-    .empty { padding: 20px; text-align: center; color: var(--text-dim); font-size: 12px; }
+/* ── CHART SECTION ──────────────────────────── */
+.chart-section {
+  grid-column: 1 / -1;
+  border-bottom: 1px solid var(--ink-15);
+  padding: 20px 24px 16px;
+  position: relative;
+}
 
-    /* Detail modal */
-    .modal-overlay {
-      display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center;
-    }
-    .modal-overlay.active { display: flex; }
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 12px;
+}
 
-    .modal {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; width: 600px; max-width: 90vw; max-height: 80vh;
-      overflow-y: auto; padding: 0;
-    }
-    .modal-header {
-      padding: 16px 20px; border-bottom: 1px solid var(--border);
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .modal-header h2 { font-size: 14px; font-weight: 600; }
-    .modal-close {
-      background: none; border: none; color: var(--text-dim);
-      font-size: 18px; cursor: pointer; padding: 0;
-    }
-    .modal-close:hover { color: var(--text); }
+.section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--ink-50);
+  font-weight: 600;
+}
 
-    .modal-body { padding: 16px 20px; }
+.chart-live-val {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
 
-    .prop-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    .prop-table td {
-      padding: 6px 8px; border-bottom: 1px solid var(--border);
-      vertical-align: top;
-    }
-    .prop-table td:first-child {
-      color: var(--text-dim); width: 140px; font-weight: 600;
-    }
+.chart-live-val strong {
+  font-size: 20px;
+  font-weight: 700;
+}
 
-    .rel-list { list-style: none; padding: 0; }
-    .rel-list li {
-      padding: 6px 0; border-bottom: 1px solid var(--border);
-      font-size: 12px;
-    }
-    .rel-type { color: var(--accent); font-weight: 600; margin-right: 8px; }
-  </style>
+.chart-canvas-wrap {
+  height: 160px;
+  position: relative;
+}
+
+.chart-canvas-wrap canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── PANEL SHARED ───────────────────────────── */
+.panel {
+  border-right: 1px solid var(--ink-15);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel:last-child { border-right: none; }
+
+.panel-head {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--ink-08);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.panel-count {
+  font-size: 11px;
+  color: var(--ink-30);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
+  max-height: 50vh;
+}
+
+.panel-scroll::-webkit-scrollbar { width: 3px; }
+.panel-scroll::-webkit-scrollbar-thumb { background: var(--ink-15); }
+
+/* ── ENTITY LIST ────────────────────────────── */
+.entity-item {
+  display: flex;
+  align-items: center;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--ink-08);
+  cursor: pointer;
+  transition: background 0.1s;
+  gap: 12px;
+}
+
+.entity-item:hover { background: var(--paper-warm); }
+
+.entity-type {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--ink-50);
+  background: var(--ink-08);
+  padding: 2px 8px;
+  flex-shrink: 0;
+  font-weight: 600;
+  min-width: 75px;
+  text-align: center;
+}
+
+.entity-type.finding { background: var(--amber-bg); color: var(--amber); }
+.entity-type.location { background: var(--blue-bg); color: var(--blue); }
+
+.entity-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.entity-status {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--green);
+  font-weight: 600;
+}
+
+.entity-id {
+  font-size: 10px;
+  color: var(--ink-30);
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+/* ── FINDINGS ───────────────────────────────── */
+.finding-item {
+  padding: 12px 20px 12px 16px;
+  border-bottom: 1px solid var(--ink-08);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.finding-item:hover { background: var(--paper-warm); }
+.finding-item.sev-critical { border-left-color: var(--red); }
+.finding-item.sev-warning { border-left-color: var(--amber); }
+.finding-item.sev-info { border-left-color: var(--blue); }
+
+.finding-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.finding-tier {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 700;
+}
+
+.finding-tier.critical { color: var(--red); }
+.finding-tier.warning { color: var(--amber); }
+
+.finding-time {
+  font-size: 10px;
+  color: var(--ink-30);
+  font-variant-numeric: tabular-nums;
+}
+
+.finding-msg {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.finding-meta {
+  font-size: 10px;
+  color: var(--ink-50);
+  margin-top: 4px;
+}
+
+/* ── CHANGELOG ──────────────────────────────── */
+.log-section {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--ink-15);
+}
+
+.log-section .panel-scroll {
+  max-height: 240px;
+}
+
+.log-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 20px;
+  border-bottom: 1px solid var(--ink-08);
+  font-size: 12px;
+  gap: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-action {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 700;
+  min-width: 48px;
+}
+
+.log-action.create { color: var(--green); }
+.log-action.update { color: var(--blue); }
+.log-action.delete { color: var(--red); }
+
+.log-actor {
+  color: var(--ink-50);
+  min-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+}
+
+.log-entity {
+  flex: 1;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 10px;
+  color: var(--ink-30);
+}
+
+.log-time {
+  color: var(--ink-30);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.empty-state {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--ink-30);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+/* ── SLIDE-OUT DETAIL ───────────────────────── */
+.slideout {
+  position: fixed;
+  top: 0; right: 0;
+  width: var(--slide-width);
+  height: 100vh;
+  background: #fff;
+  box-shadow: -8px 0 32px rgba(0,0,0,0.08);
+  z-index: 100;
+  transform: translateX(100%);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.slideout.open { transform: translateX(0); }
+
+.slideout-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.15);
+  z-index: 99;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.slideout-backdrop.open { opacity: 1; pointer-events: auto; }
+
+.slideout-head {
+  padding: 20px;
+  border-bottom: 1px solid var(--ink-08);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.slideout-head h2 {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.slideout-head .sub {
+  font-size: 11px;
+  color: var(--ink-50);
+  margin-top: 2px;
+}
+
+.slideout-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--ink-30);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.slideout-close:hover { color: var(--ink); }
+
+.slideout-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.slideout-section {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ink-08);
+}
+
+.slideout-section-title {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--ink-30);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.prop-row {
+  display: flex;
+  padding: 5px 0;
+  font-size: 12px;
+  gap: 12px;
+}
+
+.prop-key {
+  color: var(--ink-50);
+  min-width: 110px;
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.prop-val {
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+}
+
+.rel-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 0;
+  gap: 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--ink-08);
+}
+
+.rel-item:last-child { border-bottom: none; }
+
+.rel-type-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--blue);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.rel-arrow {
+  color: var(--ink-15);
+  flex-shrink: 0;
+}
+
+.rel-target { font-weight: 500; }
+</style>
 </head>
 <body>
-  <header>
-    <h1>NEXT<span>XR</span> DIGITAL TWIN</h1>
-    <div class="header-right">
-      <span><span class="status-dot" id="health-dot"></span>Neo4j</span>
-      <span>tenant: demo-tenant</span>
-      <span id="clock"></span>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="topbar-brand">NextXR<em> Digital Twin</em></div>
+  <div class="topbar-sep"></div>
+  <div class="topbar-status">
+    <span class="dot" id="health-dot"></span>
+    <span id="health-label">Connecting</span>
+  </div>
+  <div class="topbar-sep"></div>
+  <div class="topbar-status" id="feed-status-label">
+    Feed idle
+  </div>
+  <div class="topbar-feed">
+    <span>Samples <strong id="f-samples">0</strong></span>
+    <span>Findings <strong id="f-findings">0</strong></span>
+    <button class="btn btn-start" id="btn-start" onclick="startFeed()">Start</button>
+    <button class="btn btn-stop" id="btn-stop" onclick="stopFeed()" disabled>Stop</button>
+  </div>
+</div>
+
+<!-- METRICS STRIP -->
+<div class="metrics">
+  <div class="metric">
+    <div class="metric-val" id="m-entities">--</div>
+    <div class="metric-label">Entities</div>
+  </div>
+  <div class="metric">
+    <div class="metric-val" id="m-assets">--</div>
+    <div class="metric-label">Physical Assets</div>
+  </div>
+  <div class="metric">
+    <div class="metric-val" id="m-locations">--</div>
+    <div class="metric-label">Locations</div>
+  </div>
+  <div class="metric warn">
+    <div class="metric-val" id="m-findings">--</div>
+    <div class="metric-label">Findings</div>
+  </div>
+  <div class="metric alert">
+    <div class="metric-val" id="m-critical">--</div>
+    <div class="metric-label">Critical</div>
+  </div>
+  <div class="metric">
+    <div class="metric-val" id="m-events">--</div>
+    <div class="metric-label">Audit Events</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- CHART -->
+  <div class="chart-section">
+    <div class="chart-header">
+      <span class="section-title">Supply Air Temperature</span>
+      <div class="chart-live-val" id="chart-val">--</div>
     </div>
-  </header>
-
-  <div class="container">
-    <!-- KPIs -->
-    <div class="kpi-row">
-      <div class="kpi-card ok">
-        <div class="value" id="kpi-entities">--</div>
-        <div class="label">Entities</div>
-      </div>
-      <div class="kpi-card">
-        <div class="value" id="kpi-assets">--</div>
-        <div class="label">Assets</div>
-      </div>
-      <div class="kpi-card">
-        <div class="value" id="kpi-locations">--</div>
-        <div class="label">Locations</div>
-      </div>
-      <div class="kpi-card warning">
-        <div class="value" id="kpi-findings">--</div>
-        <div class="label">Findings</div>
-      </div>
-      <div class="kpi-card critical">
-        <div class="value" id="kpi-critical">--</div>
-        <div class="label">Critical</div>
-      </div>
-      <div class="kpi-card">
-        <div class="value" id="kpi-events">--</div>
-        <div class="label">Log Events</div>
-      </div>
-    </div>
-
-    <!-- Feed + Temperature Chart -->
-    <div class="panel full-width mb">
-      <div class="panel-header">
-        Live Feed
-        <span class="feed-stat" id="feed-info"></span>
-      </div>
-      <div class="feed-bar">
-        <button id="btn-start" onclick="startFeed()">Start Feed</button>
-        <button id="btn-stop" class="stop" onclick="stopFeed()" disabled>Stop</button>
-        <div class="feed-stat">
-          Samples: <strong id="feed-samples">0</strong> |
-          Findings: <strong id="feed-findings">0</strong> |
-          Temp: <strong id="feed-temp">--</strong>
-        </div>
-      </div>
-      <div class="chart-area">
-        <canvas id="temp-chart" class="chart-canvas"></canvas>
-      </div>
-    </div>
-
-    <!-- Main Grid -->
-    <div class="main-grid">
-      <!-- Entities -->
-      <div class="panel">
-        <div class="panel-header">
-          Entities
-          <span style="font-size:10px;color:var(--text-dim);font-weight:400" id="entity-count"></span>
-        </div>
-        <div class="panel-body" id="entity-list">
-          <div class="empty">No entities. Start the feed to seed data.</div>
-        </div>
-      </div>
-
-      <!-- Findings -->
-      <div class="panel">
-        <div class="panel-header">
-          Findings
-          <span style="font-size:10px;color:var(--text-dim);font-weight:400" id="finding-count"></span>
-        </div>
-        <div class="panel-body" id="finding-list">
-          <div class="empty">No findings yet.</div>
-        </div>
-      </div>
-
-      <!-- Changelog -->
-      <div class="panel full-width">
-        <div class="panel-header">
-          Change Log
-          <span style="font-size:10px;color:var(--text-dim);font-weight:400" id="event-count"></span>
-        </div>
-        <div class="panel-body" id="changelog-list">
-          <div class="empty">No events yet.</div>
-        </div>
-      </div>
+    <div class="chart-canvas-wrap">
+      <canvas id="chart"></canvas>
     </div>
   </div>
 
-  <!-- Entity Detail Modal -->
-  <div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
-    <div class="modal">
-      <div class="modal-header">
-        <h2 id="modal-title">Entity Detail</h2>
-        <button class="modal-close" onclick="closeModal()">&times;</button>
-      </div>
-      <div class="modal-body" id="modal-body"></div>
+  <!-- LEFT: ENTITIES -->
+  <div class="panel" id="entities-panel">
+    <div class="panel-head">
+      <span class="section-title">Graph Entities</span>
+      <span class="panel-count" id="ent-count"></span>
+    </div>
+    <div class="panel-scroll" id="ent-list">
+      <div class="empty-state">Waiting for data</div>
     </div>
   </div>
 
-  <script>
-    const TENANT = "demo-tenant";
-    const API = "/api/v1";
+  <!-- RIGHT: FINDINGS -->
+  <div class="panel" id="findings-panel">
+    <div class="panel-head">
+      <span class="section-title">Findings</span>
+      <span class="panel-count" id="fnd-count"></span>
+    </div>
+    <div class="panel-scroll" id="fnd-list">
+      <div class="empty-state">No anomalies detected</div>
+    </div>
+  </div>
 
-    // Temperature history for chart
-    const tempHistory = [];
-    const MAX_POINTS = 120;
+  <!-- FULL-WIDTH: CHANGELOG -->
+  <div class="log-section">
+    <div class="panel-head">
+      <span class="section-title">Audit Log</span>
+      <span class="panel-count" id="log-count"></span>
+    </div>
+    <div class="panel-scroll" id="log-list">
+      <div class="empty-state">No events recorded</div>
+    </div>
+  </div>
 
-    // Clock
-    setInterval(() => {
-      document.getElementById("clock").textContent = new Date().toLocaleTimeString();
-    }, 1000);
+</div>
 
-    // ── Chart drawing ─────────────────────────────────────────────
-    function drawChart() {
-      const canvas = document.getElementById("temp-chart");
-      if (!canvas) return;
-      const ctx = canvas.getContext("2d");
-      const dpr = window.devicePixelRatio || 1;
-      const rect = canvas.parentElement.getBoundingClientRect();
-      canvas.width = rect.width * dpr;
-      canvas.height = rect.height * dpr;
-      canvas.style.width = rect.width + "px";
-      canvas.style.height = rect.height + "px";
-      ctx.scale(dpr, dpr);
+<!-- SLIDE-OUT -->
+<div class="slideout-backdrop" id="so-backdrop" onclick="closeDetail()"></div>
+<div class="slideout" id="so-panel">
+  <div class="slideout-head">
+    <div>
+      <h2 id="so-title">--</h2>
+      <div class="sub" id="so-sub">--</div>
+    </div>
+    <button class="slideout-close" onclick="closeDetail()">&times;</button>
+  </div>
+  <div class="slideout-body" id="so-body"></div>
+</div>
 
-      const W = rect.width;
-      const H = rect.height;
-      const PAD = { top: 10, right: 50, bottom: 20, left: 10 };
-      const cw = W - PAD.left - PAD.right;
-      const ch = H - PAD.top - PAD.bottom;
+<script>
+const T = "demo-tenant";
+const A = "/api/v1";
+const hist = [];
+const MAX_H = 150;
+let prevSampleCount = -1;
 
-      ctx.clearRect(0, 0, W, H);
+// ── Health ────────────────────────────────────────
+async function pollHealth() {
+  try {
+    const r = await fetch(`${A}/health`);
+    const ok = r.ok;
+    document.getElementById("health-dot").className = "dot" + (ok ? "" : " off");
+    document.getElementById("health-label").textContent = ok ? "Neo4j connected" : "Disconnected";
+  } catch {
+    document.getElementById("health-dot").className = "dot off";
+    document.getElementById("health-label").textContent = "Offline";
+  }
+}
 
-      if (tempHistory.length < 2) {
-        ctx.fillStyle = "#556677";
-        ctx.font = "12px monospace";
-        ctx.textAlign = "center";
-        ctx.fillText("Waiting for feed data...", W / 2, H / 2);
-        return;
+// ── Stats ─────────────────────────────────────────
+async function pollStats() {
+  try {
+    const d = await (await fetch(`${A}/stats?tenant=${T}`)).json();
+    document.getElementById("m-entities").textContent = d.total_entities || 0;
+    document.getElementById("m-assets").textContent = d.entity_counts?.PhysicalAsset || 0;
+    document.getElementById("m-locations").textContent = d.entity_counts?.Location || 0;
+    document.getElementById("m-findings").textContent = d.total_findings || 0;
+    document.getElementById("m-critical").textContent = d.finding_severity?.critical || 0;
+    document.getElementById("m-events").textContent = d.changelog_events || 0;
+  } catch {}
+}
+
+// ── Feed ──────────────────────────────────────────
+async function pollFeed() {
+  try {
+    const d = await (await fetch(`${A}/feed/status`)).json();
+    document.getElementById("f-samples").textContent = d.samples_processed || 0;
+    document.getElementById("f-findings").textContent = d.findings_emitted || 0;
+
+    const label = document.getElementById("feed-status-label");
+    const btnS = document.getElementById("btn-start");
+    const btnX = document.getElementById("btn-stop");
+
+    if (d.running) {
+      label.innerHTML = '<span class="dot" style="background:var(--green);width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:6px"></span>Feed running';
+      btnS.disabled = true;
+      btnX.disabled = false;
+    } else {
+      label.textContent = "Feed idle";
+      btnS.disabled = false;
+      btnX.disabled = true;
+    }
+
+    if (d.latest_value != null && d.samples_processed !== prevSampleCount) {
+      prevSampleCount = d.samples_processed;
+      hist.push(d.latest_value);
+      if (hist.length > MAX_H) hist.shift();
+
+      const v = d.latest_value.toFixed(1);
+      const el = document.getElementById("chart-val");
+      el.innerHTML = `<strong>${v}</strong>&thinsp;&#8451;`;
+      el.style.color = d.latest_value > 25 ? "var(--red)" : d.latest_value > 23 ? "var(--amber)" : "var(--ink)";
+      drawChart();
+    }
+  } catch {}
+}
+
+async function startFeed() {
+  document.getElementById("btn-start").disabled = true;
+  hist.length = 0;
+  await fetch(`${A}/feed/start?tenant=${T}`, { method: "POST" });
+}
+
+async function stopFeed() {
+  await fetch(`${A}/feed/stop`, { method: "POST" });
+}
+
+// ── Chart ─────────────────────────────────────────
+function drawChart() {
+  const c = document.getElementById("chart");
+  const wrap = c.parentElement;
+  const dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth;
+  const H = wrap.clientHeight;
+  c.width = W * dpr;
+  c.height = H * dpr;
+  c.style.width = W + "px";
+  c.style.height = H + "px";
+  const ctx = c.getContext("2d");
+  ctx.scale(dpr, dpr);
+
+  const pad = { t: 8, r: 40, b: 16, l: 0 };
+  const cw = W - pad.l - pad.r;
+  const ch = H - pad.t - pad.b;
+
+  ctx.clearRect(0, 0, W, H);
+
+  if (hist.length < 2) {
+    ctx.fillStyle = "#b8b3ac";
+    ctx.font = "11px -apple-system, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText("Start the feed to see live telemetry", W / 2, H / 2);
+    return;
+  }
+
+  const lo = Math.min(...hist, 18);
+  const hi = Math.max(...hist, 30);
+  const rng = hi - lo || 1;
+  const x = i => pad.l + (i / (MAX_H - 1)) * cw;
+  const y = v => pad.t + ch - ((v - lo) / rng) * ch;
+  const off = MAX_H - hist.length;
+
+  // Grid lines
+  ctx.strokeStyle = var_ink_08();
+  ctx.lineWidth = 1;
+  for (let v = Math.ceil(lo); v <= Math.floor(hi); v += 2) {
+    const yy = Math.round(y(v)) + 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + cw, yy); ctx.stroke();
+    ctx.fillStyle = "#b8b3ac";
+    ctx.font = "9px -apple-system, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(v + "", pad.l + cw + 6, yy + 3);
+  }
+
+  // Reference lines
+  drawRef(ctx, y, pad, cw, 22, "#1b7a3d", "SP 22");
+  drawRef(ctx, y, pad, cw, 25, "#b45309", "WARN 25");
+
+  // Data line
+  ctx.beginPath();
+  for (let i = 0; i < hist.length; i++) {
+    const px = x(i + off), py = y(hist[i]);
+    i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+  }
+  ctx.strokeStyle = var_ink();
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = "round";
+  ctx.stroke();
+
+  // Fill
+  const last_x = x(hist.length - 1 + off);
+  ctx.lineTo(last_x, pad.t + ch);
+  ctx.lineTo(x(off), pad.t + ch);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(26,23,20,0.04)";
+  ctx.fill();
+
+  // Current dot
+  const lv = hist[hist.length - 1];
+  const lx = last_x, ly = y(lv);
+  ctx.beginPath();
+  ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+  ctx.fillStyle = lv > 25 ? "#c23616" : lv > 23 ? "#b45309" : "#1a1714";
+  ctx.fill();
+}
+
+function drawRef(ctx, yFn, pad, cw, val, color, label) {
+  const yy = Math.round(yFn(val)) + 0.5;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.35;
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + cw, yy); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function var_ink_08() { return "#e8e5e0"; }
+function var_ink() { return "#1a1714"; }
+
+// ── Entities ──────────────────────────────────────
+async function pollEntities() {
+  try {
+    const labels = ["PhysicalAsset", "Location", "Finding", "Incident", "Process"];
+    let all = [];
+    for (const lb of labels) {
+      const d = await (await fetch(`${A}/entities?tenant=${T}&label=${lb}&limit=30`)).json();
+      for (const n of d.nodes) all.push({ ...n, _label: lb });
+    }
+
+    const el = document.getElementById("ent-list");
+    const ct = document.getElementById("ent-count");
+
+    if (!all.length) {
+      el.innerHTML = '<div class="empty-state">No entities in graph</div>';
+      ct.textContent = "";
+      return;
+    }
+
+    ct.textContent = all.length;
+    el.innerHTML = all.map(n => {
+      const typeClass = n._label === "Finding" ? " finding" : n._label === "Location" ? " location" : "";
+      const status = n.status ? `<span class="entity-status">${n.status}</span>` : "";
+      return `<div class="entity-item" onclick="openDetail('${n.id}')">
+        <span class="entity-type${typeClass}">${n._label}</span>
+        <span class="entity-name">${n.displayName || "(unnamed)"}</span>
+        ${status}
+        <span class="entity-id">${(n.id || "").substring(0, 8)}</span>
+      </div>`;
+    }).join("");
+  } catch {}
+}
+
+// ── Findings ──────────────────────────────────────
+async function pollFindings() {
+  try {
+    const d = await (await fetch(`${A}/findings?tenant=${T}&limit=20`)).json();
+    const el = document.getElementById("fnd-list");
+    const ct = document.getElementById("fnd-count");
+
+    if (!d.findings.length) {
+      el.innerHTML = '<div class="empty-state">No anomalies detected</div>';
+      ct.textContent = "";
+      return;
+    }
+
+    ct.textContent = d.count;
+    el.innerHTML = d.findings.map(f => {
+      const sev = f.severity || "info";
+      const ts = f.createdAt ? new Date(f.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+      const conf = f.confidence != null ? `${(f.confidence * 100).toFixed(0)}% confidence` : "";
+      // Strip the [C] or [B] prefix from displayName since we show tier separately
+      let msg = f.displayName || f.message || "";
+      msg = msg.replace(/^\[[A-Z]\]\s*/, "");
+      return `<div class="finding-item sev-${sev}" onclick="openDetail('${f.id}')">
+        <div class="finding-top">
+          <span class="finding-tier ${sev}">Tier ${f.tier || "?"} &middot; ${sev}</span>
+          <span class="finding-time">${ts}</span>
+        </div>
+        <div class="finding-msg">${msg}</div>
+        <div class="finding-meta">${f.behaviorId || ""}${conf ? " &middot; " + conf : ""}</div>
+      </div>`;
+    }).join("");
+  } catch {}
+}
+
+// ── Changelog ─────────────────────────────────────
+async function pollLog() {
+  try {
+    const d = await (await fetch(`${A}/changelog?tenant=${T}&limit=25`)).json();
+    const el = document.getElementById("log-list");
+    const ct = document.getElementById("log-count");
+
+    if (!d.events.length) {
+      el.innerHTML = '<div class="empty-state">No events recorded</div>';
+      ct.textContent = "";
+      return;
+    }
+
+    ct.textContent = d.count + " events";
+    el.innerHTML = d.events.map(e => {
+      const ts = e.ts ? new Date(e.ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+      const actor = (e.actor || "").replace("behavior:", "");
+      return `<div class="log-item">
+        <span class="log-action ${e.action}">${e.action}</span>
+        <span class="log-actor">${actor}</span>
+        <span class="log-entity">${(e.entity_id || "").substring(0, 16)}</span>
+        <span class="log-time">${ts}</span>
+      </div>`;
+    }).join("");
+  } catch {}
+}
+
+// ── Slide-out detail ──────────────────────────────
+async function openDetail(nodeId) {
+  try {
+    const d = await (await fetch(`${A}/entities/${nodeId}?tenant=${T}`)).json();
+    const node = d.node;
+    const rels = d.relationships || [];
+
+    const typeName = node.canonicalType ? node.canonicalType.split("#").pop() : "";
+    document.getElementById("so-title").textContent = node.displayName || typeName || nodeId;
+    document.getElementById("so-sub").textContent = typeName;
+
+    // Build properties
+    const priority = ["id", "status", "canonicalType", "setpoint", "severity", "tier",
+      "confidence", "message", "behaviorId", "createdBy", "createdAt", "updatedAt", "changeLogRef"];
+    const shown = new Set();
+    let propsHtml = "";
+
+    for (const k of priority) {
+      if (node[k] != null) {
+        shown.add(k);
+        let v = node[k];
+        if (k === "canonicalType") v = v.split("#").pop();
+        if (typeof v === "string" && v.length > 60) v = v.substring(0, 60) + "\u2026";
+        propsHtml += `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${v}</span></div>`;
       }
-
-      const values = tempHistory.map(p => p.value);
-      const minV = Math.min(...values, 18);
-      const maxV = Math.max(...values, 30);
-      const range = maxV - minV || 1;
-
-      const toX = i => PAD.left + (i / (MAX_POINTS - 1)) * cw;
-      const toY = v => PAD.top + ch - ((v - minV) / range) * ch;
-
-      // Setpoint line at 22C
-      const spY = toY(22);
-      ctx.strokeStyle = "#334455";
-      ctx.lineWidth = 1;
-      ctx.setLineDash([4, 4]);
-      ctx.beginPath();
-      ctx.moveTo(PAD.left, spY);
-      ctx.lineTo(PAD.left + cw, spY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#556677";
-      ctx.font = "9px monospace";
-      ctx.textAlign = "left";
-      ctx.fillText("setpoint 22C", PAD.left + cw + 4, spY + 3);
-
-      // Warning threshold at 25C
-      const warnY = toY(25);
-      ctx.strokeStyle = "#554400";
-      ctx.setLineDash([2, 3]);
-      ctx.beginPath();
-      ctx.moveTo(PAD.left, warnY);
-      ctx.lineTo(PAD.left + cw, warnY);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillText("warn 25C", PAD.left + cw + 4, warnY + 3);
-
-      // Temperature line
-      const offset = MAX_POINTS - tempHistory.length;
-      ctx.beginPath();
-      for (let i = 0; i < tempHistory.length; i++) {
-        const x = toX(i + offset);
-        const y = toY(tempHistory[i].value);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.strokeStyle = "#3b82f6";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-
-      // Gradient fill under the line
-      const gradient = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + ch);
-      gradient.addColorStop(0, "rgba(59, 130, 246, 0.3)");
-      gradient.addColorStop(1, "rgba(59, 130, 246, 0.0)");
-      ctx.lineTo(toX(tempHistory.length - 1 + offset), PAD.top + ch);
-      ctx.lineTo(toX(offset), PAD.top + ch);
-      ctx.closePath();
-      ctx.fillStyle = gradient;
-      ctx.fill();
-
-      // Current value label
-      const last = tempHistory[tempHistory.length - 1].value;
-      const lastX = toX(MAX_POINTS - 1);
-      const lastY = toY(last);
-      ctx.beginPath();
-      ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
-      ctx.fillStyle = last > 25 ? "#ef4444" : last > 23 ? "#eab308" : "#22c55e";
-      ctx.fill();
-      ctx.fillStyle = ctx.fillStyle;
-      ctx.font = "bold 11px monospace";
-      ctx.textAlign = "right";
-      ctx.fillText(last.toFixed(1) + "C", lastX - 8, lastY - 8);
-
-      // Y-axis labels
-      ctx.fillStyle = "#556677";
-      ctx.font = "9px monospace";
-      ctx.textAlign = "right";
-      for (let v = Math.ceil(minV); v <= Math.floor(maxV); v += 2) {
-        ctx.fillText(v + "", PAD.left + cw + 42, toY(v) + 3);
-      }
+    }
+    for (const [k, v] of Object.entries(node)) {
+      if (shown.has(k) || k === "_label" || k === "tenantId") continue;
+      let dv = v;
+      if (typeof dv === "string" && dv.length > 60) dv = dv.substring(0, 60) + "\u2026";
+      propsHtml += `<div class="prop-row"><span class="prop-key">${k}</span><span class="prop-val">${dv}</span></div>`;
     }
 
-    // ── Health ─────────────────────────────────────────────────────
-    async function checkHealth() {
-      try {
-        const r = await fetch(`${API}/health`);
-        document.getElementById("health-dot").className =
-          "status-dot " + (r.ok ? "green" : "red");
-      } catch {
-        document.getElementById("health-dot").className = "status-dot red";
-      }
+    let html = `<div class="slideout-section">
+      <div class="slideout-section-title">Properties</div>
+      ${propsHtml}
+    </div>`;
+
+    if (rels.length) {
+      let relsHtml = rels.map(r => {
+        const relType = r.rel || r.type || "";
+        const target = r.node || r.target || {};
+        return `<div class="rel-item">
+          <span class="rel-type-tag">${relType}</span>
+          <span class="rel-arrow">&rarr;</span>
+          <span class="rel-target">${target.displayName || (target.id || "").substring(0, 12)}</span>
+        </div>`;
+      }).join("");
+
+      html += `<div class="slideout-section">
+        <div class="slideout-section-title">Relationships</div>
+        ${relsHtml}
+      </div>`;
     }
 
-    // ── Stats ──────────────────────────────────────────────────────
-    async function updateStats() {
-      try {
-        const r = await fetch(`${API}/stats?tenant=${TENANT}`);
-        if (!r.ok) return;
-        const d = await r.json();
-        document.getElementById("kpi-entities").textContent = d.total_entities || 0;
-        document.getElementById("kpi-assets").textContent = d.entity_counts?.PhysicalAsset || 0;
-        document.getElementById("kpi-locations").textContent = d.entity_counts?.Location || 0;
-        document.getElementById("kpi-findings").textContent = d.total_findings || 0;
-        document.getElementById("kpi-critical").textContent = d.finding_severity?.critical || 0;
-        document.getElementById("kpi-events").textContent = d.changelog_events || 0;
-      } catch {}
-    }
+    document.getElementById("so-body").innerHTML = html;
+    document.getElementById("so-panel").classList.add("open");
+    document.getElementById("so-backdrop").classList.add("open");
+  } catch (e) {
+    console.error("Detail fetch failed:", e);
+  }
+}
 
-    // ── Entities ───────────────────────────────────────────────────
-    async function updateEntities() {
-      try {
-        const labels = ["PhysicalAsset", "Location", "Finding", "Incident", "Process"];
-        let allNodes = [];
-        for (const label of labels) {
-          const r = await fetch(`${API}/entities?tenant=${TENANT}&label=${label}&limit=30`);
-          if (!r.ok) continue;
-          const d = await r.json();
-          for (const node of d.nodes) allNodes.push({ ...node, _label: label });
-        }
+function closeDetail() {
+  document.getElementById("so-panel").classList.remove("open");
+  document.getElementById("so-backdrop").classList.remove("open");
+}
 
-        const el = document.getElementById("entity-list");
-        const countEl = document.getElementById("entity-count");
-        if (allNodes.length === 0) {
-          el.innerHTML = '<div class="empty">No entities. Start the feed to seed data.</div>';
-          countEl.textContent = "";
-          return;
-        }
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeDetail(); });
 
-        countEl.textContent = `${allNodes.length} total`;
-        el.innerHTML = allNodes.map(n => {
-          const status = n.status ? `<span class="entity-status ${n.status}">${n.status}</span>` : '';
-          return `
-            <div class="entity-row" onclick="showEntity('${n.id}')">
-              <span class="entity-label ${n._label}">${n._label}</span>
-              <span class="entity-name">${n.displayName || "(unnamed)"}</span>
-              ${status}
-              <span class="entity-id">${(n.id || "").substring(0, 8)}</span>
-            </div>`;
-        }).join("");
-      } catch {}
-    }
+// ── Poll loop ─────────────────────────────────────
+async function poll() {
+  await Promise.all([pollHealth(), pollStats(), pollFeed(), pollEntities(), pollFindings(), pollLog()]);
+}
 
-    // ── Entity detail modal ───────────────────────────────────────
-    async function showEntity(nodeId) {
-      try {
-        const r = await fetch(`${API}/entities/${nodeId}?tenant=${TENANT}`);
-        if (!r.ok) return;
-        const d = await r.json();
-        const node = d.node;
-        const rels = d.relationships || [];
-
-        const typeName = node.canonicalType ? node.canonicalType.split("#").pop() : "";
-        document.getElementById("modal-title").textContent =
-          (node.displayName || typeName || nodeId);
-
-        // Properties table — show important fields first, skip internal noise
-        const priority = ["displayName", "canonicalType", "status", "id", "tenantId",
-          "setpoint", "severity", "tier", "confidence", "message", "behaviorId",
-          "createdBy", "createdAt", "updatedAt", "changeLogRef"];
-        const shown = new Set();
-        let html = '<table class="prop-table">';
-        for (const k of priority) {
-          if (node[k] !== undefined && node[k] !== null) {
-            shown.add(k);
-            let v = node[k];
-            if (k === "canonicalType") v = v.split("#").pop();
-            if (typeof v === "string" && v.length > 80) v = v.substring(0, 80) + "...";
-            html += `<tr><td>${k}</td><td>${v}</td></tr>`;
-          }
-        }
-        for (const [k, v] of Object.entries(node)) {
-          if (shown.has(k) || k === "_label") continue;
-          let display = v;
-          if (typeof display === "string" && display.length > 80) display = display.substring(0, 80) + "...";
-          html += `<tr><td>${k}</td><td>${display}</td></tr>`;
-        }
-        html += '</table>';
-
-        if (rels.length > 0) {
-          html += '<h3 style="margin:16px 0 8px;font-size:12px;color:var(--text-dim)">RELATIONSHIPS</h3>';
-          html += '<ul class="rel-list">';
-          for (const r of rels) {
-            const relType = r.rel || r.type || r.rel_type || "";
-            const target = r.node || r.target || {};
-            const targetName = target.displayName || target.id?.substring(0, 12) || "";
-            const targetId = (target.id || "").substring(0, 8);
-            html += `<li><span class="rel-type">${relType}</span> &rarr; ${targetName} <span style="color:var(--text-dim);font-size:10px">${targetId}</span></li>`;
-          }
-          html += '</ul>';
-        }
-
-        document.getElementById("modal-body").innerHTML = html;
-        document.getElementById("modal").classList.add("active");
-      } catch (e) {
-        console.error(e);
-      }
-    }
-
-    function closeModal() {
-      document.getElementById("modal").classList.remove("active");
-    }
-
-    document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
-
-    // ── Findings ──────────────────────────────────────────────────
-    async function updateFindings() {
-      try {
-        const r = await fetch(`${API}/findings?tenant=${TENANT}&limit=20`);
-        if (!r.ok) return;
-        const d = await r.json();
-
-        const el = document.getElementById("finding-list");
-        const countEl = document.getElementById("finding-count");
-
-        if (d.findings.length === 0) {
-          el.innerHTML = '<div class="empty">No findings yet.</div>';
-          countEl.textContent = "";
-          return;
-        }
-
-        countEl.textContent = `${d.count} total`;
-        el.innerHTML = d.findings.map(f => {
-          const evidence = f.evidence ? `<div class="finding-evidence">${f.evidence}</div>` : '';
-          const confidence = f.confidence ? ` | conf: ${(f.confidence * 100).toFixed(0)}%` : '';
-          const ts = f.createdAt ? new Date(f.createdAt).toLocaleTimeString() : '';
-          return `
-            <div class="finding-row" onclick="showEntity('${f.id}')" style="cursor:pointer">
-              <div class="finding-header">
-                <span class="severity-badge ${f.severity || 'info'}">${f.severity || 'info'}</span>
-                <span style="font-size:10px;color:var(--text-dim)">Tier ${f.tier || '?'} | ${ts}</span>
-              </div>
-              <div class="finding-message">${f.displayName || f.message || ''}</div>
-              <div class="finding-meta">${f.behaviorId || ''}${confidence}</div>
-              ${evidence}
-            </div>`;
-        }).join("");
-      } catch {}
-    }
-
-    // ── Changelog ─────────────────────────────────────────────────
-    async function updateChangelog() {
-      try {
-        const r = await fetch(`${API}/changelog?tenant=${TENANT}&limit=25`);
-        if (!r.ok) return;
-        const d = await r.json();
-
-        const el = document.getElementById("changelog-list");
-        const countEl = document.getElementById("event-count");
-
-        if (d.events.length === 0) {
-          el.innerHTML = '<div class="empty">No events yet.</div>';
-          countEl.textContent = "";
-          return;
-        }
-
-        countEl.textContent = `${d.count} events`;
-        el.innerHTML = d.events.map(e => `
-          <div class="event-row">
-            <span class="event-action ${e.action}">${e.action}</span>
-            <span class="event-actor">${e.actor}</span>
-            <span class="event-entity">${(e.entity_id || '').substring(0, 12)}</span>
-            <span class="event-time">${e.ts ? new Date(e.ts).toLocaleTimeString() : ''}</span>
-          </div>
-        `).join("");
-      } catch {}
-    }
-
-    // ── Feed status ───────────────────────────────────────────────
-    async function updateFeedStatus() {
-      try {
-        const r = await fetch(`${API}/feed/status`);
-        if (!r.ok) return;
-        const d = await r.json();
-
-        document.getElementById("feed-samples").textContent = d.samples_processed || 0;
-        document.getElementById("feed-findings").textContent = d.findings_emitted || 0;
-
-        const tempEl = document.getElementById("feed-temp");
-        if (d.latest_value !== null && d.latest_value !== undefined) {
-          const v = d.latest_value.toFixed(1);
-          tempEl.textContent = v + "C";
-          tempEl.style.color = d.latest_value > 28 ? "var(--red)" :
-                                d.latest_value > 25 ? "var(--yellow)" : "var(--green)";
-
-          // Add to chart history
-          tempHistory.push({ value: d.latest_value, ts: d.latest_timestamp });
-          if (tempHistory.length > MAX_POINTS) tempHistory.shift();
-          drawChart();
-        } else {
-          tempEl.textContent = "--";
-        }
-
-        const infoEl = document.getElementById("feed-info");
-        if (d.running) {
-          infoEl.innerHTML = '<span class="status-dot green" style="display:inline-block"></span> RUNNING';
-          document.getElementById("btn-start").disabled = true;
-          document.getElementById("btn-stop").disabled = false;
-        } else {
-          infoEl.innerHTML = '<span class="status-dot yellow" style="display:inline-block"></span> IDLE';
-          document.getElementById("btn-start").disabled = false;
-          document.getElementById("btn-stop").disabled = true;
-        }
-      } catch {}
-    }
-
-    // ── Feed controls ─────────────────────────────────────────────
-    async function startFeed() {
-      document.getElementById("btn-start").disabled = true;
-      tempHistory.length = 0; // reset chart
-      await fetch(`${API}/feed/start?tenant=${TENANT}`, { method: "POST" });
-    }
-
-    async function stopFeed() {
-      await fetch(`${API}/feed/stop`, { method: "POST" });
-    }
-
-    // ── Poll ──────────────────────────────────────────────────────
-    async function poll() {
-      await Promise.all([
-        checkHealth(), updateStats(), updateEntities(),
-        updateFindings(), updateChangelog(), updateFeedStatus(),
-      ]);
-    }
-
-    poll();
-    setInterval(poll, 2000);
-
-    // Redraw chart on resize
-    window.addEventListener("resize", drawChart);
-    drawChart();
-  </script>
+poll();
+setInterval(poll, 2000);
+window.addEventListener("resize", () => { if (hist.length >= 2) drawChart(); });
+drawChart();
+</script>
 </body>
 </html>
