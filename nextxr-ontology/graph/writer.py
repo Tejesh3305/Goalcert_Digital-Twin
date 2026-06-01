@@ -38,6 +38,7 @@ from rdflib.namespace import Namespace  # noqa: E402
 
 from graph.connection import get_driver  # noqa: E402
 from changelog.service import ChangeLog  # noqa: E402
+from graph.state_machine import validate_transition  # noqa: E402
 
 NXR = "https://ontology.nextxr.io/v3/core#"
 TAXONOMY_PRED = URIRef(NXR + "taxonomyCategory")
@@ -423,6 +424,17 @@ class GraphWriter:
         if label is None:
             return WriteResult(ok=False, node_id=node_id,
                                error=f"Unknown type: {canonical_type}")
+
+        # State machine enforcement: validate status transitions
+        if "status" in properties and canonical_type:
+            old_status = src["props"].get("status")
+            sm_error = validate_transition(canonical_type, old_status, properties["status"])
+            if sm_error:
+                return WriteResult(
+                    ok=False, node_id=node_id, label=label,
+                    canonical_type=canonical_type,
+                    error=f"State machine violation: {sm_error}",
+                )
 
         # Merge new properties into existing
         merged = dict(src["props"])

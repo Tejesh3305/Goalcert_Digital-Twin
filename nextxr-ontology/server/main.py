@@ -36,6 +36,9 @@ if str(TOOLS) not in sys.path:
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+
+from server.auth import AuthMiddleware
 
 from graph.connection import get_driver, close_driver
 from graph.writer import GraphWriter, Rel
@@ -48,6 +51,7 @@ from behaviors.hvac import (
     ThermalPhysicsBehavior,
 )
 from feed.simulate import simulate_temperature, FindingsLoop
+from behaviors.diagnosis import DiagnosisEngine
 
 from server.query_api import router as query_router
 from server.write_api import router as write_router
@@ -60,6 +64,14 @@ app = FastAPI(
     version="1.0.0",
     description="Live dashboard + REST API for the NextXR Digital Twin.",
 )
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(AuthMiddleware)
 
 app.include_router(query_router)
 app.include_router(write_router)
@@ -166,6 +178,26 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
 
                 # Pace the feed — 0.5s per sample so the dashboard can show progress
                 time.sleep(0.5)
+
+            # After each run, invoke diagnosis engine on accumulated findings
+            try:
+                all_findings = query.get_findings(tenant)
+                if all_findings:
+                    finding_ids = [f["id"] for f in all_findings
+                                   if f.get("id") and not f.get("groupedInto")]
+                    if finding_ids:
+                        engine = DiagnosisEngine(writer, query)
+                        result = engine.analyze(tenant, finding_ids, ahu_id)
+                        with _feed_lock:
+                            _feed_state["diagnosis"] = {
+                                "incident_id": result.incident_id,
+                                "diagnosis_id": result.diagnosis_id,
+                                "recommendation_id": result.recommendation_id,
+                                "action_id": result.action_id,
+                                "findings_grouped": result.findings_grouped,
+                            }
+            except Exception:
+                pass  # Diagnosis is best-effort, don't crash the feed
 
             run_number += 1
 

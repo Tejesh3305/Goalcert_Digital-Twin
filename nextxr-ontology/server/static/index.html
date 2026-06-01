@@ -655,6 +655,13 @@ body {
       <span class="section-title">Graph Entities</span>
       <span class="panel-count" id="ent-count"></span>
     </div>
+    <div style="padding:10px 16px;border-bottom:1px solid var(--ink-08);display:flex;gap:6px;align-items:center">
+      <select id="create-type" style="flex:1;padding:5px 8px;font-family:inherit;font-size:11px;border:1px solid var(--ink-15);background:var(--paper);border-radius:4px">
+        <option value="">Select type...</option>
+      </select>
+      <input id="create-name" placeholder="Display name" style="flex:1;padding:5px 8px;font-family:inherit;font-size:11px;border:1px solid var(--ink-15);background:var(--paper);border-radius:4px">
+      <button class="btn btn-start" onclick="createEntity()" style="padding:5px 10px;font-size:10px">Create</button>
+    </div>
     <div class="panel-scroll" id="ent-list">
       <div class="empty-state">Waiting for data</div>
     </div>
@@ -880,12 +887,92 @@ function drawRef(ctx, yFn, pad, cw, val, color, label) {
 function var_ink_08() { return "#e8e5e0"; }
 function var_ink() { return "#1a1714"; }
 
+// ── Schema + Categories (loaded once) ─────────────
+let categories = ["PhysicalAsset", "Location", "Finding", "Incident", "Process",
+  "Observation", "Actor", "Capability", "Document", "MobileAsset"];
+let schemaTypes = [];
+
+async function loadSchema() {
+  try {
+    const cats = await (await fetch(`${A}/schema/categories`)).json();
+    if (Array.isArray(cats) && cats.length) {
+      categories = cats.map(c => c.label);
+    }
+  } catch {}
+  try {
+    const types = await (await fetch(`${A}/schema/types?instantiable_only=true`)).json();
+    if (Array.isArray(types)) {
+      schemaTypes = types;
+      const sel = document.getElementById("create-type");
+      sel.innerHTML = '<option value="">Select type...</option>';
+      for (const t of types) {
+        const opt = document.createElement("option");
+        opt.value = t.iri || t.id || t;
+        opt.textContent = t.label || t.id || t;
+        sel.appendChild(opt);
+      }
+    }
+  } catch {}
+}
+loadSchema();
+
+// ── Write controls ────────────────────────────────
+async function createEntity() {
+  const typeEl = document.getElementById("create-type");
+  const nameEl = document.getElementById("create-name");
+  const type = typeEl.value;
+  const name = nameEl.value.trim();
+  if (!type) return alert("Select a type first");
+  if (!name) return alert("Enter a display name");
+
+  try {
+    const r = await fetch(`${A}/entities`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tenant: T,
+        canonical_type: type,
+        actor: "dashboard",
+        properties: { displayName: name },
+      }),
+    });
+    const d = await r.json();
+    if (r.ok) {
+      nameEl.value = "";
+      poll(); // Refresh immediately
+    } else {
+      alert("Create failed: " + (d.detail?.error || d.detail || JSON.stringify(d)));
+    }
+  } catch (e) { alert("Error: " + e.message); }
+}
+
+async function deleteEntity(nodeId) {
+  if (!confirm("Delete this entity?")) return;
+  try {
+    const r = await fetch(`${A}/entities/${nodeId}?tenant=${T}&actor=dashboard`, { method: "DELETE" });
+    if (r.ok) { closeDetail(); poll(); }
+    else { const d = await r.json(); alert("Delete failed: " + (d.detail?.error || "")); }
+  } catch (e) { alert("Error: " + e.message); }
+}
+
+async function updateStatus(nodeId, newStatus) {
+  try {
+    const r = await fetch(`${A}/entities/${nodeId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tenant: T, actor: "dashboard", properties: { status: newStatus } }),
+    });
+    const d = await r.json();
+    if (r.ok) { openDetail(nodeId); poll(); }
+    else { alert("Status change failed: " + (d.detail?.error || d.detail || "")); }
+  } catch (e) { alert("Error: " + e.message); }
+}
+
 // ── Entities ──────────────────────────────────────
 async function pollEntities() {
   try {
-    const labels = ["PhysicalAsset", "Location", "Finding", "Incident", "Process"];
     let all = [];
-    for (const lb of labels) {
+    for (const lb of categories) {
       const d = await (await fetch(`${A}/entities?tenant=${T}&label=${lb}&limit=30`)).json();
       for (const n of d.nodes) all.push({ ...n, _label: lb });
     }
@@ -974,6 +1061,16 @@ async function pollLog() {
 }
 
 // ── Slide-out detail ──────────────────────────────
+async function getEntityStates(canonicalType) {
+  if (!canonicalType) return null;
+  try {
+    const name = canonicalType.split("#").pop();
+    const d = await (await fetch(`${A}/schema/class/${name}`)).json();
+    if (d.stateMachine && d.stateMachine.states) return d.stateMachine.states;
+  } catch {}
+  return null;
+}
+
 async function openDetail(nodeId) {
   try {
     const d = await (await fetch(`${A}/entities/${nodeId}?tenant=${T}`)).json();
@@ -1027,6 +1124,37 @@ async function openDetail(nodeId) {
         ${relsHtml}
       </div>`;
     }
+
+    // Actions section: status change + delete
+    let actionsHtml = '<div class="slideout-section"><div class="slideout-section-title">Actions</div>';
+
+    // Status change (fetch allowed states from schema if available)
+    if (node.status != null) {
+      actionsHtml += `<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+        <span style="font-size:11px;color:var(--ink-50);min-width:50px">Status:</span>
+        <select id="status-select" style="flex:1;padding:4px 8px;font-family:inherit;font-size:11px;border:1px solid var(--ink-15);border-radius:3px">`;
+
+      // Try to get legal states from schema
+      const states = await getEntityStates(node.canonicalType);
+      if (states && states.length) {
+        for (const s of states) {
+          actionsHtml += `<option value="${s}" ${s === node.status ? 'selected' : ''}>${s}</option>`;
+        }
+      } else {
+        // Fallback: common statuses
+        for (const s of ["off", "running", "degraded", "fault", "open", "diagnosed", "acknowledged", "resolved", "closed", "active", "inactive"]) {
+          actionsHtml += `<option value="${s}" ${s === node.status ? 'selected' : ''}>${s}</option>`;
+        }
+      }
+
+      actionsHtml += `</select>
+        <button class="btn btn-start" style="padding:4px 10px;font-size:10px" onclick="updateStatus('${nodeId}', document.getElementById('status-select').value)">Update</button>
+      </div>`;
+    }
+
+    actionsHtml += `<button class="btn btn-stop" style="padding:5px 12px;font-size:10px;width:100%" onclick="deleteEntity('${nodeId}')">Delete Entity</button>`;
+    actionsHtml += '</div>';
+    html += actionsHtml;
 
     document.getElementById("so-body").innerHTML = html;
     document.getElementById("so-panel").classList.add("open");
