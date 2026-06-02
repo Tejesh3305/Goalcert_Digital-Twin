@@ -31,8 +31,14 @@ PLATFORM_FILES = [
     "platform/nxr-shapes.ttl",
 ]
 
+# Layer 3.5 — Common Facilities Pack (frozen universal sub-layer).
+CFP_FILES = [
+    "packs/cfp/cfp-classes.ttl",
+    "packs/cfp/cfp-shapes.ttl",
+]
+
 # Layer 4 — domain packs.
-PACK_FILES = [
+PACK_FILES = CFP_FILES + [
     "packs/hvac/hvac-classes.ttl",
     "packs/hvac/hvac-shapes.ttl",
 ]

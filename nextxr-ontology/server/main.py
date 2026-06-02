@@ -50,6 +50,18 @@ from behaviors.hvac import (
     TemperatureZScoreBaseline,
     ThermalPhysicsBehavior,
 )
+from behaviors.cfp.tier_c_power import (
+    UPSOnBatteryRule, GeneratorFuelLowRule, TransformerOverTempRule,
+)
+from behaviors.cfp.tier_c_fire import SmokeAlarmRule
+from behaviors.cfp.tier_c_security import DoorForcedRule, RepeatedDenyRule
+from behaviors.cfp.tier_c_water import (
+    LeakDetectedRule, TankLowLevelRule, ContinuousFlowLeakRule,
+)
+from behaviors.cfp.tier_c_network import HeartbeatLossRule
+from behaviors.cfp.tier_c_filter import FilterCloggedRule
+from behaviors.cfp.tier_b_chiller import ChillerCOPBaseline
+from behaviors.cfp.tier_b_vibration import PumpVibrationBaseline
 from feed.simulate import simulate_temperature, FindingsLoop
 from behaviors.diagnosis import DiagnosisEngine
 
@@ -117,6 +129,8 @@ _feed_state = {
     "findings_emitted": 0,
     "latest_value": None,
     "latest_timestamp": None,
+    "signals": {},          # per-signal latest: {"cfp:upsSoC": 95.2, ...}
+    "domain": "hvac",       # twin domain for the active feed
     "error": None,
 }
 _feed_lock = threading.Lock()
@@ -179,8 +193,76 @@ def _seed_facility(writer: GraphWriter, tenant: str) -> str:
     return ahu.node_id
 
 
+def _detect_twin_domain(tenant: str) -> str:
+    """Look up the domain template for a tenant. Returns 'hvac', 'generic-facility', etc."""
+    try:
+        from twins import TwinRegistry
+        twin = TwinRegistry().get(tenant)
+        if twin:
+            return twin.domain
+    except Exception:
+        pass
+    return "hvac"  # default for legacy/unregistered tenants
+
+
+def _resolve_cfp_assets(tenant: str, query) -> dict:
+    """Find seeded CFP assets by display name pattern for the feed simulator."""
+    try:
+        entities = query.list_by_label(tenant, "PhysicalAsset", limit=100)
+    except Exception:
+        return {}  # graceful degradation — feed runs with empty asset map
+    mapping = {}
+    name_map = {
+        "UPS": "ups", "TX-": "transformer", "GenSet": "generator",
+        "Filter-": "filter", "Chiller": "chiller", "Pump": "pump",
+        "Main Entry": "door", "Edge-": "edge_node",
+    }
+    for e in entities:
+        name = e.get("displayName", "")
+        for pattern, role in name_map.items():
+            if pattern in name and role not in mapping:
+                mapping[role] = e["id"]
+                break
+    # Sensors are under PhysicalAsset too (Sensor subclasses)
+    for e in entities:
+        name = e.get("displayName", "")
+        if "Smoke" in name and "smoke_detector" not in mapping:
+            mapping["smoke_detector"] = e["id"]
+    # Water tank
+    for e in entities:
+        name = e.get("displayName", "")
+        if "Tank" in name and "water_tank" not in mapping:
+            mapping["water_tank"] = e["id"]
+    return mapping
+
+
+def _build_registry() -> BehaviorRegistry:
+    """Build a fresh behavior registry with all HVAC + CFP behaviors."""
+    registry = BehaviorRegistry()
+    # HVAC behaviors (existing)
+    registry.register(TemperatureThresholdRule(offset_c=3.0, duration_minutes=3.0))
+    registry.register(TemperatureZScoreBaseline(warmup=12, z_threshold=3.0))
+    registry.register(ThermalPhysicsBehavior())
+    # CFP behaviors
+    registry.register(UPSOnBatteryRule())
+    registry.register(GeneratorFuelLowRule())
+    registry.register(TransformerOverTempRule())
+    registry.register(SmokeAlarmRule())
+    registry.register(DoorForcedRule())
+    registry.register(RepeatedDenyRule())
+    registry.register(LeakDetectedRule())
+    registry.register(TankLowLevelRule())
+    registry.register(ContinuousFlowLeakRule())
+    registry.register(HeartbeatLossRule())
+    registry.register(FilterCloggedRule())
+    registry.register(ChillerCOPBaseline())
+    registry.register(PumpVibrationBaseline())
+    return registry
+
+
 def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
     """Background thread: run simulated feed through behavior registry.
+    Detects twin domain and runs the appropriate simulator.
     Loops continuously with fresh simulations until stopped."""
     global _feed_state
 
@@ -188,7 +270,12 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
         writer = GraphWriter(changelog=cl)
         query = GraphQuery()
 
+        domain = _detect_twin_domain(tenant)
         run_number = 0
+
+        with _feed_lock:
+            _feed_state["domain"] = domain
+            _feed_state["signals"] = {}
 
         while True:
             # Check if stopped
@@ -197,13 +284,18 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
                     break
 
             # Fresh behaviors each run so baselines reset cleanly
-            registry = BehaviorRegistry()
-            registry.register(TemperatureThresholdRule(offset_c=3.0, duration_minutes=3.0))
-            registry.register(TemperatureZScoreBaseline(warmup=12, z_threshold=3.0))
-            registry.register(ThermalPhysicsBehavior())
-
+            registry = _build_registry()
             loop = FindingsLoop(registry, writer, query)
-            samples = list(simulate_temperature(tenant, ahu_id, setpoint=22.0, minutes=60))
+
+            # Choose sample source based on twin domain
+            if domain == "generic-facility":
+                from feed.simulate_cfp import simulate_facility
+                cfp_assets = _resolve_cfp_assets(tenant, query)
+                samples = list(simulate_facility(tenant, cfp_assets))
+            else:
+                # Default HVAC feed
+                samples = list(simulate_temperature(tenant, ahu_id,
+                                                    setpoint=22.0, minutes=60))
 
             with _feed_lock:
                 _feed_state["run"] = run_number
@@ -220,6 +312,7 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
                     _feed_state["latest_value"] = sample.value
                     _feed_state["latest_timestamp"] = sample.timestamp.isoformat()
                     _feed_state["findings_emitted"] += len(outcomes)
+                    _feed_state["signals"][sample.signal] = round(sample.value, 2)
 
                 # Pace the feed — 0.5s per sample so the dashboard can show progress
                 time.sleep(0.5)
@@ -231,8 +324,10 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
                     finding_ids = [f["id"] for f in all_findings
                                    if f.get("id") and not f.get("groupedInto")]
                     if finding_ids:
+                        # For CFP twins, target the first affected asset
+                        affected_id = ahu_id
                         engine = DiagnosisEngine(writer, query)
-                        result = engine.analyze(tenant, finding_ids, ahu_id)
+                        result = engine.analyze(tenant, finding_ids, affected_id)
                         with _feed_lock:
                             _feed_state["diagnosis"] = {
                                 "incident_id": result.incident_id,
@@ -293,6 +388,8 @@ def start_feed(tenant: str = DEFAULT_TENANT):
             "findings_emitted": 0,
             "latest_value": None,
             "latest_timestamp": None,
+            "signals": {},
+            "domain": "",
             "error": None,
         })
 

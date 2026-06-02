@@ -1,10 +1,16 @@
 @prefix hvac: <https://ontology.nextxr.io/v3/hvac#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
 @prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
 @prefix sh:   <http://www.w3.org/ns/shacl#> .
 @prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
 
 #################################################################
 #  HVAC PACK SHAPES — inherit BaseEntityShape, add HVAC rules
+#
+#  hvac:AirHandler now extends cfp:AirHandlingUnit. The HVAC shape
+#  still enforces hvac:servesSpace (which is a subPropertyOf
+#  cfp:suppliesAirTo). Existing code using hvac:servesSpace CURIEs
+#  continues to work unmodified.
 #################################################################
 
 hvac:AirHandlerShape a sh:NodeShape ;
@@ -13,7 +19,7 @@ hvac:AirHandlerShape a sh:NodeShape ;
     sh:property [
         sh:path hvac:servesSpace ;
         sh:minCount 1 ;
-        sh:message "An air handler must serve at least one space." ;
+        sh:message "An HVAC air handler must serve at least one space." ;
     ] .
 
 hvac:TemperatureSensorShape a sh:NodeShape ;

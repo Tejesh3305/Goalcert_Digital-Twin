@@ -25,6 +25,7 @@ export default function LiveOps() {
   const incidents = incData?.nodes || []
   const temp = feed?.latest_value
   const tempCls = temp == null ? '' : temp > 28 ? 'sensor-crit' : temp > 25 ? 'sensor-warn' : ''
+  const signals = feed?.signals || {}
 
   return (
     <div className="panel">
@@ -45,6 +46,34 @@ export default function LiveOps() {
           <div className="sensor-label">Air Temperature</div>
           <div className="sensor-value">{temp != null ? Number(temp).toFixed(1) : '—'}<span className="sensor-unit">°C</span></div>
         </div>
+        {signals['cfp:upsSoC'] != null && (
+          <div className={`sensor-card ${signals['cfp:upsSoC'] < 50 ? 'sensor-crit' : signals['cfp:upsSoC'] < 90 ? 'sensor-warn' : ''}`}>
+            <div className="live-indicator" />
+            <div className="sensor-label">UPS State of Charge</div>
+            <div className="sensor-value">{Number(signals['cfp:upsSoC']).toFixed(0)}<span className="sensor-unit">%</span></div>
+          </div>
+        )}
+        {signals['cfp:oilTemperature'] != null && (
+          <div className={`sensor-card ${signals['cfp:oilTemperature'] > 85 ? 'sensor-crit' : signals['cfp:oilTemperature'] > 75 ? 'sensor-warn' : ''}`}>
+            <div className="live-indicator" />
+            <div className="sensor-label">Transformer Oil Temp</div>
+            <div className="sensor-value">{Number(signals['cfp:oilTemperature']).toFixed(1)}<span className="sensor-unit">°C</span></div>
+          </div>
+        )}
+        {signals['cfp:filterDeltaP'] != null && (
+          <div className={`sensor-card ${signals['cfp:filterDeltaP'] > 250 ? 'sensor-crit' : signals['cfp:filterDeltaP'] > 200 ? 'sensor-warn' : ''}`}>
+            <div className="live-indicator" />
+            <div className="sensor-label">Filter Delta P</div>
+            <div className="sensor-value">{Number(signals['cfp:filterDeltaP']).toFixed(0)}<span className="sensor-unit">Pa</span></div>
+          </div>
+        )}
+        {signals['cfp:chillerCOP'] != null && (
+          <div className={`sensor-card ${signals['cfp:chillerCOP'] < 3.5 ? 'sensor-warn' : ''}`}>
+            <div className="live-indicator" />
+            <div className="sensor-label">Chiller COP</div>
+            <div className="sensor-value">{Number(signals['cfp:chillerCOP']).toFixed(2)}</div>
+          </div>
+        )}
         <div className="sensor-card">
           <div className="live-indicator" />
           <div className="sensor-label">Samples Processed</div>

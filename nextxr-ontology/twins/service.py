@@ -28,6 +28,7 @@ from typing import Optional
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
+CFP  = "https://ontology.nextxr.io/v3/cfp#"
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "twins.db"
 
@@ -39,6 +40,14 @@ TEMPLATES = {
         "description": "A site with a server room cooled by an air handler — "
                        "ready for the live temperature feed and Tier A/B/C rules.",
         "primary_signal": "hvac:AirTemperature",
+        "seeds_feed": True,
+    },
+    "generic-facility": {
+        "label": "Generic Facility",
+        "description": "A 3-floor building with HVAC, power, fire, security, "
+                       "water, and network systems — the CFP demo twin. "
+                       "All systems produce telemetry and fire rules.",
+        "primary_signal": "cfp:upsSoC",
         "seeds_feed": True,
     },
     "blank": {
@@ -199,6 +208,9 @@ class TwinRegistry:
             )
             return None
 
+        if twin.domain == "generic-facility":
+            return self._seed_generic_facility(twin, writer, actor)
+
         # hvac template: Site, Space, AirHandler (servesSpace).
         writer.create(
             tenant_id=twin.tenant_id, canonical_type=CORE + "Site",
@@ -216,3 +228,101 @@ class TwinRegistry:
             relationships=[Rel("hvac:servesSpace", space.node_id)] if space.ok else None,
         )
         return ahu.node_id if ahu.ok else None
+
+    def _seed_generic_facility(self, twin: Twin, writer, actor: str) -> Optional[str]:
+        """Seed a 3-floor generic facility with multi-system assets.
+        Returns the UPS entity id (the primary asset the CFP feed targets)."""
+        from graph.writer import Rel  # local import: one-way dependency
+        t = twin.tenant_id
+
+        # --- Spatial backbone ---
+        building = writer.create(
+            tenant_id=t, canonical_type=CFP + "Building", actor=actor,
+            properties={"displayName": f"{twin.name} — Main Building",
+                        "status": "active"},
+        )
+        floors = {}
+        for idx, name in [(0, "Ground Floor"), (1, "First Floor"), (2, "Second Floor")]:
+            f = writer.create(
+                tenant_id=t, canonical_type=CFP + "Floor", actor=actor,
+                properties={"displayName": name, "levelIndex": idx},
+            )
+            floors[idx] = f
+
+        zone = writer.create(
+            tenant_id=t, canonical_type=CFP + "Zone", actor=actor,
+            properties={"displayName": "HVAC Zone A", "zoneType": "hvac"},
+        )
+
+        # --- HVAC ---
+        ahu = writer.create(
+            tenant_id=t, canonical_type=CFP + "AirHandlingUnit", actor=actor,
+            properties={"displayName": "AHU-01", "status": "running",
+                        "setpoint": 22.0},
+            relationships=[Rel("cfp:suppliesAirTo", zone.node_id)] if zone.ok else None,
+        )
+        chiller = writer.create(
+            tenant_id=t, canonical_type=CFP + "Chiller", actor=actor,
+            properties={"displayName": "Chiller-01", "status": "running"},
+            relationships=[Rel("nxr:feeds", ahu.node_id)] if ahu.ok else None,
+        )
+        air_filter = writer.create(
+            tenant_id=t, canonical_type=CFP + "AirFilter", actor=actor,
+            properties={"displayName": "Filter-AHU01", "status": "running"},
+        )
+        pump = writer.create(
+            tenant_id=t, canonical_type=CFP + "Pump", actor=actor,
+            properties={"displayName": "CHW Pump-01", "status": "running"},
+        )
+
+        # --- Power ---
+        ups = writer.create(
+            tenant_id=t, canonical_type=CFP + "UPS", actor=actor,
+            properties={"displayName": "UPS-01", "status": "running"},
+            relationships=[Rel("cfp:backsUp", chiller.node_id)] if chiller.ok else None,
+        )
+        transformer = writer.create(
+            tenant_id=t, canonical_type=CFP + "Transformer", actor=actor,
+            properties={"displayName": "TX-01", "status": "running"},
+        )
+        generator = writer.create(
+            tenant_id=t, canonical_type=CFP + "Generator", actor=actor,
+            properties={"displayName": "GenSet-01", "status": "off"},
+            relationships=[Rel("cfp:backsUp", ups.node_id)] if ups.ok else None,
+        )
+
+        # --- Fire ---
+        smoke_rels = []
+        if zone.ok:
+            smoke_rels.append(Rel("nxr:monitors", zone.node_id))
+        smoke_rels.append(Rel("sosa:observes", "cfp:smokeObscuration", ontology_ref=True))
+        smoke = writer.create(
+            tenant_id=t, canonical_type=CFP + "SmokeDetector", actor=actor,
+            properties={"displayName": "Smoke-GF-01"},
+            relationships=smoke_rels,
+        )
+        facp = writer.create(
+            tenant_id=t, canonical_type=CFP + "FireAlarmPanel", actor=actor,
+            properties={"displayName": "FACP-01", "status": "running"},
+            relationships=[Rel("cfp:controls", smoke.node_id)] if smoke.ok else None,
+        )
+
+        # --- Security ---
+        door = writer.create(
+            tenant_id=t, canonical_type=CFP + "AccessDoor", actor=actor,
+            properties={"displayName": "Main Entry", "status": "running"},
+        )
+
+        # --- Water ---
+        tank = writer.create(
+            tenant_id=t, canonical_type=CFP + "WaterTank", actor=actor,
+            properties={"displayName": "Fire Reserve Tank", "status": "running"},
+        )
+
+        # --- Network ---
+        edge = writer.create(
+            tenant_id=t, canonical_type=CFP + "EdgeNode", actor=actor,
+            properties={"displayName": "Edge-01", "status": "running"},
+        )
+
+        return ups.node_id if ups.ok else None

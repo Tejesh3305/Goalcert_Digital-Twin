@@ -48,6 +48,7 @@ SUBCLASS = URIRef("http://www.w3.org/2000/01/rdf-schema#subClassOf")
 # CURIE prefixes the writer understands for predicates/relationships.
 PREFIXES = {
     "nxr": NXR,
+    "cfp": "https://ontology.nextxr.io/v3/cfp#",
     "hvac": "https://ontology.nextxr.io/v3/hvac#",
     "office": "https://ontology.nextxr.io/v3/office#",
     "sosa": "http://www.w3.org/ns/sosa/",
@@ -66,9 +67,13 @@ _BASE_KEYS = {
 @dataclass
 class Rel:
     """An outgoing relationship to an existing node in the same tenant.
-    predicate is a CURIE ('nxr:flags', 'hvac:servesSpace') or a full IRI."""
+    predicate is a CURIE ('nxr:flags', 'hvac:servesSpace') or a full IRI.
+    If ontology_ref=True, target_id is an ontology IRI (e.g. a sosa:ObservableProperty)
+    rather than a graph entity — skips Neo4j referential integrity and renders
+    the raw IRI in validation TTL. Not persisted as a Neo4j edge."""
     predicate: str
     target_id: str
+    ontology_ref: bool = False
 
 
 @dataclass
@@ -238,7 +243,15 @@ class GraphWriter:
         # checked separately against the graph).
         for r in rels:
             iri, _ = _resolve_predicate(r.predicate)
-            body.append(f"    <{iri}> {_subject_iri(r.target_id)}")
+            if getattr(r, "ontology_ref", False):
+                # Target is an ontology IRI, not a graph entity — render raw.
+                target_iri = r.target_id
+                if not target_iri.startswith("http"):
+                    pfx, local = target_iri.split(":", 1)
+                    target_iri = PREFIXES.get(pfx, pfx + ":") + local
+                body.append(f"    <{iri}> <{target_iri}>")
+            else:
+                body.append(f"    <{iri}> {_subject_iri(r.target_id)}")
         lines.append(" ;\n".join(body) + " .")
         return "\n".join(lines)
 
@@ -312,8 +325,14 @@ class GraphWriter:
                          "createdBy"):
                 props[k] = v
 
-        # Referential integrity: every relationship target must already exist.
-        target_types = self._target_canonical_types(tenant_id, rels)
+        # Split ontology-ref rels from graph rels. Ontology refs (e.g.
+        # sosa:observes pointing at an ObservableProperty IRI) are included in
+        # validation TTL but skip Neo4j referential integrity and persistence.
+        graph_rels = [r for r in rels if not getattr(r, "ontology_ref", False)]
+        all_rels = rels  # validation needs both kinds
+
+        # Referential integrity: every graph relationship target must exist.
+        target_types = self._target_canonical_types(tenant_id, graph_rels)
         missing = [tid for tid, c in target_types.items() if c is None]
         if missing:
             return WriteResult(ok=False, canonical_type=canonical_type,
@@ -321,7 +340,7 @@ class GraphWriter:
                                      f"tenant '{tenant_id}': {missing}")
 
         # ---- VALIDATE (before anything touches the graph) ----
-        ttl = self._render_node_ttl(node_id, canonical_type, props, rels)
+        ttl = self._render_node_ttl(node_id, canonical_type, props, all_rels)
         result = gate.validate(ttl)
         if not result.ok:
             return WriteResult(
@@ -331,8 +350,8 @@ class GraphWriter:
                 error="Validation failed; nothing written.",
             )
 
-        # ---- COMMIT (single transaction: node + relationships) ----
-        self._commit_create(tenant_id, label, props, rels)
+        # ---- COMMIT (single transaction: node + graph relationships) ----
+        self._commit_create(tenant_id, label, props, graph_rels)
 
         # ---- EMIT change-log event ----
         field_changes = {k: {"old": None, "new": v} for k, v in props.items()}

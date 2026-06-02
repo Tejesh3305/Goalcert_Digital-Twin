@@ -1,0 +1,47 @@
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+
+#################################################################
+#  CFP SHACL SHAPES
+#
+#  Most CFP classes inherit sufficient validation from the
+#  platform's base-coverage shapes:
+#    - nxr:PhysicalAssetShape covers all Equipment/Sensor subclasses
+#    - nxr:SensorShape adds monitors + observes requirements
+#    - nxr:SpaceShape covers all spatial subclasses
+#    - nxr:SiteShape covers Site/Building
+#    - nxr:ProcessShape covers WorkOrder, MaintenanceTask
+#    - nxr:MaintenanceEventShape covers Inspection (targetsAsset)
+#    - nxr:DocumentShape covers MaintenanceSchedule, SOP, SLA
+#    - nxr:ActorShape covers Person, MaintenanceCrew, Visitor
+#    - nxr:MobileAssetShape covers Vehicle, AssetTracker
+#    - nxr:ObservationShape covers ConditionAssessment
+#
+#  This file only adds ADDITIONAL constraints where CFP classes
+#  have structural requirements beyond the inherited base.
+#
+#  NOTE: Equipment relationship requirements (AHU must serve a
+#  zone, Chiller must feed something) are deliberately left to
+#  DOMAIN PACKS. The CFP defines the classes and predicates but
+#  does not enforce mandatory relationships — this lets generic
+#  CFP entities be created flexibly, while domain packs add their
+#  own strictness (e.g. hvac:AirHandlerShape requires
+#  hvac:servesSpace). SHACL inference is OFF, so subproperty
+#  chains (hvac:servesSpace ⊑ cfp:suppliesAirTo) are invisible
+#  to the gate; enforcing cfp:suppliesAirTo here would break
+#  entities created with hvac:servesSpace.
+#################################################################
+
+### WorkOrder — must affect at least one entity ###
+cfp:WorkOrderShape a sh:NodeShape ;
+    sh:targetClass cfp:WorkOrder ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path nxr:affects ;
+        sh:minCount 1 ;
+        sh:message "A WorkOrder must affect at least one entity (the asset or incident it addresses)." ;
+    ] .

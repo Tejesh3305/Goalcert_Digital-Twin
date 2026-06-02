@@ -1,0 +1,1034 @@
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix bfo:  <http://purl.obolibrary.org/obo/> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix quantitykind: <http://qudt.org/vocab/quantitykind/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  COMMON FACILITIES PACK (CFP) v1.0  —  FROZEN SUB-LAYER
+#
+#  The universal building-services layer common to all built
+#  environments. Every physical site — port, hospital, data centre,
+#  office — runs the same hidden machinery: conditioned, powered,
+#  protected, secured, plumbed, networked, and maintained.
+#
+#  Ontology stack position:
+#    BFO → SOSA → platform mid-level → CFP → domain packs
+#
+#  CFP extends DOWNWARD only, never modifies layers 1-3.
+#  Domain packs extend CFP classes, never edit them.
+#
+#  >>> FREEZE RULE: modifying this file is a platform version bump.
+#################################################################
+
+<https://ontology.nextxr.io/v3/cfp> a owl:Ontology ;
+    dct:title "NextXR Common Facilities Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Domain-neutral building-services substrate covering spatial structure, HVAC, power, fire, security, water, vertical transport, environmental sensing, ICT, people, and maintenance." ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+
+#################################################################
+#  CFP RELATIONSHIP PREDICATES
+#
+#  Structural topology for any facility twin. These are the graph
+#  edges that let you traverse "what feeds this rack?" or "what's
+#  downstream if this transformer trips?"
+#################################################################
+
+cfp:serves a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:label "serves" ;
+    skos:definition "Equipment conditions, powers, or services a zone or space. The generic facility-level feeds predicate." ;
+    rdfs:domain nxr:Equipment ;
+    rdfs:range bfo:BFO_0000029 .
+
+cfp:suppliesAirTo a owl:ObjectProperty ;
+    rdfs:subPropertyOf cfp:serves ;
+    rdfs:label "supplies air to" ;
+    skos:definition "An air handling unit or terminal unit delivers conditioned air to a zone." ;
+    rdfs:domain nxr:Equipment ;
+    rdfs:range nxr:Space .
+
+cfp:controls a owl:ObjectProperty ;
+    rdfs:label "controls" ;
+    skos:definition "A controller, panel, or system commands or regulates another device." ;
+    rdfs:domain nxr:Equipment ;
+    rdfs:range nxr:Equipment .
+
+cfp:backsUp a owl:ObjectProperty ;
+    rdfs:label "backs up" ;
+    skos:definition "A redundant asset (UPS, generator, secondary feed) provides backup to a primary asset." ;
+    rdfs:domain bfo:BFO_0000040 ;
+    rdfs:range bfo:BFO_0000040 .
+
+cfp:adjacentTo a owl:ObjectProperty , owl:SymmetricProperty ;
+    rdfs:label "adjacent to" ;
+    skos:definition "Two spaces share a physical boundary. Symmetric: if A is adjacent to B, B is adjacent to A." ;
+    rdfs:domain nxr:Space ;
+    rdfs:range nxr:Space .
+
+cfp:resolves a owl:ObjectProperty ;
+    rdfs:label "resolves" ;
+    skos:definition "A work order or maintenance task resolves an incident or finding." ;
+    rdfs:domain nxr:Process ;
+    rdfs:range nxr:Incident .
+
+cfp:governedBy a owl:ObjectProperty ;
+    rdfs:label "governed by" ;
+    skos:definition "An asset or process is governed by a standard operating procedure or service agreement." ;
+    rdfs:domain bfo:BFO_0000001 ;
+    rdfs:range nxr:Document .
+
+cfp:hasFailureMode a owl:ObjectProperty ;
+    rdfs:label "has failure mode" ;
+    skos:definition "An equipment class bears a characterised way it can fail." ;
+    rdfs:domain nxr:Equipment ;
+    rdfs:range nxr:FailureMode .
+
+cfp:scheduledFor a owl:ObjectProperty ;
+    rdfs:label "scheduled for" ;
+    skos:definition "A maintenance schedule or task targets a specific piece of equipment." ;
+    rdfs:domain nxr:Process ;
+    rdfs:range nxr:Equipment .
+
+
+#################################################################
+#  CFP DATATYPE PROPERTIES
+#
+#  Domain-specific attributes for facility entities. Declared here
+#  for schema introspection; not SHACL-enforced in v1 (the writer
+#  renders all properties as nxr: namespace flat keys).
+#################################################################
+
+### Spatial properties ###
+cfp:latitude a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "latitude" ;
+    skos:definition "WGS84 latitude of the site centroid." ;
+    rdfs:range xsd:double .
+
+cfp:longitude a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "longitude" ;
+    skos:definition "WGS84 longitude of the site centroid." ;
+    rdfs:range xsd:double .
+
+cfp:areaM2 a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "area (m²)" ;
+    skos:definition "Total area in square metres." ;
+    rdfs:range xsd:double .
+
+cfp:timezone a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "timezone" ;
+    skos:definition "IANA timezone identifier (e.g. Asia/Singapore, America/New_York)." ;
+    rdfs:range xsd:string .
+
+cfp:floorCount a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "floor count" ;
+    skos:definition "Number of above-ground floors in a building." ;
+    rdfs:range xsd:integer .
+
+cfp:heightM a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "height (m)" ;
+    skos:definition "Building height in metres." ;
+    rdfs:range xsd:double .
+
+cfp:yearBuilt a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "year built" ;
+    skos:definition "Year the building was completed." ;
+    rdfs:range xsd:integer .
+
+cfp:levelIndex a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "level index" ;
+    skos:definition "Ordinal floor number (0 = ground, -1 = basement 1, 1 = first floor)." ;
+    rdfs:range xsd:integer .
+
+cfp:elevationM a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "elevation (m)" ;
+    skos:definition "Floor elevation above datum in metres." ;
+    rdfs:range xsd:double .
+
+cfp:zoneType a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "zone type" ;
+    skos:definition "Functional classification of the zone: hvac, fire, security, or lighting." ;
+    rdfs:range xsd:string .
+
+cfp:occupancyCap a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "occupancy capacity" ;
+    skos:definition "Maximum permitted occupant count for the zone." ;
+    rdfs:range xsd:integer .
+
+cfp:roomNumber a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "room number" ;
+    skos:definition "Facility room identifier (e.g. 3F-012)." ;
+    rdfs:range xsd:string .
+
+cfp:roomFunction a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "room function" ;
+    skos:definition "Primary use of the room: office, lab, server-room, corridor, stairwell, etc." ;
+    rdfs:range xsd:string .
+
+cfp:serviceType a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "service type" ;
+    skos:definition "The kind of service a riser shaft carries: electrical, plumbing, hvac, data." ;
+    rdfs:range xsd:string .
+
+### Equipment maintenance properties ###
+cfp:assetTag a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "asset tag" ;
+    skos:definition "Unique nameplate or barcode identifier for the physical asset." ;
+    rdfs:range xsd:string .
+
+cfp:manufacturer a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "manufacturer" ;
+    skos:definition "Equipment manufacturer name." ;
+    rdfs:range xsd:string .
+
+cfp:modelNumber a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "model number" ;
+    skos:definition "Manufacturer model or part number." ;
+    rdfs:range xsd:string .
+
+cfp:serialNumber a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "serial number" ;
+    skos:definition "Factory serial number." ;
+    rdfs:range xsd:string .
+
+cfp:installDate a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "install date" ;
+    skos:definition "Date the equipment was installed or commissioned." ;
+    rdfs:range xsd:date .
+
+cfp:warrantyExpiry a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "warranty expiry" ;
+    skos:definition "Date the manufacturer warranty expires." ;
+    rdfs:range xsd:date .
+
+cfp:criticality a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "criticality" ;
+    skos:definition "Maintenance criticality tier: critical, important, or standard." ;
+    rdfs:range xsd:string .
+
+cfp:conditionIndex a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "condition index" ;
+    skos:definition "Asset health score in [0.0, 1.0] where 1.0 is perfect condition." ;
+    rdfs:range xsd:double .
+
+cfp:ratedCapacity a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "rated capacity" ;
+    skos:definition "Nameplate rated capacity (kW, tonnes, litres/s — unit carried by context)." ;
+    rdfs:range xsd:double .
+
+
+#################################################################
+#  CFP OBSERVABLE PROPERTIES + QUDT UNITS
+#
+#  Every signal is a sosa:Observation with a typed result.
+#  Observable properties carry their canonical unit so adapters
+#  never argue about units across domains.
+#################################################################
+
+cfp:temperature a sosa:ObservableProperty ;
+    rdfs:label "Temperature" ;
+    nxr:expectedUnit unit:DEG_C ;
+    nxr:expectedQuantityKind quantitykind:Temperature .
+
+cfp:relativeHumidity a sosa:ObservableProperty ;
+    rdfs:label "Relative Humidity" ;
+    nxr:expectedUnit unit:PERCENT ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:pressure a sosa:ObservableProperty ;
+    rdfs:label "Pressure" ;
+    nxr:expectedUnit unit:PA ;
+    nxr:expectedQuantityKind quantitykind:Pressure .
+
+cfp:flowRate a sosa:ObservableProperty ;
+    rdfs:label "Flow Rate" ;
+    nxr:expectedUnit unit:L-PER-SEC ;
+    nxr:expectedQuantityKind quantitykind:VolumeFlowRate .
+
+cfp:electricCurrent a sosa:ObservableProperty ;
+    rdfs:label "Electric Current" ;
+    nxr:expectedUnit unit:A ;
+    nxr:expectedQuantityKind quantitykind:ElectricCurrent .
+
+cfp:voltage a sosa:ObservableProperty ;
+    rdfs:label "Voltage" ;
+    nxr:expectedUnit unit:V ;
+    nxr:expectedQuantityKind quantitykind:Voltage .
+
+cfp:activePower a sosa:ObservableProperty ;
+    rdfs:label "Active Power" ;
+    nxr:expectedUnit unit:KiloW ;
+    nxr:expectedQuantityKind quantitykind:Power .
+
+cfp:energy a sosa:ObservableProperty ;
+    rdfs:label "Energy" ;
+    nxr:expectedUnit unit:KiloW-HR ;
+    nxr:expectedQuantityKind quantitykind:Energy .
+
+cfp:vibrationVelocity a sosa:ObservableProperty ;
+    rdfs:label "Vibration Velocity" ;
+    nxr:expectedUnit unit:MilliM-PER-SEC ;
+    nxr:expectedQuantityKind quantitykind:Velocity .
+
+cfp:illuminance a sosa:ObservableProperty ;
+    rdfs:label "Illuminance" ;
+    nxr:expectedUnit unit:LUX ;
+    nxr:expectedQuantityKind quantitykind:Illuminance .
+
+cfp:soundLevel a sosa:ObservableProperty ;
+    rdfs:label "Sound Level" ;
+    nxr:expectedUnit unit:DeciB ;
+    nxr:expectedQuantityKind quantitykind:SoundPressureLevel .
+
+cfp:occupancyCount a sosa:ObservableProperty ;
+    rdfs:label "Occupancy Count" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:fillLevel a sosa:ObservableProperty ;
+    rdfs:label "Fill Level" ;
+    nxr:expectedUnit unit:PERCENT ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:runHours a sosa:ObservableProperty ;
+    rdfs:label "Run Hours" ;
+    nxr:expectedUnit unit:HR ;
+    nxr:expectedQuantityKind quantitykind:Time .
+
+cfp:airQualityIndex a sosa:ObservableProperty ;
+    rdfs:label "Air Quality Index" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:waterQuality a sosa:ObservableProperty ;
+    rdfs:label "Water Quality" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:smokeObscuration a sosa:ObservableProperty ;
+    rdfs:label "Smoke Obscuration" ;
+    nxr:expectedUnit unit:PERCENT ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:flameSignal a sosa:ObservableProperty ;
+    rdfs:label "Flame Signal" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:doorState a sosa:ObservableProperty ;
+    rdfs:label "Door State" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:leakState a sosa:ObservableProperty ;
+    rdfs:label "Leak State" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+cfp:powerFactor a sosa:ObservableProperty ;
+    rdfs:label "Power Factor" ;
+    nxr:expectedUnit unit:NUM ;
+    nxr:expectedQuantityKind quantitykind:Dimensionless .
+
+### QUDT references not already in nxr-units.ttl ###
+unit:PA   a qudt:Unit ; rdfs:label "pascal" .
+unit:A    a qudt:Unit ; rdfs:label "ampere" .
+unit:V    a qudt:Unit ; rdfs:label "volt" .
+unit:HR   a qudt:Unit ; rdfs:label "hour" .
+unit:LUX  a qudt:Unit ; rdfs:label "lux" .
+unit:DeciB a qudt:Unit ; rdfs:label "decibel" .
+unit:L-PER-SEC a qudt:Unit ; rdfs:label "litres per second" .
+unit:KiloW-HR  a qudt:Unit ; rdfs:label "kilowatt-hour" .
+unit:MilliM-PER-SEC a qudt:Unit ; rdfs:label "millimetres per second" .
+
+quantitykind:Pressure a qudt:QuantityKind ; rdfs:label "Pressure" .
+quantitykind:VolumeFlowRate a qudt:QuantityKind ; rdfs:label "Volume Flow Rate" .
+quantitykind:ElectricCurrent a qudt:QuantityKind ; rdfs:label "Electric Current" .
+quantitykind:Voltage a qudt:QuantityKind ; rdfs:label "Voltage" .
+quantitykind:Energy a qudt:QuantityKind ; rdfs:label "Energy" .
+quantitykind:Velocity a qudt:QuantityKind ; rdfs:label "Velocity" .
+quantitykind:Illuminance a qudt:QuantityKind ; rdfs:label "Illuminance" .
+quantitykind:SoundPressureLevel a qudt:QuantityKind ; rdfs:label "Sound Pressure Level" .
+quantitykind:Time a qudt:QuantityKind ; rdfs:label "Time" .
+
+
+#################################################################
+#  1 · SPATIAL & STRUCTURAL BACKBONE
+#
+#  The container hierarchy every twin needs. Specialise nxr:Site
+#  and nxr:Space to give every asset a place to be locatedAt.
+#################################################################
+
+cfp:Site a owl:Class ;
+    rdfs:subClassOf nxr:Site ;
+    rdfs:label "Facility Site" ;
+    skos:definition "A bounded geographic deployment — a campus, port, hospital grounds, or industrial estate. The root spatial container of a twin." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:Building a owl:Class ;
+    rdfs:subClassOf cfp:Site ;
+    rdfs:label "Building" ;
+    skos:definition "A roofed structure within a site, containing floors and served by building services. For single-building deployments, the building IS the site." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:Floor a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Floor" ;
+    skos:definition "A horizontal level within a building, identified by a level index and elevation. Floors contain zones and rooms." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:Zone a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Zone" ;
+    skos:definition "A functional subdivision of a floor — an HVAC zone, fire zone, or security zone. Zones aggregate rooms for control purposes." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:Room a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Room" ;
+    skos:definition "A leaf spatial unit within a building — an office, lab, server room, ward, or corridor. The finest-grained bounded space." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:RiserShaft a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Riser Shaft" ;
+    skos:definition "A vertical service routing channel linking floors — carries pipes, cables, or ducts between levels." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:ExitRoute a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Exit Route" ;
+    skos:definition "A designated egress path from occupied spaces to assembly points. Modeled as a spatial chain for evacuation routing." ;
+    nxr:taxonomyCategory "Location" .
+
+
+#################################################################
+#  EQUIPMENT BASE
+#
+#  Abstract base for all serviceable facility plant. Adds
+#  maintenance identity (tag, manufacturer, criticality) to the
+#  platform nxr:Equipment.
+#################################################################
+
+cfp:FacilityEquipment a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Facility Equipment" ;
+    skos:definition "Abstract base for all serviceable plant in a built environment. Extends nxr:Equipment with maintenance identity: asset tag, manufacturer, model, install date, criticality, and condition index." ;
+    nxr:taxonomyCategory "PhysicalAsset" ;
+    nxr:isAbstract true .
+
+
+#################################################################
+#  2 · HVAC & THERMAL MANAGEMENT
+#
+#  The single most universal building system. Present in every
+#  vertical, from a server hall's CRAC to a ward's air handler.
+#################################################################
+
+cfp:AirHandlingUnit a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Air Handling Unit" ;
+    skos:definition "Conditions and distributes air to zones via supply/return ducts. The workhorse of building HVAC." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Chiller a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Chiller" ;
+    skos:definition "Produces chilled water via a refrigeration cycle, supplying cooling coils in air handlers." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Boiler a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Boiler" ;
+    skos:definition "Produces hot water or steam for space heating, process use, or domestic hot water." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:CoolingTower a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Cooling Tower" ;
+    skos:definition "Rejects condenser heat to the atmosphere via evaporative cooling." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:PrecisionCooler a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Precision Cooler" ;
+    skos:definition "Computer room air conditioner (CRAC) or air handler (CRAH) providing close-tolerance temperature and humidity control for server rooms and labs." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Pump a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Pump" ;
+    skos:definition "Moves chilled water, hot water, condenser water, or other fluids through building piping." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:FanCoilUnit a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Fan Coil Unit" ;
+    skos:definition "Terminal zone conditioning unit with a fan and a heating/cooling coil, receiving chilled or hot water from the central plant." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:VAVBox a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "VAV Box" ;
+    skos:definition "Variable air volume terminal unit that modulates airflow to a zone based on thermostat demand." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:AirFilter a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Air Filter" ;
+    skos:definition "Filtration element within an AHU or ductwork. Monitored by differential pressure for clog detection." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  3 · ELECTRICAL POWER DISTRIBUTION
+#
+#  From utility intake to the socket. Domain packs specialise
+#  these for their context (maritime substation, datacenter PDU).
+#################################################################
+
+cfp:UtilityFeed a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Utility Feed" ;
+    skos:definition "The grid intake point where external power enters the facility." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Transformer a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Transformer" ;
+    skos:definition "Steps voltage between distribution levels. Monitored for winding temperature, oil temperature, and load." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Switchgear a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Switchgear" ;
+    skos:definition "Primary distribution and protection equipment — main switchboard, bus section, or breaker panel." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:PowerPanel a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Power Panel" ;
+    skos:definition "Branch distribution board serving downstream circuits and loads." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Circuit a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Circuit" ;
+    skos:definition "A protected electrical branch between a panel and its downstream loads. Modeled as a logical entity linking source to loads." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:UPS a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "UPS" ;
+    skos:definition "Uninterruptible power supply providing battery-backed power continuity during mains loss." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Generator a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Generator" ;
+    skos:definition "Backup diesel or gas genset providing emergency power when utility feed is lost." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:TransferSwitch a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Transfer Switch" ;
+    skos:definition "Automatic transfer switch (ATS) that switches load between utility feed and generator." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:EnergyMeter a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Energy Meter" ;
+    skos:definition "Submetering point measuring kWh, kW, power factor, and harmonics at a distribution node." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:SolarArray a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Solar Array" ;
+    skos:definition "On-site photovoltaic generation system." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:BatteryStorage a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Battery Storage" ;
+    skos:definition "Battery energy storage system (BESS) for peak shaving, backup, or renewable smoothing." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  4 · FIRE DETECTION & LIFE SAFETY
+#
+#  Safety-critical — always human-authored. CFP defines the
+#  entities and rule shapes; every fire behaviour is reviewed
+#  and signed off by a human.
+#################################################################
+
+cfp:SmokeDetector a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Smoke Detector" ;
+    skos:definition "Point smoke sensing device measuring obscuration percentage and alarm state." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:AspiratingDetector a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Aspirating Detector" ;
+    skos:definition "Very-early aspirating smoke detection system (VESDA) sampling air through a pipe network for particle density." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:HeatDetector a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Heat Detector" ;
+    skos:definition "Rate-of-rise or fixed-temperature fire detection device." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:FlameDetector a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Flame Detector" ;
+    skos:definition "IR/UV flame sensing device for open-flame detection." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:FireAlarmPanel a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Fire Alarm Panel" ;
+    skos:definition "Fire alarm control panel (FACP) that aggregates detector signals, manages zones, and drives notification appliances." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:SuppressionSystem a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Suppression System" ;
+    skos:definition "Fixed fire suppression system — sprinkler, FM-200, inert gas, or water mist." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:FireDamper a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Fire Damper" ;
+    skos:definition "Fire or smoke damper in HVAC ductwork that closes on alarm to prevent fire/smoke spread between zones." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:EmergencyExit a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Emergency Exit" ;
+    skos:definition "Emergency exit door or gate with monitored state (open/closed/locked) and occupancy sensors." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Extinguisher a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Extinguisher" ;
+    skos:definition "Portable fire extinguisher — an inspectable asset tracked by last-inspected date and pressure." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  5 · ACCESS CONTROL & PHYSICAL SECURITY
+#
+#  The security spine. Cameras, doors, intrusion. Domain packs
+#  extend these for perimeter systems, crowd analytics, etc.
+#################################################################
+
+cfp:Camera a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Camera" ;
+    skos:definition "CCTV or IP camera providing video observation of a space. Signals: stream status, online/offline, PTZ position, inference tags." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:AccessDoor a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Access Door" ;
+    skos:definition "Controlled door or turnstile with lock state, forced/held-open detection, and badge event logging." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:AccessReader a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Access Reader" ;
+    skos:definition "Badge, biometric, or PIN reader that generates grant/deny access events." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:IntrusionSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Intrusion Sensor" ;
+    skos:definition "PIR motion, door/window contact, or glass-break sensor for intrusion detection." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:BoomBarrier a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Boom Barrier" ;
+    skos:definition "Vehicle access control barrier or gate with position monitoring and vehicle-present detection." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Geofence a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Geofence" ;
+    skos:definition "Virtual spatial boundary that generates entry/exit events for tracked mobile assets." ;
+    nxr:taxonomyCategory "Location" .
+
+cfp:SecurityPanel a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Security Panel" ;
+    skos:definition "Intrusion alarm aggregation panel managing armed/disarmed state and zone alarm signals." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  6 · WATER, PLUMBING & DRAINAGE
+#################################################################
+
+cfp:WaterTank a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Water Tank" ;
+    skos:definition "Water storage vessel — potable, fire reserve, or process water. Monitored by level and temperature." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:WaterPump a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Water Pump" ;
+    skos:definition "Booster, transfer, or fire pump moving water through the facility plumbing system." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:WaterMeter a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Water Meter" ;
+    skos:definition "Flow and consumption metering point for water usage monitoring and leak detection." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Valve a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Valve" ;
+    skos:definition "Flow control or isolation valve in the plumbing or HVAC piping system." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:SumpPump a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Sump Pump" ;
+    skos:definition "Drainage or flood-control pump in a sump pit, monitored for water level and run state." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:LeakSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Leak Sensor" ;
+    skos:definition "Point leak detection sensor — wet/dry contact or cable-type — for water ingress monitoring." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:WaterTreatmentPlant a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Water Treatment Plant" ;
+    skos:definition "Sewage treatment plant (STP) or water treatment plant (WTP) with flow and quality parameter monitoring." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  7 · VERTICAL TRANSPORT & DOORS
+#################################################################
+
+cfp:Elevator a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Elevator" ;
+    skos:definition "Passenger or freight elevator. Monitored for floor position, direction, door cycles, faults, and run count." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Escalator a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Escalator" ;
+    skos:definition "Moving stairway monitored for running state, direction, and emergency stop events." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:RollerShutter a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Roller Shutter" ;
+    skos:definition "Loading dock door or industrial roller shutter tracked by position and cycle count for predictive maintenance." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:AutomaticDoor a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Automatic Door" ;
+    skos:definition "Sliding or revolving entrance door monitored for cycle count and faults." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  8 · ENVIRONMENTAL & COMFORT SENSING
+#
+#  Pure SOSA observation points. The cheapest, densest source of
+#  live data for any demo. One pattern lets a port temperature
+#  reading and a hospital temperature reading be literally the
+#  same shape — cross-domain analytics for free.
+#################################################################
+
+cfp:TemperatureSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Temperature Sensor" ;
+    skos:definition "Ambient or surface temperature sensor measuring degrees Celsius." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:HumiditySensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Humidity Sensor" ;
+    skos:definition "Relative humidity sensor (%RH) for comfort and condensation monitoring." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:AirQualitySensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Air Quality Sensor" ;
+    skos:definition "Multi-parameter air quality sensor measuring PM2.5, PM10, CO2, VOC, SO2, or NO2." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:OccupancySensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Occupancy Sensor" ;
+    skos:definition "Presence or people-count sensor for demand-driven HVAC and lighting control." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:LightSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Light Sensor" ;
+    skos:definition "Lux sensor for daylight harvesting and workspace illumination monitoring." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:VibrationSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Vibration Sensor" ;
+    skos:definition "Vibration velocity sensor (mm/s or g) for rotating equipment health monitoring." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:NoiseSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Noise Sensor" ;
+    skos:definition "Sound level meter (dB) for noise compliance and environmental monitoring." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:WaterQualitySensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Water Quality Sensor" ;
+    skos:definition "Multi-parameter water quality sensor measuring pH, BOD, TSS, dissolved oxygen, or turbidity." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  9 · ICT, NETWORK & EDGE INFRASTRUCTURE
+#
+#  The twin must monitor the very infrastructure it runs on.
+#  A strong self-referential demo moment.
+#################################################################
+
+cfp:NetworkSwitch a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Network Switch" ;
+    skos:definition "Core, distribution, or access layer Ethernet switch. Monitored for port states, throughput, and error counters." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:EdgeNode a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Edge Node" ;
+    skos:definition "Edge compute node or IoT gateway running local processing. Monitored for CPU load, temperature, and heartbeat." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:Server a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Server" ;
+    skos:definition "Compute host or server rack. Monitored for CPU, temperature, and power draw." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:WirelessAP a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Wireless Access Point" ;
+    skos:definition "WiFi access point monitored for client count, channel utilization, and online status." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:FibreSegment a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Fibre Segment" ;
+    skos:definition "Physical fibre optic cable segment between patch panels. A structural topology edge." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+cfp:VideoRecorder a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Video Recorder" ;
+    skos:definition "Network video recorder (NVR) or CCTV recorder monitored for storage utilization and channel health." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  10 · PEOPLE, MOBILE ASSETS & CONSUMABLES
+#
+#  Generic versions before a domain renames them (pilot, surgeon,
+#  driver). Specialise the platform Actor and MobileAsset.
+#################################################################
+
+cfp:Person a owl:Class ;
+    rdfs:subClassOf nxr:Actor ;
+    rdfs:label "Person" ;
+    skos:definition "A generic facility occupant or operator. Domain packs add role (pilot, surgeon, technician)." ;
+    nxr:taxonomyCategory "Actor" .
+
+cfp:MaintenanceCrew a owl:Class ;
+    rdfs:subClassOf nxr:Actor ;
+    rdfs:label "Maintenance Crew" ;
+    skos:definition "A maintenance team or individual assignable to work orders and inspections." ;
+    nxr:taxonomyCategory "Actor" .
+
+cfp:Visitor a owl:Class ;
+    rdfs:subClassOf nxr:Actor ;
+    rdfs:label "Visitor" ;
+    skos:definition "A visitor or contractor with access-controlled, time-bounded presence in the facility." ;
+    nxr:taxonomyCategory "Actor" .
+
+cfp:Vehicle a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ;
+    rdfs:label "Vehicle" ;
+    skos:definition "A generic tracked vehicle within or around the facility — car, truck, forklift, or cart." ;
+    nxr:taxonomyCategory "MobileAsset" .
+
+cfp:AssetTracker a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ;
+    rdfs:label "Asset Tracker" ;
+    skos:definition "GPS or BLE tracking tag attached to a mobile asset, emitting a position stream." ;
+    nxr:taxonomyCategory "MobileAsset" .
+
+cfp:SparePart a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Spare Part" ;
+    skos:definition "Inventory item — a replacement part or consumable linked to work orders and maintenance tasks." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  11 · MAINTENANCE & MONITORING CORE
+#
+#  The beating heart of "focus on maintenance and monitoring."
+#  These are occurrents and information objects that wrap every
+#  asset above with a service lifecycle. This is what turns a
+#  static 3D scene into a living operations twin.
+#
+#  Note: Finding, Incident, Diagnosis, Recommendation, Action are
+#  already defined at the platform level and are NOT subclassed
+#  here. CFP reuses them directly. Only genuinely new concepts
+#  are added below.
+#################################################################
+
+cfp:WorkOrder a owl:Class ;
+    rdfs:subClassOf nxr:Process ;
+    rdfs:label "Work Order" ;
+    skos:definition "A maintenance work instance: created from a finding, scheduled task, or manual request. Tracks lifecycle from open through assignment, execution, and verification." ;
+    nxr:taxonomyCategory "Process" .
+
+cfp:MaintenanceTask a owl:Class ;
+    rdfs:subClassOf nxr:Process ;
+    rdfs:label "Maintenance Task" ;
+    skos:definition "Definition of a recurring or triggered maintenance job — the template from which work orders are spawned." ;
+    nxr:taxonomyCategory "Process" .
+
+cfp:Inspection a owl:Class ;
+    rdfs:subClassOf nxr:MaintenanceEvent ;
+    rdfs:label "Inspection" ;
+    skos:definition "A scheduled check performed on an asset. Can discover and spawn Findings." ;
+    nxr:taxonomyCategory "Process" .
+
+cfp:ConditionAssessment a owl:Class ;
+    rdfs:subClassOf nxr:Observation ;
+    rdfs:label "Condition Assessment" ;
+    skos:definition "A health-score snapshot of an asset at a point in time, produced by inspection or automated assessment." ;
+    nxr:taxonomyCategory "Observation" .
+
+cfp:MaintenanceSchedule a owl:Class ;
+    rdfs:subClassOf nxr:Document ;
+    rdfs:label "Maintenance Schedule" ;
+    skos:definition "Preventive maintenance calendar — time-based or usage-based — defining when maintenance tasks should execute." ;
+    nxr:taxonomyCategory "Document" .
+
+cfp:StandardProcedure a owl:Class ;
+    rdfs:subClassOf nxr:Document ;
+    rdfs:label "Standard Operating Procedure" ;
+    skos:definition "The runbook a maintenance crew follows when executing a work order or responding to an incident." ;
+    nxr:taxonomyCategory "Document" .
+
+cfp:ServiceAgreement a owl:Class ;
+    rdfs:subClassOf nxr:Document ;
+    rdfs:label "Service Agreement" ;
+    skos:definition "Service level agreement (SLA) defining response and resolution targets. Drives MTTR KPIs." ;
+    nxr:taxonomyCategory "Document" .
+
+
+#################################################################
+#  STATE MACHINES
+#
+#  WorkOrder lifecycle — the universal maintenance loop. Equipment
+#  lifecycle is declared by domain packs or uses the platform's
+#  generic status values (the HVAC pack defines AirHandler states).
+#################################################################
+
+### WorkOrder: open → assigned → in_progress → done → verified ###
+cfp:WorkOrderStateMachine a nxr:StateMachine ;
+    rdfs:label "Work order lifecycle" ;
+    nxr:initialState cfp:wo_open ;
+    nxr:hasState cfp:wo_open , cfp:wo_assigned , cfp:wo_in_progress ,
+                 cfp:wo_done , cfp:wo_verified ;
+    nxr:allowsTransition cfp:wo_t1 , cfp:wo_t2 , cfp:wo_t3 , cfp:wo_t4 .
+
+cfp:wo_open        a nxr:State ; rdfs:label "open" .
+cfp:wo_assigned    a nxr:State ; rdfs:label "assigned" .
+cfp:wo_in_progress a nxr:State ; rdfs:label "in_progress" .
+cfp:wo_done        a nxr:State ; rdfs:label "done" .
+cfp:wo_verified    a nxr:State ; rdfs:label "verified" .
+
+cfp:wo_t1 a nxr:Transition ; nxr:fromState cfp:wo_open ;        nxr:toState cfp:wo_assigned .
+cfp:wo_t2 a nxr:Transition ; nxr:fromState cfp:wo_assigned ;    nxr:toState cfp:wo_in_progress .
+cfp:wo_t3 a nxr:Transition ; nxr:fromState cfp:wo_in_progress ; nxr:toState cfp:wo_done .
+cfp:wo_t4 a nxr:Transition ; nxr:fromState cfp:wo_done ;        nxr:toState cfp:wo_verified .
+
+cfp:WorkOrder nxr:hasStateMachine cfp:WorkOrderStateMachine .
+
+### Generic equipment lifecycle ###
+### Bidirectional: off ↔ running, running → degraded → fault → off ###
+### Also: running → off (normal shutdown), degraded → off (emergency shutdown) ###
+cfp:EquipmentStateMachine a nxr:StateMachine ;
+    rdfs:label "Generic equipment lifecycle" ;
+    nxr:initialState cfp:eq_off ;
+    nxr:hasState cfp:eq_off , cfp:eq_running , cfp:eq_degraded , cfp:eq_fault ;
+    nxr:allowsTransition cfp:eq_t1 , cfp:eq_t2 , cfp:eq_t3 , cfp:eq_t4 ,
+                         cfp:eq_t5 , cfp:eq_t6 .
+
+cfp:eq_off      a nxr:State ; rdfs:label "off" .
+cfp:eq_running  a nxr:State ; rdfs:label "running" .
+cfp:eq_degraded a nxr:State ; rdfs:label "degraded" .
+cfp:eq_fault    a nxr:State ; rdfs:label "fault" .
+
+cfp:eq_t1 a nxr:Transition ; nxr:fromState cfp:eq_off ;      nxr:toState cfp:eq_running .
+cfp:eq_t2 a nxr:Transition ; nxr:fromState cfp:eq_running ;  nxr:toState cfp:eq_degraded .
+cfp:eq_t3 a nxr:Transition ; nxr:fromState cfp:eq_degraded ; nxr:toState cfp:eq_fault .
+cfp:eq_t4 a nxr:Transition ; nxr:fromState cfp:eq_fault ;    nxr:toState cfp:eq_off .
+cfp:eq_t5 a nxr:Transition ; nxr:fromState cfp:eq_running ;  nxr:toState cfp:eq_off .
+cfp:eq_t6 a nxr:Transition ; nxr:fromState cfp:eq_degraded ; nxr:toState cfp:eq_off .
+
+cfp:FacilityEquipment nxr:hasStateMachine cfp:EquipmentStateMachine .
+
+### Elevator lifecycle ###
+### idle ↔ moving, moving ↔ stopped, stopped/fault → idle ###
+cfp:ElevatorStateMachine a nxr:StateMachine ;
+    rdfs:label "Elevator lifecycle" ;
+    nxr:initialState cfp:el_idle ;
+    nxr:hasState cfp:el_idle , cfp:el_moving , cfp:el_stopped , cfp:el_fault ;
+    nxr:allowsTransition cfp:el_t1 , cfp:el_t2 , cfp:el_t3 , cfp:el_t4 ,
+                         cfp:el_t5 , cfp:el_t6 .
+
+cfp:el_idle    a nxr:State ; rdfs:label "idle" .
+cfp:el_moving  a nxr:State ; rdfs:label "moving" .
+cfp:el_stopped a nxr:State ; rdfs:label "stopped" .
+cfp:el_fault   a nxr:State ; rdfs:label "fault" .
+
+cfp:el_t1 a nxr:Transition ; nxr:fromState cfp:el_idle ;    nxr:toState cfp:el_moving .
+cfp:el_t2 a nxr:Transition ; nxr:fromState cfp:el_moving ;  nxr:toState cfp:el_stopped .
+cfp:el_t3 a nxr:Transition ; nxr:fromState cfp:el_stopped ; nxr:toState cfp:el_fault .
+cfp:el_t4 a nxr:Transition ; nxr:fromState cfp:el_fault ;   nxr:toState cfp:el_idle .
+cfp:el_t5 a nxr:Transition ; nxr:fromState cfp:el_moving ;  nxr:toState cfp:el_idle .
+cfp:el_t6 a nxr:Transition ; nxr:fromState cfp:el_stopped ; nxr:toState cfp:el_idle .
+
+cfp:Elevator nxr:hasStateMachine cfp:ElevatorStateMachine .

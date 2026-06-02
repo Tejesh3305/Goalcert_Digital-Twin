@@ -8,12 +8,13 @@ import { useToast } from '../context/ToastContext'
  *  install/unload packs at runtime via the bundle loader (see PLACEHOLDERS.md
  *  → "Pack marketplace"). */
 const INSTALLED = [
-  { icon: 'ti-wind', name: 'HVAC Pack', desc: 'Air handlers, chillers, temperature sensors + Tier A/B/C behaviours. Loaded in the core today.' },
+  { icon: 'ti-building', name: 'Common Facilities Pack', desc: '82 entity classes across 11 systems — HVAC, power, fire, security, water, vertical transport, environmental sensing, ICT, people, and maintenance. The universal substrate every twin gets.' },
+  { icon: 'ti-wind', name: 'HVAC Pack', desc: 'HVAC-specific air handlers, chillers, temperature sensors + Tier A/B/C behaviours. Extends the CFP.' },
 ]
 const AVAILABLE = [
-  { icon: 'ti-anchor', name: 'Maritime Pack', desc: 'Vessels, berths, AIS-driven movement. Maps to the same backbone.' },
-  { icon: 'ti-bolt', name: 'Energy Pack', desc: 'Meters, circuits, load optimisation behaviours.' },
-  { icon: 'ti-shield', name: 'Compliance Automation', desc: 'Standards as Document entities with clause→evidence mapping.' },
+  { icon: 'ti-anchor', name: 'Maritime Pack', desc: 'Vessels, berths, AIS-driven movement. Extends CFP spatial + power classes.' },
+  { icon: 'ti-server', name: 'Datacenter Pack', desc: 'Racks, PDUs, cooling, capacity planning. Extends CFP power + HVAC classes.' },
+  { icon: 'ti-heartbeat', name: 'Hospital Pack', desc: 'Wards, medical equipment, patient flow. Extends CFP spatial + maintenance classes.' },
 ]
 
 export default function Marketplace() {

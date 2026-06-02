@@ -22,6 +22,7 @@ export default function Dashboard() {
 
   const findings = findingsData?.findings || []
   const sev = stats?.finding_severity || {}
+  const ec = stats?.entity_counts || {}
   const risk = computeRisk(sev)
 
   return (
@@ -37,7 +38,7 @@ export default function Dashboard() {
         <KpiCard label="Risk Score" value={risk.score}
                  valueColor={risk.color} change={risk.label} />
         <KpiCard label="Total Entities" value={stats?.total_entities ?? '—'}
-                 change={`${stats?.entity_counts?.PhysicalAsset || 0} assets`} changeDir="up" />
+                 change={`${ec.PhysicalAsset || 0} assets · ${ec.Location || 0} spaces`} changeDir="up" />
         <KpiCard label="Active Findings" value={stats?.total_findings ?? '—'}
                  valueColor="var(--accent-amber)"
                  change={`${sev.critical || 0} critical`} changeDir={sev.critical ? 'down' : ''} />
@@ -95,6 +96,54 @@ export default function Dashboard() {
             )}
         </Card>
       </div>
+
+      {stats?.total_entities > 0 && (
+      <div className="grid-2">
+        <Card title="Entity Breakdown">
+          <div>
+            {[
+              { label: 'Physical Assets', key: 'PhysicalAsset', icon: 'ti-cpu', color: 'var(--accent-blue)' },
+              { label: 'Locations', key: 'Location', icon: 'ti-map-pin', color: 'var(--accent-teal)' },
+              { label: 'Findings', key: 'Finding', icon: 'ti-alert-triangle', color: 'var(--accent-amber)' },
+              { label: 'Incidents', key: 'Incident', icon: 'ti-urgent', color: 'var(--accent-red)' },
+              { label: 'Processes', key: 'Process', icon: 'ti-arrows-right-left', color: 'var(--accent-purple)' },
+              { label: 'Documents', key: 'Document', icon: 'ti-file-text', color: 'var(--accent-green)' },
+              { label: 'Actors', key: 'Actor', icon: 'ti-users', color: 'var(--muted)' },
+            ].filter(r => ec[r.key]).map(r => {
+              const max = Math.max(...Object.values(ec).filter(v => typeof v === 'number'), 1)
+              const pct = Math.round((ec[r.key] / max) * 100)
+              return (
+                <div key={r.key} className="bar-row">
+                  <div className="bar-label">
+                    <span><i className={`ti ${r.icon}`} style={{ color: r.color, marginRight: 6 }} />{r.label}</span>
+                    <b style={{ color: r.color }}>{ec[r.key]}</b>
+                  </div>
+                  <div className="bar-track"><div className="bar-fill" style={{ width: `${pct}%`, background: r.color }} /></div>
+                </div>
+              )
+            })}
+          </div>
+        </Card>
+
+        <Card title="System Health">
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>Entity counts by taxonomy category from the live graph.</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { label: 'Observations', key: 'Observation', icon: 'ti-chart-line' },
+              { label: 'Capabilities', key: 'Capability', icon: 'ti-puzzle' },
+              { label: 'Mobile Assets', key: 'MobileAsset', icon: 'ti-truck' },
+              { label: 'Change Log', key: 'ChangeLog', icon: 'ti-history' },
+            ].map(r => (
+              <div key={r.key} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+                <i className={`ti ${r.icon}`} style={{ color: 'var(--muted)', fontSize: 16 }} />
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{r.label}</span>
+                <b style={{ marginLeft: 'auto', fontFamily: 'var(--mono)', fontSize: 13 }}>{ec[r.key] || 0}</b>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+      )}
     </div>
   )
 }

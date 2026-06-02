@@ -1,4 +1,5 @@
 @prefix hvac: <https://ontology.nextxr.io/v3/hvac#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
 @prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
 @prefix sosa: <http://www.w3.org/ns/sosa/> .
 @prefix qudt: <http://qudt.org/schema/qudt/> .
@@ -12,33 +13,37 @@
 #  HVAC CAPABILITY PACK  —  LAYER 4 (a domain extension)
 #
 #  This is the proof of the whole design: every class here is a
-#  SUBCLASS of a platform mid-level class. It adds vocabulary
-#  DOWNWARD and touches nothing in layers 1-3.
+#  SUBCLASS of a CFP or platform mid-level class. It adds
+#  vocabulary DOWNWARD and touches nothing in layers 1-3.5.
+#
+#  Extends: Common Facilities Pack (CFP) for HVAC-specific
+#  equipment, the platform mid-level for everything else.
 #################################################################
 
 <https://ontology.nextxr.io/v3/hvac> a owl:Ontology ;
-    owl:versionInfo "1.0.0" ;
+    owl:versionInfo "1.1.0" ;
     rdfs:label "HVAC Capability Pack" ;
-    owl:imports <https://ontology.nextxr.io/v3/core> .
+    owl:imports <https://ontology.nextxr.io/v3/core> ,
+                <https://ontology.nextxr.io/v3/cfp> .
 
-### Equipment subclasses ###
+### Equipment subclasses — now extend CFP universal classes ###
 hvac:AirHandler a owl:Class ;
-    rdfs:subClassOf nxr:Equipment ;
-    rdfs:label "Air Handler" ;
-    skos:definition "A unit that conditions and circulates air as part of an HVAC system." ;
+    rdfs:subClassOf cfp:AirHandlingUnit ;
+    rdfs:label "HVAC Air Handler" ;
+    skos:definition "An air handling unit within an HVAC system, conditioning and circulating air to served zones." ;
     nxr:taxonomyCategory "PhysicalAsset" .
 
 hvac:Chiller a owl:Class ;
-    rdfs:subClassOf nxr:Equipment ;
-    rdfs:label "Chiller" ;
-    skos:definition "A machine that removes heat from a liquid via a refrigeration cycle, supplying chilled water to air handlers." ;
+    rdfs:subClassOf cfp:Chiller ;
+    rdfs:label "HVAC Chiller" ;
+    skos:definition "A chiller within an HVAC system, removing heat from a liquid via a refrigeration cycle to supply chilled water to air handlers." ;
     nxr:taxonomyCategory "PhysicalAsset" .
 
-### Sensor subclass with its observable property + expected unit ###
+### Sensor subclass — now extends CFP TemperatureSensor ###
 hvac:TemperatureSensor a owl:Class ;
-    rdfs:subClassOf nxr:Sensor ;
-    rdfs:label "Temperature Sensor" ;
-    skos:definition "A sensor measuring air or water temperature within an HVAC system." ;
+    rdfs:subClassOf cfp:TemperatureSensor ;
+    rdfs:label "HVAC Temperature Sensor" ;
+    skos:definition "A temperature sensor measuring air or water temperature within an HVAC system." ;
     nxr:taxonomyCategory "PhysicalAsset" .
 
 hvac:AirTemperature a sosa:ObservableProperty ;
@@ -48,9 +53,9 @@ hvac:AirTemperature a sosa:ObservableProperty ;
 
 ### A domain placement predicate — subproperty of the generic one ###
 hvac:servesSpace a owl:ObjectProperty ;
-    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:subPropertyOf cfp:suppliesAirTo ;
     rdfs:label "serves space" ;
-    skos:definition "An air handler conditions the air of a space." ;
+    skos:definition "An HVAC air handler conditions the air of a space. Subproperty of the CFP universal cfp:suppliesAirTo." ;
     rdfs:domain hvac:AirHandler ;
     rdfs:range nxr:Space .
 
