@@ -47,6 +47,13 @@ GOVERNANCE_FILES = [
 ALL_FILES = PLATFORM_FILES + PACK_FILES
 
 
+# Layer 4 (authored) — bundles published at runtime by the Bundle Author
+# meta-agent. Each is a *.ttl fragment dropped into packs/published/. Loading
+# them here makes agent-authored classes first-class in the ontology, so the
+# Validator/Graph Writer recognise them (this closes the agentic loop).
+PUBLISHED_DIR = ROOT / "packs" / "published"
+
+
 def build_graph(include_packs=True, reason=False):
     """Assemble the layers into one graph. If reason=True, materialise
     OWL-RL closure so subclass/inverse/transitive facts are explicit."""
@@ -57,6 +64,14 @@ def build_graph(include_packs=True, reason=False):
         path = ROOT / rel
         if path.exists():
             g.parse(path, format="turtle")
+    # Authored bundle fragments (best-effort; a malformed one must not break
+    # the whole ontology — it just won't contribute classes).
+    if include_packs and PUBLISHED_DIR.is_dir():
+        for frag in sorted(PUBLISHED_DIR.glob("*.ttl")):
+            try:
+                g.parse(frag, format="turtle")
+            except Exception:
+                pass
     if reason:
         import owlrl
         owlrl.DeductiveClosure(owlrl.OWLRL_Semantics).expand(g)

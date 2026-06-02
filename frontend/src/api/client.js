@@ -78,6 +78,21 @@ export const api = {
 
   // ── Live event stream URL (for EventSource) ──
   streamUrl: (tenant) => `${BASE}/bus/stream?${qs({ tenant })}`,
+
+  // ── Agents (agentic core) ──
+  agentInfo: () => request('/agents/info'),
+  // Twin-building (Concierge chat that builds a real twin)
+  twinAgentStart: (body) => request('/agents/twin/start', { method: 'POST', body: JSON.stringify(body || {}) }),
+  twinAgentMessage: (session_id, message) =>
+    request('/agents/twin/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
+  twinAgentState: (session_id) => request(`/agents/twin/${session_id}`),
+  // Bundle Author (author a new vertical, human-gated publish)
+  bundleStart: (body) => request('/agents/bundle/start', { method: 'POST', body: JSON.stringify(body || {}) }),
+  bundleMessage: (session_id, message) =>
+    request('/agents/bundle/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
+  bundleApprove: (session_id) =>
+    request('/agents/bundle/approve', { method: 'POST', body: JSON.stringify({ session_id }) }),
+  bundleState: (session_id) => request(`/agents/bundle/${session_id}`),
 }
 
 export default api

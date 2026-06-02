@@ -10,11 +10,13 @@
 export const NAV = [
   { section: 'Overview' },
   { id: 'dashboard',   path: '/',            label: 'Dashboard',   icon: 'ti-layout-dashboard', backing: 'live' },
+  { id: 'concierge',   path: '/build',       label: 'Build a Twin', icon: 'ti-sparkles',        backing: 'live' },
   { id: 'twins',       path: '/twins',       label: 'Twins',       icon: 'ti-stack-2',          backing: 'live' },
   { id: 'assets',      path: '/assets',      label: 'Asset Graph', icon: 'ti-sitemap',          backing: 'live' },
   { id: 'live',        path: '/live',        label: 'Live Ops',    icon: 'ti-activity',         backing: 'live' },
 
   { section: 'Intelligence' },
+  { id: 'bundle',      path: '/bundle-author', label: 'Bundle Author', icon: 'ti-wand',         backing: 'live' },
   { id: 'agents',      path: '/agents',      label: 'AI Agents',   icon: 'ti-robot',            backing: 'partial' },
   { id: 'predict',     path: '/predict',     label: 'Predict',     icon: 'ti-trending-up',      backing: 'mock' },
   { id: 'copilot',     path: '/copilot',     label: 'Copilot',     icon: 'ti-message-chatbot',  backing: 'mock' },
