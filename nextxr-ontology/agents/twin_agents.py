@@ -407,10 +407,183 @@ def concierge_agent(state: dict) -> dict:
 
 
 # ==========================================================================
+# V · Vision Agent   (multimodal — image/CAD analysis)
+# ==========================================================================
+def vision_agent(state: dict) -> dict:
+    """Reads uploaded images and extracts structured facility findings (asset
+    counts, layout observations, equipment types). Feeds the Schema Mapper.
+    If no files are uploaded, the graph skips this node entirely."""
+    gw = get_gateway()
+    files = state.get("uploaded_files") or []
+    domain = state.get("domain") or ""
+
+    if not files:
+        return {"vision_findings": []}
+
+    image_urls = [f["url"] for f in files if f.get("url")]
+    if not image_urls:
+        return {"vision_findings": []}
+
+    def _stub() -> dict:
+        return {"findings": [
+            {"label": f"{(domain or 'Facility').title()} Unit",
+             "count": 1, "location": "Zone 1", "confidence": 0.8,
+             "type": "asset"},
+        ]}
+
+    result = gw.complete_json_vision(
+        tenant_id=state["tenant_id"], session_id=state["session_id"],
+        system=("You analyze facility images for a digital-twin platform. "
+                "Extract structured findings: asset counts, equipment types, "
+                "layout observations. Return JSON "
+                "{\"findings\": [{\"label\": str, \"count\": int, "
+                "\"location\": str|null, \"confidence\": float, "
+                "\"type\": \"asset\"|\"layout\"|\"measurement\"}]}."),
+        user_text=f"Domain: {domain}. Analyze these facility images and "
+                  f"extract all visible assets, equipment, and layout details.",
+        image_urls=image_urls,
+        stub=_stub(),
+    )
+    findings = result.get("findings") or _stub()["findings"]
+    return {"vision_findings": findings}
+
+
+# ==========================================================================
+# 3b · Schema Mapper   (LLM — maps free-text + findings to ontology entities)
+# ==========================================================================
+def schema_mapper(state: dict) -> dict:
+    """Translates plain-language descriptions + Vision findings + bundle templates
+    into concrete ontology entities. When no LLM is available, degrades to the
+    Capability Composer's bundle-template behaviour (zero regression)."""
+    gw = get_gateway()
+    domain = state.get("domain") or ""
+    bundles = state.get("loaded_bundles") or []
+    vision = state.get("vision_findings") or []
+    convo = _convo_text(state)
+
+    # If the Composer already drafted from templates and there's no vision
+    # input requiring richer mapping, pass through.
+    existing_drafts = state.get("draft_entities") or []
+    if existing_drafts and not vision and gw.backend == "stub":
+        return {"mapping_source": "bundle", "next_action": "validate"}
+
+    # Load the bundle's templates as base vocabulary.
+    registry = get_registry()
+    bundle_templates = []
+    for bid in bundles:
+        b = registry.load(bid)
+        if b:
+            bundle_templates = b.get("entity_templates", [])
+            break
+
+    # Build a legal-type vocabulary from SchemaService for the LLM.
+    legal_types = []
+    try:
+        import sys
+        _tools = str(ROOT / "tools")
+        if _tools not in sys.path:
+            sys.path.insert(0, _tools)
+        from schema_service import SchemaService
+        svc = SchemaService.load()
+        legal_types = [{"iri": t["iri"], "label": t.get("label", ""),
+                        "category": t.get("category", "")}
+                       for t in svc.legal_types(instantiable_only=True)]
+    except Exception:
+        pass
+
+    def _stub() -> dict:
+        # Stub: use bundle templates directly (MVP behaviour).
+        return {"entities": [{"key": t.get("key"), "canonical_type": t["canonical_type"],
+                              "properties": t.get("properties", {})}
+                             for t in bundle_templates],
+                "relationships": [dict(r) for r in (registry.load(bundles[0]) or {}).get(
+                    "relationship_templates", [])] if bundles else []}
+
+    vision_text = ""
+    if vision:
+        items = [f"- {f.get('label', '?')} (x{f.get('count', 1)}, "
+                 f"location: {f.get('location', 'unknown')})" for f in vision]
+        vision_text = "\nVision findings:\n" + "\n".join(items)
+
+    result = gw.complete_json(
+        tenant_id=state["tenant_id"], session_id=state["session_id"],
+        system=("You map facility descriptions to concrete NextXR ontology entities. "
+                "Each entity needs: \"key\" (short local ref like 'site', 'ahu-01'), "
+                "\"canonical_type\" (full IRI from the legal types list), "
+                "and \"properties\" (dict with at least displayName). "
+                "Also produce relationships: [{\"source_key\", \"predicate\", \"target_key\"}]. "
+                "Return JSON {\"entities\": [...], \"relationships\": [...]}. "
+                "Use ONLY canonical_type IRIs from the legal types provided."),
+        user=f"Domain: {domain}\n"
+             f"Conversation:\n{convo}\n{vision_text}\n\n"
+             f"Legal types (use these IRIs): {legal_types[:30]}\n\n"
+             f"Bundle templates (for reference): {bundle_templates}",
+        stub=_stub(),
+        max_tokens=1200,
+    )
+
+    entities = result.get("entities") or _stub()["entities"]
+    rels = result.get("relationships") or _stub()["relationships"]
+
+    return {"draft_entities": entities, "draft_relationships": rels,
+            "mapping_source": "mapper" if gw.backend != "stub" else "bundle",
+            "next_action": "validate"}
+
+
+# ==========================================================================
+# 6 · Scene Generator   (stub — needs 3D engine infrastructure)
+# ==========================================================================
+def scene_generator(state: dict) -> dict:
+    """Turns a committed graph into a procedural 3D scene descriptor.
+    STUB: queries graph topology and returns an entity list with placeholder
+    positions. Real glTF generation requires a 3D engine (future work)."""
+    from graph.query import GraphQuery
+
+    tenant_id = state.get("tenant_id") or ""
+    twin_id = state.get("twin_id")
+    if not twin_id:
+        return {"scene_result": {"status": "skipped",
+                                 "message": "No committed twin to visualize."},
+                "next_action": "done"}
+
+    try:
+        q = GraphQuery()
+        assets = q.list_by_label(tenant_id, "PhysicalAsset", limit=50)
+        locations = q.list_by_label(tenant_id, "Location", limit=50)
+    except Exception:
+        assets, locations = [], []
+
+    topology = []
+    for e in assets + locations:
+        topology.append({
+            "id": e.get("id"), "type": e.get("canonicalType", ""),
+            "name": e.get("displayName", ""), "label": "PhysicalAsset"
+            if e in assets else "Location",
+        })
+
+    return {"scene_result": {
+        "format": "gltf", "status": "stub",
+        "node_count": len(topology),
+        "message": "Scene generation requires 3D engine. Topology extracted.",
+        "topology": topology,
+    }, "next_action": "done"}
+
+
+# ==========================================================================
 #  Routers (pure functions feeding the conditional edges)
 # ==========================================================================
 def route_after_concierge(state: dict) -> str:
+    """Original MVP router (kept for backwards compat reference)."""
     return "classify" if state.get("next_action") == "classify" else "ask"
+
+
+def route_after_concierge_v2(state: dict) -> str:
+    """Extended router: branches to Vision Agent when files are uploaded."""
+    if state.get("next_action") == "classify":
+        if state.get("uploaded_files"):
+            return "vision"
+        return "classify"
+    return "ask"
 
 
 def route_after_classify(state: dict) -> str:
@@ -421,6 +594,15 @@ def route_after_classify(state: dict) -> str:
 def route_after_validate(state: dict) -> str:
     v = state.get("validation") or {}
     return "ok" if v.get("ok") else "fail"
+
+
+def route_after_graph_writer(state: dict) -> str:
+    """After commit: optionally generate a scene, or done."""
+    if state.get("scene_result") is not None:
+        return "done"  # already has a scene result, skip
+    if state.get("committed") and state.get("uploaded_files"):
+        return "scene"  # uploaded files hint that visualization is wanted
+    return "done"
 
 
 # ==========================================================================

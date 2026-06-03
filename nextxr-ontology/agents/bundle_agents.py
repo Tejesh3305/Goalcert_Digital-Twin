@@ -317,7 +317,165 @@ def rule_author(state: dict) -> dict:
         stub=_stub(),
     )
     rules = result.get("rules") or _stub()["rules"]
-    return {"rules": rules, "next_action": "lint"}
+    return {"rules": rules, "next_action": "elicit"}
+
+
+# ==========================================================================
+#  Behavior Modeler (LLM) — classifies faults into Tier A/B/C artefacts
+# ==========================================================================
+def behavior_modeler(state: dict) -> dict:
+    """For each fault, classifies it as Tier A (physics — skeleton for human),
+    Tier B (statistical — baseline config), or Tier C (rule — threshold). Produces
+    the matching artefact. Goes between Drafter and Rule Author."""
+    gw = get_gateway()
+    domain = _slug(state.get("domain") or "custom")
+    faults = state.get("fault_catalogue") or []
+    measurements = state.get("measurement_catalogue") or []
+
+    if not faults:
+        return {"behavior_models": [], "next_action": "rules"}
+
+    def _stub() -> dict:
+        models = []
+        for fault in faults:
+            name = fault.get("name", "Unknown") if isinstance(fault, dict) else str(fault)
+            signal = measurements[0].get("observable", "Temperature") if measurements else "Temperature"
+            models.append({
+                "fault": name, "tier": "C", "artefact_type": "threshold_rule",
+                "artefact": {
+                    "behavior_id": f"{domain}.{_slug(name)}",
+                    "watches": f"{domain}:{signal}", "offset_c": 3.0,
+                    "duration_minutes": 3.0,
+                    "description": f"Tier-C rule for {name}.",
+                },
+            })
+        return {"models": models}
+
+    fault_text = []
+    for f in faults:
+        if isinstance(f, dict):
+            fault_text.append(f"{f.get('name', '?')}: {f.get('description', '')}")
+        else:
+            fault_text.append(str(f))
+
+    result = gw.complete_json(
+        tenant_id=state["tenant_id"], session_id=state["session_id"],
+        system=("You classify facility faults into behaviour tiers for a digital-twin "
+                "platform. Tier A: physics-based (needs first-principles equation, "
+                "produce a skeleton). Tier B: statistical baseline (produce config "
+                "with signal, warmup, z_threshold). Tier C: simple threshold rule "
+                "(produce rule with offset, duration). Return JSON "
+                "{\"models\": [{\"fault\": str, \"tier\": \"A\"|\"B\"|\"C\", "
+                "\"artefact_type\": str, \"artefact\": dict}]}."),
+        user=f"Domain: {domain}\nFaults:\n" + "\n".join(fault_text) +
+             f"\nMeasurements: {measurements}",
+        stub=_stub(),
+        max_tokens=900,
+    )
+    models = result.get("models") or _stub()["models"]
+    return {"behavior_models": models, "next_action": "rules"}
+
+
+# ==========================================================================
+#  Elicitation Designer (LLM) — generates Concierge question sets
+# ==========================================================================
+def elicitation_designer(state: dict) -> dict:
+    """Generates the elicitation question set the Twin-Building Concierge will
+    later use when a customer instantiates a twin in this new domain. This is the
+    elegant bit: Team 3's output reconfigures Team 1's behaviour."""
+    gw = get_gateway()
+    domain = state.get("domain") or "custom"
+    entities = state.get("entity_catalogue") or []
+    faults = state.get("fault_catalogue") or []
+    measurements = state.get("measurement_catalogue") or []
+
+    def _stub() -> dict:
+        questions = []
+        for e in entities[:3]:
+            name = e if isinstance(e, str) else str(e)
+            questions.append({
+                "question": f"How many {name} units does your facility have?",
+                "purpose": f"Determine {name} asset count for twin scaffold.",
+                "domain_anchor": name,
+            })
+        if measurements:
+            m = measurements[0]
+            mname = m.get("name", "key measurement") if isinstance(m, dict) else str(m)
+            questions.append({
+                "question": f"What is the normal operating range for {mname}?",
+                "purpose": f"Establish baseline setpoint for {mname}.",
+                "domain_anchor": mname,
+            })
+        if not questions:
+            questions.append({
+                "question": f"What are the main assets in your {domain} facility?",
+                "purpose": "Discover primary equipment.",
+                "domain_anchor": domain,
+            })
+        return {"questions": questions}
+
+    result = gw.complete_json(
+        tenant_id=state["tenant_id"], session_id=state["session_id"],
+        system=("You design elicitation questions for a digital-twin concierge. "
+                "Given a domain's entity/fault/measurement catalogues, produce "
+                "questions that help the concierge extract the user's facility "
+                "configuration. Return JSON "
+                "{\"questions\": [{\"question\": str, \"purpose\": str, "
+                "\"domain_anchor\": str}]}. 5-10 questions. "
+                "Questions should be jargon-free and focus on what to monitor."),
+        user=f"Domain: {domain}\nEntities: {entities}\n"
+             f"Faults: {faults}\nMeasurements: {measurements}",
+        stub=_stub(),
+        max_tokens=700,
+    )
+    questions = result.get("questions") or _stub()["questions"]
+    return {"elicitation_questions": questions, "next_action": "curate"}
+
+
+# ==========================================================================
+#  Asset Curator (Hybrid) — sources 3D assets for domain entities
+# ==========================================================================
+def asset_curator(state: dict) -> dict:
+    """Matches catalogue entities to an asset library, flags gaps where no
+    matching 3D asset exists. For the MVP, the asset library is a static
+    catalogue; gaps are reported to the expert."""
+    gw = get_gateway()
+    domain = _slug(state.get("domain") or "custom")
+    entities = state.get("entity_catalogue") or []
+
+    # Static asset catalogue — in production this would be a real asset DB.
+    KNOWN_ASSETS = {
+        "airhandler": "asset_ahu_generic", "chiller": "asset_chiller_generic",
+        "pump": "asset_pump_generic", "fan": "asset_fan_generic",
+        "sensor": "asset_sensor_generic", "valve": "asset_valve_generic",
+        "filter": "asset_filter_generic", "coil": "asset_coil_generic",
+        "duct": "asset_duct_generic", "diffuser": "asset_diffuser_generic",
+        "transformer": "asset_transformer_generic", "ups": "asset_ups_generic",
+        "generator": "asset_generator_generic", "tank": "asset_tank_generic",
+    }
+
+    manifest = []
+    gaps = []
+    for e in entities:
+        name = e if isinstance(e, str) else str(e)
+        name_lower = name.lower().replace(" ", "")
+        # Try exact match, then partial.
+        asset_id = KNOWN_ASSETS.get(name_lower)
+        if not asset_id:
+            for key, aid in KNOWN_ASSETS.items():
+                if key in name_lower or name_lower in key:
+                    asset_id = aid
+                    break
+        if asset_id:
+            manifest.append({"entity": name, "asset_id": asset_id,
+                             "source": "library", "status": "matched"})
+        else:
+            manifest.append({"entity": name, "asset_id": None,
+                             "source": None, "status": "gap"})
+            gaps.append(name)
+
+    return {"asset_manifest": manifest, "asset_gaps": gaps,
+            "next_action": "lint"}
 
 
 # ==========================================================================
@@ -365,6 +523,21 @@ def linter(state: dict) -> dict:
     if not tierc:
         issues.append({"severity": "error",
                        "reason": "Bundle has no Tier-C rule; it can't fire a Finding."})
+
+    # 4. Elicitation questions (warning only, not blocking).
+    if not state.get("elicitation_questions"):
+        issues.append({"severity": "warning",
+                       "reason": "No elicitation questions generated; Concierge "
+                                 "will use defaults for this domain."})
+
+    # 5. Asset gaps (warning only).
+    gaps = state.get("asset_gaps") or []
+    if gaps:
+        preview = ", ".join(gaps[:3])
+        suffix = f" (+{len(gaps) - 3} more)" if len(gaps) > 3 else ""
+        issues.append({"severity": "warning",
+                       "reason": f"{len(gaps)} entity/-ies have no matching 3D "
+                                 f"asset: {preview}{suffix}"})
 
     errors = [i for i in issues if i["severity"] == "error"]
     ok = len(errors) == 0
@@ -449,6 +622,11 @@ def publisher(state: dict) -> dict:
         "relationship_templates": rel_templates,
         "rules": state.get("rules", []),
         "primary_signal": (state.get("measurement_catalogue") or [{}])[0].get("observable"),
+        # Phase 3 artifacts
+        "behavior_models": state.get("behavior_models", []),
+        "elicitation_questions": state.get("elicitation_questions", []),
+        "asset_manifest": state.get("asset_manifest", []),
+        "asset_gaps": state.get("asset_gaps", []),
     }
     registry.publish(bundle, tenant_id=state.get("tenant_id"))
 

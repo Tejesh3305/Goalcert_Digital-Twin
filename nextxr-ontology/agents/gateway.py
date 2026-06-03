@@ -112,6 +112,58 @@ class LLMGateway:
             # Any API/network error -> deterministic stub, flow continues.
             return LLMResult(text=stub(), backend="stub")
 
+    # ---- multimodal (vision) completion --------------------------------
+    def complete_vision(self, *, tenant_id: str, session_id: str, system: str,
+                        user_text: str, image_urls: list[str],
+                        temperature: float = 0.3, max_tokens: int = 1200,
+                        model: Optional[str] = None, stub) -> LLMResult:
+        """Vision completion: text + images. `stub` is a zero-arg callable
+        returning the fallback string. Uses gpt-4o (vision-capable) by default."""
+        if self._backend != "openai" or not self._check_and_count(session_id):
+            return LLMResult(text=stub(), backend="stub")
+        try:
+            content: list[dict] = [{"type": "text", "text": user_text}]
+            for url in image_urls[:5]:  # cap at 5 images to control cost
+                content.append({"type": "image_url", "image_url": {"url": url}})
+            resp = self._client.chat.completions.create(
+                model=model or "gpt-4o",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": content}],
+            )
+            return LLMResult(text=resp.choices[0].message.content or "",
+                             backend="openai", model=resp.model)
+        except Exception:
+            return LLMResult(text=stub(), backend="stub")
+
+    def complete_json_vision(self, *, tenant_id: str, session_id: str,
+                             system: str, user_text: str, image_urls: list[str],
+                             stub: dict, temperature: float = 0.1,
+                             max_tokens: int = 1200,
+                             model: Optional[str] = None) -> dict:
+        """Structured JSON vision completion. `stub` is the fallback dict.
+        Always returns a dict — on any failure, the stub is returned."""
+        if self._backend != "openai" or not self._check_and_count(session_id):
+            return dict(stub)
+        try:
+            content: list[dict] = [{"type": "text", "text": user_text}]
+            for url in image_urls[:5]:
+                content.append({"type": "image_url", "image_url": {"url": url}})
+            resp = self._client.chat.completions.create(
+                model=model or "gpt-4o",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+                messages=[{"role": "system", "content": system},
+                          {"role": "user", "content": content}],
+            )
+            parsed = json.loads(resp.choices[0].message.content or "{}")
+            return parsed if isinstance(parsed, dict) else dict(stub)
+        except Exception:
+            return dict(stub)
+
+    # ---- structured JSON completion --------------------------------------
     def complete_json(self, *, tenant_id: str, session_id: str, system: str,
                       user: str, stub: dict, temperature: float = 0.1,
                       max_tokens: int = 700, model: Optional[str] = None) -> dict:

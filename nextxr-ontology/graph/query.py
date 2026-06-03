@@ -102,3 +102,65 @@ class GraphQuery:
                     t=tenant_id,
                 )
             return [dict(r["p"]) for r in recs]
+
+    # ---- Phase 1 expansion: operational agent support --------------------
+
+    def get_incidents(self, tenant_id: str, status: Optional[str] = None,
+                      limit: int = 50) -> list[dict]:
+        """List Incident nodes, optionally filtered by status."""
+        with self.driver.session() as s:
+            if status:
+                recs = s.run(
+                    "MATCH (i:Incident {tenantId:$t, status:$st}) "
+                    "RETURN properties(i) AS p ORDER BY i.createdAt DESC LIMIT $lim",
+                    t=tenant_id, st=status, lim=limit,
+                )
+            else:
+                recs = s.run(
+                    "MATCH (i:Incident {tenantId:$t}) "
+                    "RETURN properties(i) AS p ORDER BY i.createdAt DESC LIMIT $lim",
+                    t=tenant_id, lim=limit,
+                )
+            return [dict(r["p"]) for r in recs]
+
+    def get_diagnosis_chain(self, tenant_id: str,
+                            incident_id: str) -> dict:
+        """Fetch the full chain: incident -> diagnosis -> recommendation -> action.
+        Returns a dict with keys for each stage (None if the link doesn't exist)."""
+        with self.driver.session() as s:
+            rec = s.run(
+                "MATCH (i {tenantId:$t, id:$iid}) "
+                "OPTIONAL MATCH (i)-[:DIAGNOSED_AS]->(d) "
+                "OPTIONAL MATCH (d)-[:RECOMMENDS]->(r) "
+                "OPTIONAL MATCH (r)-[:PROPOSES_ACTION]->(a) "
+                "RETURN properties(i) AS incident, "
+                "       properties(d) AS diagnosis, "
+                "       properties(r) AS recommendation, "
+                "       properties(a) AS action "
+                "LIMIT 1",
+                t=tenant_id, iid=incident_id,
+            ).single()
+            if not rec:
+                return {"incident": None, "diagnosis": None,
+                        "recommendation": None, "action": None}
+            return {
+                "incident": dict(rec["incident"]) if rec["incident"] else None,
+                "diagnosis": dict(rec["diagnosis"]) if rec["diagnosis"] else None,
+                "recommendation": dict(rec["recommendation"]) if rec["recommendation"] else None,
+                "action": dict(rec["action"]) if rec["action"] else None,
+            }
+
+    def dependents(self, tenant_id: str, node_id: str,
+                   max_depth: int = 3) -> list[dict]:
+        """Nodes downstream of a given node via DEPENDS_ON or FED_BY relationships
+        (i.e. nodes that depend on or are fed by this node), up to max_depth hops."""
+        depth = min(max_depth, 10)
+        with self.driver.session() as s:
+            recs = s.run(
+                f"MATCH (root {{tenantId:$t, id:$nid}}) "
+                f"MATCH (root)<-[:DEPENDS_ON|FED_BY*1..{depth}]-(dep) "
+                f"WHERE dep.tenantId = $t "
+                f"RETURN DISTINCT properties(dep) AS p",
+                t=tenant_id, nid=node_id,
+            )
+            return [dict(r["p"]) for r in recs]

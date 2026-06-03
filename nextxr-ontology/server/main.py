@@ -336,6 +336,24 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
                                 "action_id": result.action_id,
                                 "findings_grouped": result.findings_grouped,
                             }
+
+                        # LLM-enhanced diagnosis (augments, does not replace, the
+                        # deterministic pipeline above).
+                        if result.incident_id and finding_ids:
+                            try:
+                                from agents.operational_graph import app as ops_app
+                                from agents.state import new_operational_state
+                                ops_sid = f"ops-{tenant}-{result.incident_id}"
+                                ops_state = new_operational_state(
+                                    tenant_id=tenant,
+                                    session_id=ops_sid,
+                                    incident_id=result.incident_id,
+                                    finding_ids=finding_ids,
+                                    affected_entity_id=affected_id,
+                                )
+                                ops_app.invoke(ops_state, thread_id=ops_sid)
+                            except Exception:
+                                pass  # LLM diagnosis is best-effort
             except Exception:
                 pass  # Diagnosis is best-effort, don't crash the feed
 

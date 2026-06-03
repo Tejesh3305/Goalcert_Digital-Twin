@@ -86,6 +86,15 @@ export const api = {
   twinAgentMessage: (session_id, message) =>
     request('/agents/twin/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
   twinAgentState: (session_id) => request(`/agents/twin/${session_id}`),
+  // Twin-building: file upload for Vision Agent
+  twinAgentUpload: (session_id, url, filename) =>
+    request('/agents/twin/upload', { method: 'POST', body: JSON.stringify({ session_id, url, filename }) }),
+  twinAgentUploadData: (session_id, data, filename) =>
+    request('/agents/twin/upload', { method: 'POST', body: JSON.stringify({ session_id, data, filename }) }),
+  // Twin-building: scene generation
+  twinAgentScene: (session_id) =>
+    request('/agents/twin/scene', { method: 'POST', body: JSON.stringify({ session_id }) }),
+
   // Bundle Author (author a new vertical, human-gated publish)
   bundleStart: (body) => request('/agents/bundle/start', { method: 'POST', body: JSON.stringify(body || {}) }),
   bundleMessage: (session_id, message) =>
@@ -93,6 +102,22 @@ export const api = {
   bundleApprove: (session_id) =>
     request('/agents/bundle/approve', { method: 'POST', body: JSON.stringify({ session_id }) }),
   bundleState: (session_id) => request(`/agents/bundle/${session_id}`),
+
+  // Operational (Diagnosis + Recommender — Team 2)
+  opsDiagnose: (body) => request('/agents/ops/diagnose', { method: 'POST', body: JSON.stringify(body) }),
+  opsState: (session_id) => request(`/agents/ops/${session_id}`),
+
+  // Plugin Scaffolder (Team 4)
+  pluginStart: () => request('/agents/plugin/start', { method: 'POST' }),
+  pluginMessage: (session_id, message) =>
+    request('/agents/plugin/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
+  pluginState: (session_id) => request(`/agents/plugin/${session_id}`),
+
+  // Accelerator Pack Composer (Team 4)
+  accelStart: (body) => request('/agents/accelerator/start', { method: 'POST', body: JSON.stringify(body || {}) }),
+  accelMessage: (session_id, message) =>
+    request('/agents/accelerator/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
+  accelState: (session_id) => request(`/agents/accelerator/${session_id}`),
 }
 
 export default api

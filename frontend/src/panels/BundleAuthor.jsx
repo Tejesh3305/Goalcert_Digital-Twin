@@ -15,7 +15,10 @@ import api from '../api/client'
 const STAGES = [
   { key: 'interview', label: 'Interviewer', icon: 'ti-microphone' },
   { key: 'draft', label: 'Ontology Drafter', icon: 'ti-file-code' },
+  { key: 'model', label: 'Behavior Modeler', icon: 'ti-brain' },
   { key: 'rules', label: 'Rule Author', icon: 'ti-ruler' },
+  { key: 'elicit', label: 'Elicitation Designer', icon: 'ti-help-circle' },
+  { key: 'curate', label: 'Asset Curator', icon: 'ti-cube' },
   { key: 'lint', label: 'Linter', icon: 'ti-checks' },
   { key: 'await_approval', label: 'Human Gate', icon: 'ti-user-check' },
   { key: 'publish', label: 'Publisher', icon: 'ti-package' },
@@ -140,6 +143,21 @@ export default function BundleAuthor() {
               </Card>
             )}
 
+            {state?.behavior_models?.length > 0 && (
+              <Card title={<><i className="ti ti-brain" /> Behavior Models</>}>
+                {state.behavior_models.map((m, i) => (
+                  <div key={i} className="event-item" style={{ marginBottom: 6 }}>
+                    <div className="event-icon" style={{ background: m.tier === 'A' ? 'var(--accent-blue)' : m.tier === 'B' ? 'var(--accent-amber)' : 'var(--accent-green)', color: '#fff' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700 }}>{m.tier}</span>
+                    </div>
+                    <div className="event-body">
+                      <div className="event-title">{m.fault} <span className="pill pill-surface">Tier {m.tier} — {m.artefact_type}</span></div>
+                    </div>
+                  </div>
+                ))}
+              </Card>
+            )}
+
             {state?.rules?.length > 0 && (
               <Card title={<><i className="ti ti-ruler" /> Authored Rules (Tier-C)</>}>
                 {state.rules.map((r, i) => (
@@ -151,6 +169,33 @@ export default function BundleAuthor() {
                     </div>
                   </div>
                 ))}
+              </Card>
+            )}
+
+            {state?.elicitation_questions?.length > 0 && (
+              <Card title={<><i className="ti ti-help-circle" /> Elicitation Questions</>}>
+                {state.elicitation_questions.map((q, i) => (
+                  <div key={i} style={{ marginBottom: 8, fontSize: 13 }}>
+                    <div style={{ fontWeight: 500 }}>{i + 1}. {q.question}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{q.purpose}</div>
+                  </div>
+                ))}
+              </Card>
+            )}
+
+            {state?.asset_manifest?.length > 0 && (
+              <Card title={<><i className="ti ti-cube" /> Asset Manifest</>}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {state.asset_manifest.map((a, i) => (
+                    <span key={i} style={{
+                      padding: '3px 10px', borderRadius: 16, fontSize: 11,
+                      fontFamily: 'var(--mono)',
+                      background: a.status === 'matched' ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)',
+                      color: a.status === 'matched' ? '#22c55e' : '#ef4444',
+                      border: '1px solid ' + (a.status === 'matched' ? '#22c55e33' : '#ef444433'),
+                    }}>{a.entity}: {a.status === 'matched' ? a.asset_id : 'gap'}</span>
+                  ))}
+                </div>
               </Card>
             )}
 
@@ -220,10 +265,13 @@ export default function BundleAuthor() {
 
 function deriveStage(state) {
   if (!state) return 0
-  if (state.published_bundle) return 6
-  if (state.lint_result?.ok) return 4          // at the human gate
-  if (state.rules?.length) return 3
-  if (state.ontology_fragment) return 2
-  if (state.next_action === 'draft') return 1
+  if (state.published_bundle) return 8         // publisher done
+  if (state.lint_result?.ok) return 7          // at the human gate
+  if (state.asset_manifest?.length) return 6   // asset curator done
+  if (state.elicitation_questions?.length) return 5  // elicitation done
+  if (state.rules?.length) return 4            // rule author done
+  if (state.behavior_models?.length) return 3  // behavior modeler done
+  if (state.ontology_fragment) return 2        // drafter done
+  if (state.next_action === 'draft') return 1  // interview complete
   return 0
 }

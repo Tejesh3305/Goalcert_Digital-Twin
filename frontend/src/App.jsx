@@ -16,6 +16,8 @@ import Compliance from './panels/Compliance'
 import Simulation from './panels/Simulation'
 import TwinHealth from './panels/TwinHealth'
 import Marketplace from './panels/Marketplace'
+import PluginScaffolder from './panels/PluginScaffolder'
+import AcceleratorPack from './panels/AcceleratorPack'
 
 export default function App() {
   return (
@@ -36,6 +38,8 @@ export default function App() {
             <Route path="/copilot" element={<Copilot />} />
             <Route path="/changelog" element={<Changelog />} />
             <Route path="/compliance" element={<Compliance />} />
+            <Route path="/plugin" element={<PluginScaffolder />} />
+            <Route path="/accelerator" element={<AcceleratorPack />} />
             <Route path="/simulation" element={<Simulation />} />
             <Route path="/health" element={<TwinHealth />} />
             <Route path="/marketplace" element={<Marketplace />} />

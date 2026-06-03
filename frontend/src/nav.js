@@ -26,6 +26,8 @@ export const NAV = [
   { id: 'compliance',  path: '/compliance',  label: 'Compliance',  icon: 'ti-shield-check',     backing: 'mock' },
 
   { section: 'Platform' },
+  { id: 'plugin',      path: '/plugin',      label: 'Plugin SDK',  icon: 'ti-plug',             backing: 'live' },
+  { id: 'accelerator', path: '/accelerator', label: 'Accelerators', icon: 'ti-package',         backing: 'live' },
   { id: 'simulation',  path: '/simulation',  label: 'Simulation',  icon: 'ti-urgent',           backing: 'mock' },
   { id: 'health',      path: '/health',      label: 'Twin Health', icon: 'ti-heart-rate-monitor', backing: 'partial' },
   { id: 'marketplace', path: '/marketplace', label: 'Marketplace', icon: 'ti-layout-grid',      backing: 'mock' },

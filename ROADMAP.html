@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NextXR — Platform Roadmap & Improvement Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fbfaf7; --ink:#1c1b18; --ink-soft:#54524c; --ink-faint:#86847c;
+    --line:#e4e1d8; --line-soft:#efece4;
+    --teal:#0f6e56; --teal-soft:#e1f1ec; --teal-line:#bcdfd3;
+    --amber:#9a6206; --amber-soft:#fbf0db; --amber-line:#ecd6a8;
+    --rust:#8f3a20; --rust-soft:#f6e8e2; --rust-line:#e0c0b4;
+    --blue:#1d4ed8; --blue-soft:#eff6ff; --blue-line:#bfdbfe;
+    --violet:#6d28d9; --violet-soft:#f5f3ff; --violet-line:#ddd6fe;
+    --green:#15803d; --green-soft:#f0fdf4; --green-line:#bbf7d0;
+    --serif:'Newsreader',Georgia,serif; --sans:'IBM Plex Sans',sans-serif; --mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.65;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:960px;margin:0 auto;padding:64px 40px 120px;}
+  h1,h2,h3,h4{font-family:var(--serif);font-weight:500;letter-spacing:-0.01em;line-height:1.15;}
+  h1{font-size:44px;margin:0 0 6px;}
+  h2{font-size:30px;margin:64px 0 4px;padding-top:30px;border-top:1px solid var(--line);}
+  h3{font-size:22px;margin:42px 0 6px;}
+  h4{font-size:17px;margin:28px 0 4px;font-weight:600;}
+  p{margin:10px 0;color:var(--ink-soft);}
+  a{color:var(--teal);}
+  code{font-family:var(--mono);font-size:0.86em;background:var(--line-soft);padding:1px 5px;border-radius:4px;color:var(--ink);}
+  .lede{font-family:var(--serif);font-size:19px;line-height:1.5;color:var(--ink-soft);font-weight:400;margin:14px 0 0;}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:18px;}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:20px;padding-top:14px;border-top:1px solid var(--line);}
+
+  /* Status badges */
+  .badge{font-family:var(--mono);font-size:11px;font-weight:500;padding:3px 9px;border-radius:20px;letter-spacing:0.04em;display:inline-block;margin-right:6px;}
+  .b-done{background:var(--green-soft);border:1px solid var(--green-line);color:var(--green);}
+  .b-stub{background:var(--amber-soft);border:1px solid var(--amber-line);color:var(--amber);}
+  .b-gap{background:var(--rust-soft);border:1px solid var(--rust-line);color:var(--rust);}
+  .b-new{background:var(--blue-soft);border:1px solid var(--blue-line);color:var(--blue);}
+  .b-infra{background:var(--violet-soft);border:1px solid var(--violet-line);color:var(--violet);}
+
+  /* Tier cards */
+  .tier{border:1px solid var(--line);border-radius:12px;background:#fff;padding:22px 26px;margin:20px 0;}
+  .tier.t1{border-left:4px solid var(--teal);}
+  .tier.t2{border-left:4px solid var(--amber);}
+  .tier.t3{border-left:4px solid var(--violet);}
+  .tier .tier-head{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  .tier .tier-label{font-family:var(--mono);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;font-weight:600;padding:2px 8px;border-radius:12px;}
+  .tier.t1 .tier-label{background:var(--teal-soft);color:var(--teal);}
+  .tier.t2 .tier-label{background:var(--amber-soft);color:var(--amber);}
+  .tier.t3 .tier-label{background:var(--violet-soft);color:var(--violet);}
+  .tier .tier-title{font-family:var(--serif);font-size:20px;font-weight:600;}
+  .tier .tier-effort{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-left:auto;}
+  .tier p{color:var(--ink-soft);margin:8px 0;}
+
+  /* Item cards */
+  .item{border:1px solid var(--line-soft);border-radius:10px;background:#fff;padding:16px 20px;margin:14px 0;}
+  .item .top{display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-wrap:wrap;}
+  .item .name{font-family:var(--serif);font-size:18px;font-weight:600;color:var(--ink);}
+  .item .effort{font-family:var(--mono);font-size:11px;color:var(--ink-faint);}
+  .item .desc{color:var(--ink-soft);margin:6px 0 0;font-size:14.5px;}
+  .item .why{font-size:13px;color:var(--teal);margin-top:8px;font-style:italic;}
+  .item .files{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:8px;}
+
+  /* Current state table */
+  table{width:100%;border-collapse:collapse;margin:18px 0;font-size:14px;}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:500;}
+  td code{font-size:12.5px;}
+
+  /* Callout boxes */
+  .callout{border-radius:12px;padding:18px 22px;margin:20px 0;}
+  .callout.green{background:var(--green-soft);border:1px solid var(--green-line);}
+  .callout.green h4{color:var(--green);margin-top:0;font-family:var(--sans);font-size:13px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;}
+  .callout.green p{color:#1a5c30;}
+  .callout.amber{background:var(--amber-soft);border:1px solid var(--amber-line);}
+  .callout.amber h4{color:var(--amber);margin-top:0;font-family:var(--sans);font-size:13px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;}
+  .callout.amber p{color:#6e4d10;}
+  .callout.blue{background:var(--blue-soft);border:1px solid var(--blue-line);}
+  .callout.blue h4{color:var(--blue);margin-top:0;font-family:var(--sans);font-size:13px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;}
+  .callout.blue p{color:#1e3a5f;}
+
+  .pick{background:var(--teal-soft);border:1px solid var(--teal-line);border-radius:12px;padding:18px 22px;margin:24px 0;}
+  .pick h4{color:var(--teal);margin-top:0;font-family:var(--sans);font-size:13px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;}
+  .pick ol{margin:8px 0;padding-left:22px;color:var(--ink-soft);}
+  .pick li{margin:8px 0;}
+  .pick li b{color:var(--ink);}
+
+  .note{font-size:13.5px;color:var(--ink-faint);font-style:italic;border-left:2px solid var(--line);padding-left:14px;margin:16px 0;}
+
+  @media(max-width:640px){.wrap{padding:40px 22px 80px;}h1{font-size:32px;}.tier .tier-head{flex-direction:column;align-items:flex-start;}.tier .tier-effort{margin-left:0;}}
+  @media print{body{background:#fff;} .tier,.item,.callout,.pick{break-inside:avoid;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">NextXR &middot; Universal Modular Digital Twin</div>
+  <h1>Platform Roadmap &amp; Improvement Register</h1>
+  <p class="lede">Where the platform stands after the 20-agent expansion, what's still weak, and every meaningful improvement ranked by impact and effort. Three tiers: build now, build next, build for production.</p>
+  <div class="meta">Compiled from the Agent System Build Reference v0.3 &middot; Platform state as of June 2026</div>
+
+  <!-- ================================ CURRENT STATE ================================ -->
+  <h2>Where we stand now</h2>
+  <p>The MVP's 6 agents have been expanded to the full 20-agent product across four teams. Every flow is functional in stub mode (no API key) and enhanced with real LLM reasoning when the OpenAI key is configured. Here's the honest status of each component.</p>
+
+  <table>
+    <tr><th>Component</th><th>Status</th><th>Honest assessment</th></tr>
+    <tr>
+      <td><b>Twin-Building</b> (8 agents)</td>
+      <td><span class="badge b-done">Live</span></td>
+      <td>Full flow works. Vision Agent needs frontend file picker. Schema Mapper degrades to templates without LLM.</td>
+    </tr>
+    <tr>
+      <td><b>Bundle Author</b> (9 agents)</td>
+      <td><span class="badge b-done">Live</span></td>
+      <td>Full flow with human gate. Behavior Modeler, Elicitation Designer, Asset Curator all produce real artifacts.</td>
+    </tr>
+    <tr>
+      <td><b>Operational</b> (3 agents)</td>
+      <td><span class="badge b-done">Live</span></td>
+      <td>Diagnosis + Recommender augment the deterministic pipeline. 24h cache works. Advisory lock enforced.</td>
+    </tr>
+    <tr>
+      <td><b>Plugin Scaffolder</b></td>
+      <td><span class="badge b-done">Live</span></td>
+      <td>Generates real boilerplate for 6 extension points. Could add more templates.</td>
+    </tr>
+    <tr>
+      <td><b>Accelerator Packs</b></td>
+      <td><span class="badge b-done">Live</span></td>
+      <td>Selects bundles + assembles manifests. No file archive export yet.</td>
+    </tr>
+    <tr>
+      <td><b>Scene Generator</b></td>
+      <td><span class="badge b-stub">Stub</span></td>
+      <td>Returns topology JSON only. Needs a 3D engine (Three.js / Babylon.js) to render scenes.</td>
+    </tr>
+    <tr>
+      <td><b>Copilot</b></td>
+      <td><span class="badge b-gap">Mock</span></td>
+      <td>Still rule-based pattern matching. Needs LLM + tools (GraphQuery, SchemaService, feed stats).</td>
+    </tr>
+    <tr>
+      <td><b>Vision upload UI</b></td>
+      <td><span class="badge b-gap">Missing</span></td>
+      <td>Backend endpoint exists. Frontend drag-and-drop file picker not wired.</td>
+    </tr>
+    <tr>
+      <td><b>Predict panel</b></td>
+      <td><span class="badge b-gap">Mock</span></td>
+      <td>Needs Tier-B ML behaviors (IsolationForest, Prophet) feeding real RUL estimates.</td>
+    </tr>
+    <tr>
+      <td><b>Compliance panel</b></td>
+      <td><span class="badge b-gap">Mock</span></td>
+      <td>Needs Document entities modeled for ISO standards, linked to assets via <code>nxr:governedBy</code>.</td>
+    </tr>
+    <tr>
+      <td><b>Marketplace</b></td>
+      <td><span class="badge b-gap">Mock</span></td>
+      <td>UI exists. No runtime install/unload. Bundle loader already supports it &mdash; just needs wiring.</td>
+    </tr>
+    <tr>
+      <td><b>LLM provider</b></td>
+      <td><span class="badge b-stub">OpenAI only</span></td>
+      <td>Spec says Claude Sonnet primary, Llama 3 fallback. Gateway is a single-point swap.</td>
+    </tr>
+    <tr>
+      <td><b>Durability</b></td>
+      <td><span class="badge b-stub">SQLite</span></td>
+      <td>Checkpointer is SQLite. Production needs Temporal for crash-resilient workflows.</td>
+    </tr>
+    <tr>
+      <td><b>Auth / RBAC</b></td>
+      <td><span class="badge b-gap">None</span></td>
+      <td>Dev-permissive. No role-based access. Plugin Scaffolder can generate auth middleware.</td>
+    </tr>
+  </table>
+
+  <!-- ================================ KNOWN WEAKNESSES ================================ -->
+  <h2>Known weaknesses in what we built</h2>
+
+  <div class="callout amber">
+    <h4>Things that work but aren't great</h4>
+    <p><b>Schema Mapper in stub mode</b> &mdash; without the LLM, it passes through bundle templates verbatim. No intelligence, no free-text mapping. With the LLM active it works but doesn't handle complex spatial relationships ("AHU-01 serves Server Room 3 AND the corridor"). Needs a relationship inference step.</p>
+    <p><b>Operational agents are batch, not streaming</b> &mdash; they trigger after the feed loop completes a full run (~30s), not per-finding. A production system should trigger diagnosis when findings accumulate past a threshold, not on a timer.</p>
+    <p><b>Behavior Modeler always defaults to Tier C</b> &mdash; in stub mode every fault becomes a threshold rule. The LLM path does real classification, but the Tier A skeleton it produces is just comments &mdash; a human engineer still writes the actual physics.</p>
+    <p><b>Asset Curator uses a static catalogue</b> &mdash; 14 generic assets hardcoded. A real system would search a 3D asset database or generate assets on-demand.</p>
+  </div>
+
+  <!-- ================================ TIER 1 ================================ -->
+  <h2>Tier 1 &mdash; High impact, buildable now</h2>
+  <p>These can be built in hours to days. Each one either fixes a visible gap or adds a feature users would interact with daily.</p>
+
+  <div class="tier t1">
+    <div class="tier-head">
+      <span class="tier-label">Tier 1</span>
+      <span class="tier-title">Real Copilot with tools</span>
+      <span class="tier-effort">~3 hours</span>
+    </div>
+    <p>Replace the rule-based <code>Copilot.jsx</code> with a real LLM agent that has callable tools: <code>GraphQuery</code> for "show me findings on AHU-01", <code>SchemaService</code> for "what types exist", feed stats for live data, and <code>ChangeLog</code> for audit history. User asks a question in natural language, the agent queries real data and answers with grounded facts.</p>
+    <p class="why">This is the feature people would use every day. It turns the platform from "a dashboard you read" into "a system you talk to".</p>
+    <div class="files">Files: <code>agents/copilot_agent.py</code> (new), <code>agents/copilot_graph.py</code> (new), <code>server/agent_routes.py</code>, <code>panels/Copilot.jsx</code>, <code>api/client.js</code></div>
+  </div>
+
+  <div class="tier t1">
+    <div class="tier-head">
+      <span class="tier-label">Tier 1</span>
+      <span class="tier-title">Drag-and-drop Vision upload</span>
+      <span class="tier-effort">~30 min</span>
+    </div>
+    <p>Wire a file picker / drag-and-drop zone in the Concierge chat panel. On drop, convert to base64 data URI, POST to <code>/agents/twin/upload</code> (already exists), and continue the conversation. The Vision Agent processes the image and the Schema Mapper builds entities from what it sees.</p>
+    <p class="why">Going from "drop a floor plan" to "here's your twin" is the single biggest demo wow-factor. The backend is done &mdash; this is pure frontend work.</p>
+    <div class="files">Files: <code>panels/Concierge.jsx</code> (add drop zone + file reader)</div>
+  </div>
+
+  <div class="tier t1">
+    <div class="tier-head">
+      <span class="tier-label">Tier 1</span>
+      <span class="tier-title">Real-time WebSocket event stream</span>
+      <span class="tier-effort">~2 hours</span>
+    </div>
+    <p>Replace the SSE polling on the Dashboard and LiveOps panels with a WebSocket connection. When a Finding fires, the Dashboard updates instantly. When the Diagnosis Agent writes a hypothesis, the Agents panel shows it live. The event bus already publishes every mutation &mdash; just fan it out over a socket.</p>
+    <p class="why">Makes the platform feel alive. Real-time updates during the feed demo are dramatically more compelling than 2.5-second polling.</p>
+    <div class="files">Files: <code>server/main.py</code> (add WebSocket endpoint), <code>hooks/useEventStream.js</code> (swap SSE for WS), <code>panels/Dashboard.jsx</code>, <code>panels/LiveOps.jsx</code></div>
+  </div>
+
+  <div class="tier t1">
+    <div class="tier-head">
+      <span class="tier-label">Tier 1</span>
+      <span class="tier-title">Claude Sonnet as primary LLM</span>
+      <span class="tier-effort">~1 hour</span>
+    </div>
+    <p>Swap the gateway from OpenAI to Anthropic. The spec says Claude Sonnet primary, Llama 3 fallback. The gateway is a single-point abstraction &mdash; change <code>gateway.py</code> to use the Anthropic SDK. Claude is stronger at structured output and multi-step reasoning, which directly improves the Diagnosis Agent and Schema Mapper.</p>
+    <p class="why">Better reasoning quality across all 20 agents with a single file change. Also aligns with the spec.</p>
+    <div class="files">Files: <code>agents/gateway.py</code> (swap OpenAI client for Anthropic client)</div>
+  </div>
+
+  <div class="tier t1">
+    <div class="tier-head">
+      <span class="tier-label">Tier 1</span>
+      <span class="tier-title">Pack Marketplace with runtime install</span>
+      <span class="tier-effort">~1 day</span>
+    </div>
+    <p>Make the Marketplace panel functional. Clicking "Install" loads a bundle from the registry into the live ontology using the existing <code>_register_fragment()</code> function. Clicking "Uninstall" removes it. Show installed packs with their entity counts and rule counts. The bundle loader and registry already support this &mdash; the gap is the UI wiring.</p>
+    <p class="why">Closes the gap between "bundles exist" and "bundles are installable at runtime". Makes the platform self-service.</p>
+    <div class="files">Files: <code>panels/Marketplace.jsx</code>, <code>server/agent_routes.py</code> (add install/uninstall endpoints), <code>agents/registry.py</code></div>
+  </div>
+
+  <div class="tier t1">
+    <div class="tier-head">
+      <span class="tier-label">Tier 1</span>
+      <span class="tier-title">Streaming Diagnosis trigger</span>
+      <span class="tier-effort">~2 hours</span>
+    </div>
+    <p>Instead of running the operational agents after the entire feed loop, trigger them when findings accumulate past a threshold (e.g., 3+ findings on the same entity within 5 minutes). Subscribe to the event bus for Finding-create events, buffer per entity, and kick off the operational graph when the threshold is met.</p>
+    <p class="why">Diagnosis in 30 seconds instead of after the full feed run. Makes the demo flow feel immediate.</p>
+    <div class="files">Files: <code>server/main.py</code> (add bus subscriber), <code>agents/operational_graph.py</code></div>
+  </div>
+
+  <!-- ================================ TIER 2 ================================ -->
+  <h2>Tier 2 &mdash; Medium effort, real differentiation</h2>
+  <p>Each of these takes days to a week. They transform the platform from "working demo" to "competitive product".</p>
+
+  <div class="tier t2">
+    <div class="tier-head">
+      <span class="tier-label">Tier 2</span>
+      <span class="tier-title">MQTT / OPC-UA telemetry adapter</span>
+      <span class="tier-effort">~3 days</span>
+    </div>
+    <p>Replace the simulated feed with a real protocol adapter. Connect to a Mosquitto MQTT broker (or OPC-UA server) that publishes sensor readings. The adapter converts wire-format messages into <code>TelemetrySample</code> objects and feeds them to the BehaviorRegistry. Even a simulated MQTT source (publishing on a cron) proves the architecture works with real industrial protocols.</p>
+    <p class="why">Bridges the gap between "demo" and "deployable". The Plugin Scaffolder already generates adapter boilerplate &mdash; use it as the starting point.</p>
+    <div class="files">Files: <code>feed/mqtt_adapter.py</code> (new), <code>server/main.py</code> (add adapter option to feed loop), <code>requirements.txt</code> (add <code>paho-mqtt</code>)</div>
+  </div>
+
+  <div class="tier t2">
+    <div class="tier-head">
+      <span class="tier-label">Tier 2</span>
+      <span class="tier-title">Predictive behaviors (Tier-B ML)</span>
+      <span class="tier-effort">~1 week</span>
+    </div>
+    <p>Add real machine-learning Tier-B behaviors beyond the z-score baseline. An <code>IsolationForest</code> anomaly detector that learns multivariate patterns across signals. A <code>Prophet</code>-based time-series forecaster that predicts Remaining Useful Life (RUL). These feed the Predict panel with real forecasts instead of mock data.</p>
+    <p class="why">Tier-B is the intelligence layer the platform was designed around. Without real ML, the three-tier model (physics / statistical / rule) has a weak middle.</p>
+    <div class="files">Files: <code>behaviors/ml/isolation_forest.py</code> (new), <code>behaviors/ml/prophet_rul.py</code> (new), <code>panels/Predict.jsx</code>, <code>requirements.txt</code> (add <code>scikit-learn</code>, <code>prophet</code>)</div>
+  </div>
+
+  <div class="tier t2">
+    <div class="tier-head">
+      <span class="tier-label">Tier 2</span>
+      <span class="tier-title">Compliance twin</span>
+      <span class="tier-effort">~1 week</span>
+    </div>
+    <p>Model compliance standards (ISO 55000 for asset management, ISO 27001 for security, IEC 62443 for industrial cyber, CERT-In requirements) as <code>Document</code> entities in the graph. Link them to assets and processes via <code>nxr:governedBy</code>. The Compliance panel goes from mock to real &mdash; showing which assets are covered by which standards, with a coverage percentage and gap analysis.</p>
+    <p class="why">Compliance is the #1 reason enterprises buy digital twins. Showing standards coverage on the dashboard turns a technical demo into a business case.</p>
+    <div class="files">Files: <code>packs/compliance/</code> (new pack), <code>panels/Compliance.jsx</code>, <code>server/query_api.py</code> (add compliance query)</div>
+  </div>
+
+  <div class="tier t2">
+    <div class="tier-head">
+      <span class="tier-label">Tier 2</span>
+      <span class="tier-title">Multi-tenant dashboard</span>
+      <span class="tier-effort">~3 days</span>
+    </div>
+    <p>Add a split-screen or tabbed view where you monitor multiple twins simultaneously. Each tab is a different tenant with its own feed, findings, and risk score. The tenant isolation is already built into every query and every write &mdash; the gap is purely in the frontend layout.</p>
+    <p class="why">Proves multi-tenancy at the UI level, not just the backend. Essential for any operator managing more than one facility.</p>
+    <div class="files">Files: <code>panels/Dashboard.jsx</code> (add tab/split mode), <code>context/TwinContext.jsx</code> (support multiple active tenants)</div>
+  </div>
+
+  <div class="tier t2">
+    <div class="tier-head">
+      <span class="tier-label">Tier 2</span>
+      <span class="tier-title">Relationship inference in Schema Mapper</span>
+      <span class="tier-effort">~3 days</span>
+    </div>
+    <p>Upgrade the Schema Mapper to infer spatial and functional relationships from natural language. "The chiller feeds cold water to AHU-01 which serves Server Room 3" should produce three entities with two typed relationships (<code>nxr:feeds</code> and <code>hvac:servesSpace</code>). Use the ontology's predicate vocabulary (domain/range constraints) to validate proposed relationships before the Validator sees them.</p>
+    <p class="why">Unlocks the "describe your facility and get a connected graph" experience. Currently entities are created but relationships are limited to bundle templates.</p>
+    <div class="files">Files: <code>agents/twin_agents.py</code> (upgrade <code>schema_mapper</code>), <code>tools/schema_service.py</code> (expose predicate vocabulary to the mapper)</div>
+  </div>
+
+  <div class="tier t2">
+    <div class="tier-head">
+      <span class="tier-label">Tier 2</span>
+      <span class="tier-title">Simulation panel (scenario twin forking)</span>
+      <span class="tier-effort">~1 week</span>
+    </div>
+    <p>Make the Simulation panel real. Fork a twin into a "scenario" tenant (copy the graph), then replay the feed with modified parameters ("what if the setpoint was 18&deg;C instead of 22&deg;C?"). Compare findings between the real twin and the scenario. This is what-if analysis grounded in the actual behavior models.</p>
+    <p class="why">Turns the platform from "monitoring" to "decision support". Operators can test changes before applying them.</p>
+    <div class="files">Files: <code>twins/service.py</code> (add fork/clone), <code>feed/simulate.py</code> (parameterised replay), <code>panels/Simulation.jsx</code></div>
+  </div>
+
+  <!-- ================================ TIER 3 ================================ -->
+  <h2>Tier 3 &mdash; Ambitious, production-grade</h2>
+  <p>These are multi-week efforts that transform the platform into something deployable at enterprise scale.</p>
+
+  <div class="tier t3">
+    <div class="tier-head">
+      <span class="tier-label">Tier 3</span>
+      <span class="tier-title">Three.js 3D scene renderer</span>
+      <span class="tier-effort">~2&ndash;3 weeks</span>
+    </div>
+    <p>Build a real 3D visualisation panel using Three.js or Babylon.js. When a twin is committed, the Scene Generator produces a glTF scene descriptor. The frontend renders it as an interactive 3D view: click an asset to see its properties, findings, and status. Color-code by severity (green/amber/red). Animate data flow along <code>nxr:feeds</code> relationships.</p>
+    <p>Requires: a procedural placement algorithm (force-directed or grid-based), a glTF asset library (generic shapes first, domain-specific later), and a camera/navigation system. The Scene Generator stub already extracts the topology &mdash; it needs to produce actual vertex data.</p>
+    <p class="why">This is what makes a "digital twin" feel like a digital twin. Without 3D, the platform is a smart database with a good UI. With it, operators see their facility.</p>
+    <div class="files">Files: <code>panels/SceneView.jsx</code> (new), <code>agents/twin_agents.py</code> (upgrade <code>scene_generator</code>), <code>packs/assets/</code> (glTF models), <code>package.json</code> (add <code>three</code>)</div>
+  </div>
+
+  <div class="tier t3">
+    <div class="tier-head">
+      <span class="tier-label">Tier 3</span>
+      <span class="tier-title">Temporal workflow engine</span>
+      <span class="tier-effort">~1 week</span>
+    </div>
+    <p>Replace the SQLite checkpointer with Temporal. Every agent run becomes a durable workflow. A 30-minute interactive twin-building session survives a worker crash and resumes at the last completed step. The engine is already designed for this swap &mdash; the <code>CompiledGraph</code> interface stays the same; only the checkpointer backend changes.</p>
+    <p>Also enables: workflow visibility (see which step each session is on), automatic retries with backoff, and workflow-level timeouts.</p>
+    <p class="why">Production systems crash. Without durability, a 25-minute twin-building session is lost to a restart. Temporal makes agent flows enterprise-grade.</p>
+    <div class="files">Files: <code>agents/engine.py</code> (add <code>TemporalSaver</code>), <code>docker-compose.yml</code> (add Temporal server), <code>requirements.txt</code> (add <code>temporalio</code>)</div>
+  </div>
+
+  <div class="tier t3">
+    <div class="tier-head">
+      <span class="tier-label">Tier 3</span>
+      <span class="tier-title">GIS integration for geographic rendering</span>
+      <span class="tier-effort">~2 weeks</span>
+    </div>
+    <p>Use Mapbox GL or CesiumJS to render facility layouts on actual geographic coordinates. The CFP ontology already declares <code>latitude</code>, <code>longitude</code>, and <code>areaM2</code> as datatype properties. A map view showing your facilities with real-time status overlays (green/amber/red per site), click-to-zoom into a facility's 3D scene, and geographic clustering for fleet-wide views.</p>
+    <p class="why">Enterprise customers manage dozens of facilities across countries. A map view is how they think about their estate.</p>
+    <div class="files">Files: <code>panels/MapView.jsx</code> (new), <code>package.json</code> (add <code>mapbox-gl</code> or <code>cesium</code>)</div>
+  </div>
+
+  <div class="tier t3">
+    <div class="tier-head">
+      <span class="tier-label">Tier 3</span>
+      <span class="tier-title">Edge deployment runtime</span>
+      <span class="tier-effort">~3 weeks</span>
+    </div>
+    <p>Package the BehaviorRegistry + Tier-C rules into a lightweight edge runtime that runs on industrial hardware (Raspberry Pi, Advantech gateway, Siemens IPC). The edge runtime evaluates rules locally with sub-second latency and publishes findings back to the cloud platform. The Rule Author already tags rules for edge vs cloud placement &mdash; the gap is the deployment packaging and the edge-to-cloud sync protocol.</p>
+    <p class="why">Safety-critical rules must execute at the edge (no cloud dependency). This is a hard requirement for industrial deployments.</p>
+    <div class="files">Files: <code>edge/</code> (new package), <code>edge/runtime.py</code>, <code>edge/sync.py</code>, <code>Dockerfile.edge</code></div>
+  </div>
+
+  <div class="tier t3">
+    <div class="tier-head">
+      <span class="tier-label">Tier 3</span>
+      <span class="tier-title">Authentication, RBAC, and audit</span>
+      <span class="tier-effort">~2 weeks</span>
+    </div>
+    <p>Add proper authentication (JWT or OAuth2) and role-based access control. Four roles: <b>Operator</b> (view dashboards + start feed), <b>Engineer</b> (build twins + manage assets), <b>Expert</b> (author bundles + approve), <b>Admin</b> (platform extension + user management). Every API call is authenticated and every mutation is tagged with the real actor ID in the Change Log. The Plugin Scaffolder already generates auth middleware boilerplate.</p>
+    <p class="why">No enterprise deploys a platform without auth. This is a prerequisite for any production pilot.</p>
+    <div class="files">Files: <code>server/auth.py</code> (upgrade), <code>server/main.py</code> (mount middleware), <code>frontend/src/context/AuthContext.jsx</code> (new)</div>
+  </div>
+
+  <div class="tier t3">
+    <div class="tier-head">
+      <span class="tier-label">Tier 3</span>
+      <span class="tier-title">LangGraph migration</span>
+      <span class="tier-effort">~3 days</span>
+    </div>
+    <p>Replace the in-house <code>engine.py</code> with the real LangGraph library. The engine was designed for this &mdash; same API surface (<code>StateGraph</code>, <code>END</code>, <code>add_node</code>, <code>add_conditional_edges</code>). Benefits: LangGraph Studio for visual debugging, LangSmith for tracing, built-in streaming, and community support. The migration is a swap of one import line per graph file.</p>
+    <p class="why">Unlocks the LangGraph ecosystem: visual debugging, distributed execution, and production monitoring.</p>
+    <div class="files">Files: <code>agents/twin_graph.py</code>, <code>agents/bundle_graph.py</code>, <code>agents/operational_graph.py</code>, <code>agents/plugin_graph.py</code>, <code>agents/accelerator_graph.py</code> (change import), <code>requirements.txt</code> (add <code>langgraph</code>)</div>
+  </div>
+
+  <!-- ================================ PICK 3 ================================ -->
+  <h2>If you build 3 things next</h2>
+
+  <div class="pick">
+    <h4>The recommended next sprint</h4>
+    <ol>
+      <li><b>Real Copilot with tools</b> &mdash; highest daily-use value, proves LLM integration depth, ~3 hours. Users will interact with this more than any other feature.</li>
+      <li><b>Drag-and-drop Vision upload</b> &mdash; massive demo impact, 30 minutes of frontend work. "Drop a floor plan, get a twin" is the pitch in one sentence.</li>
+      <li><b>Three.js scene renderer</b> &mdash; transforms the product from "smart database" to "digital twin" visually. The longest build but the biggest differentiator. Start with generic cubes color-coded by type; refine to real models later.</li>
+    </ol>
+    <p>These three cover: intelligence (Copilot), onboarding (Vision), and visualisation (3D). Together they make the demo tell a complete story.</p>
+  </div>
+
+  <!-- ================================ SUMMARY ================================ -->
+  <h2>Full inventory</h2>
+
+  <table>
+    <tr><th>#</th><th>Improvement</th><th>Tier</th><th>Effort</th><th>Impact</th></tr>
+    <tr><td>1</td><td>Real Copilot with tools</td><td><span class="badge b-done">Tier 1</span></td><td>3 hours</td><td>Daily-use AI assistant</td></tr>
+    <tr><td>2</td><td>Drag-and-drop Vision upload</td><td><span class="badge b-done">Tier 1</span></td><td>30 min</td><td>Demo wow-factor</td></tr>
+    <tr><td>3</td><td>Real-time WebSocket stream</td><td><span class="badge b-done">Tier 1</span></td><td>2 hours</td><td>Live dashboard feel</td></tr>
+    <tr><td>4</td><td>Claude Sonnet swap</td><td><span class="badge b-done">Tier 1</span></td><td>1 hour</td><td>Better reasoning across all agents</td></tr>
+    <tr><td>5</td><td>Pack Marketplace (runtime install)</td><td><span class="badge b-done">Tier 1</span></td><td>1 day</td><td>Self-service pack management</td></tr>
+    <tr><td>6</td><td>Streaming Diagnosis trigger</td><td><span class="badge b-done">Tier 1</span></td><td>2 hours</td><td>Immediate incident response</td></tr>
+    <tr><td>7</td><td>MQTT / OPC-UA adapter</td><td><span class="badge b-stub">Tier 2</span></td><td>3 days</td><td>Real industrial protocols</td></tr>
+    <tr><td>8</td><td>Predictive behaviors (Tier-B ML)</td><td><span class="badge b-stub">Tier 2</span></td><td>1 week</td><td>Real anomaly detection + RUL</td></tr>
+    <tr><td>9</td><td>Compliance twin</td><td><span class="badge b-stub">Tier 2</span></td><td>1 week</td><td>Enterprise business case</td></tr>
+    <tr><td>10</td><td>Multi-tenant dashboard</td><td><span class="badge b-stub">Tier 2</span></td><td>3 days</td><td>Fleet-wide monitoring</td></tr>
+    <tr><td>11</td><td>Schema Mapper relationship inference</td><td><span class="badge b-stub">Tier 2</span></td><td>3 days</td><td>Connected graph from free text</td></tr>
+    <tr><td>12</td><td>Simulation panel (what-if)</td><td><span class="badge b-stub">Tier 2</span></td><td>1 week</td><td>Decision support</td></tr>
+    <tr><td>13</td><td>Three.js 3D scene renderer</td><td><span class="badge b-infra">Tier 3</span></td><td>2&ndash;3 weeks</td><td>Visual digital twin</td></tr>
+    <tr><td>14</td><td>Temporal workflow engine</td><td><span class="badge b-infra">Tier 3</span></td><td>1 week</td><td>Crash-resilient workflows</td></tr>
+    <tr><td>15</td><td>GIS / map integration</td><td><span class="badge b-infra">Tier 3</span></td><td>2 weeks</td><td>Geographic fleet view</td></tr>
+    <tr><td>16</td><td>Edge deployment runtime</td><td><span class="badge b-infra">Tier 3</span></td><td>3 weeks</td><td>Safety-critical local execution</td></tr>
+    <tr><td>17</td><td>Authentication + RBAC</td><td><span class="badge b-infra">Tier 3</span></td><td>2 weeks</td><td>Production security</td></tr>
+    <tr><td>18</td><td>LangGraph migration</td><td><span class="badge b-infra">Tier 3</span></td><td>3 days</td><td>Ecosystem + tooling</td></tr>
+  </table>
+
+  <div class="meta">NextXR Platform Roadmap &middot; 18 improvements across 3 tiers &middot; compiled for build planning</div>
+
+</div>
+</body>
+</html>

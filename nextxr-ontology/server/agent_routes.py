@@ -20,6 +20,7 @@ The frontend just posts messages and renders state — it never sees the graph.
 
 from __future__ import annotations
 
+import base64
 import sys
 import uuid
 from pathlib import Path
@@ -113,6 +114,55 @@ def twin_state(session_id: str):
     return {"session_id": session_id, "state": _public(cur)}
 
 
+@router.post("/twin/upload")
+def twin_upload(req: dict):
+    """Attach an image (base64 data-URI or URL) to an active twin session for
+    the Vision Agent. Accepts {session_id, url} or {session_id, data, filename}.
+    """
+    session_id = req.get("session_id")
+    if not session_id:
+        raise HTTPException(400, "session_id required")
+    cur = twin_app.get_state(session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session. Start a twin session first.")
+
+    url = req.get("url")
+    data = req.get("data")  # base64 data URI
+    filename = req.get("filename", "upload.png")
+
+    if not url and not data:
+        raise HTTPException(400, "Provide 'url' or 'data' (base64 data-URI).")
+
+    if data and not url:
+        # Convert raw base64 to a data URI the OpenAI vision API accepts.
+        if not data.startswith("data:"):
+            mime = "image/png" if filename.endswith(".png") else "image/jpeg"
+            url = f"data:{mime};base64,{data}"
+        else:
+            url = data
+
+    files = list(cur.get("uploaded_files") or [])
+    files.append({"url": url, "type": "image", "filename": filename})
+    cur["uploaded_files"] = files
+    twin_app.checkpointer.save(session_id, "twin_build", cur, None)
+    return {"session_id": session_id, "uploaded_count": len(files)}
+
+
+@router.post("/twin/scene")
+def twin_request_scene(req: SessionRef):
+    """Request scene generation for a committed twin."""
+    cur = twin_app.get_state(req.session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session")
+    if not cur.get("committed"):
+        raise HTTPException(400, "Twin is not committed yet.")
+    # Re-enter the graph at the scene_generator node.
+    cur["scene_result"] = None  # clear to allow re-generation
+    out = twin_app.invoke(cur, thread_id=req.session_id,
+                          start_at="scene_generator")
+    return {"session_id": req.session_id, "state": _public(out)}
+
+
 # ── Bundle Author flow ─────────────────────────────────────────────
 @router.post("/bundle/start")
 def bundle_start(req: BundleStart):
@@ -149,6 +199,112 @@ def bundle_approve(req: SessionRef):
 @router.get("/bundle/{session_id}")
 def bundle_state(session_id: str):
     cur = bundle_app.get_state(session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session")
+    return {"session_id": session_id, "state": _public(cur)}
+
+
+# ── Operational flow (Diagnosis + Recommender — Team 2) ────────────
+from agents.operational_graph import app as ops_app
+from agents.state import new_operational_state
+
+
+class DiagnoseRequest(BaseModel):
+    tenant: str
+    incident_id: str
+    finding_ids: list[str]
+    affected_entity_id: str
+
+
+@router.post("/ops/diagnose")
+def ops_diagnose(req: DiagnoseRequest):
+    """Trigger LLM-enhanced diagnosis for an incident."""
+    session_id = _new_session("ops")
+    state = new_operational_state(
+        tenant_id=req.tenant,
+        session_id=session_id,
+        incident_id=req.incident_id,
+        finding_ids=req.finding_ids,
+        affected_entity_id=req.affected_entity_id,
+    )
+    out = ops_app.invoke(state, thread_id=session_id)
+    return {"session_id": session_id, "state": _public(out)}
+
+
+@router.get("/ops/{session_id}")
+def ops_state(session_id: str):
+    cur = ops_app.get_state(session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session")
+    return {"session_id": session_id, "state": _public(cur)}
+
+
+# ── Plugin Scaffolder (Team 4) ───────────────────────────────────
+from agents.plugin_graph import app as plugin_app
+from agents.state import new_plugin_state
+
+
+@router.post("/plugin/start")
+def plugin_start():
+    session_id = _new_session("plugin")
+    state = new_plugin_state("platform", session_id)
+    out = plugin_app.invoke(state, thread_id=session_id)
+    return {"session_id": session_id, "state": _public(out)}
+
+
+@router.post("/plugin/message")
+def plugin_message(req: Message):
+    cur = plugin_app.get_state(req.session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session. Start a plugin session first.")
+    cur.setdefault("conversation", []).append({"role": "user", "content": req.message})
+    out = plugin_app.invoke(cur, thread_id=req.session_id, start_at="interviewer")
+    return {"session_id": req.session_id, "state": _public(out)}
+
+
+@router.get("/plugin/{session_id}")
+def plugin_state(session_id: str):
+    cur = plugin_app.get_state(session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session")
+    return {"session_id": session_id, "state": _public(cur)}
+
+
+# ── Accelerator Pack Composer (Team 4) ───────────────────────────
+from agents.accelerator_graph import app as accel_app
+from agents.state import new_accelerator_state
+
+
+class AccelStart(BaseModel):
+    domain: Optional[str] = None
+    pack_name: Optional[str] = None
+
+
+@router.post("/accelerator/start")
+def accelerator_start(req: AccelStart):
+    session_id = _new_session("accel")
+    state = new_accelerator_state("platform", session_id)
+    if req.domain:
+        state["target_domain"] = req.domain
+    if req.pack_name:
+        state["pack_name"] = req.pack_name
+    out = accel_app.invoke(state, thread_id=session_id)
+    return {"session_id": session_id, "state": _public(out)}
+
+
+@router.post("/accelerator/message")
+def accelerator_message(req: Message):
+    cur = accel_app.get_state(req.session_id)
+    if cur is None:
+        raise HTTPException(404, "Unknown session. Start an accelerator session first.")
+    cur.setdefault("conversation", []).append({"role": "user", "content": req.message})
+    out = accel_app.invoke(cur, thread_id=req.session_id, start_at="interviewer")
+    return {"session_id": req.session_id, "state": _public(out)}
+
+
+@router.get("/accelerator/{session_id}")
+def accelerator_state(session_id: str):
+    cur = accel_app.get_state(session_id)
     if cur is None:
         raise HTTPException(404, "Unknown session")
     return {"session_id": session_id, "state": _public(cur)}
