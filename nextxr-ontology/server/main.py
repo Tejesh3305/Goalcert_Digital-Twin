@@ -44,7 +44,7 @@ from graph.connection import get_driver, close_driver
 from graph.writer import GraphWriter, Rel
 from graph.query import GraphQuery
 from changelog.service import ChangeLog
-from behaviors.registry import BehaviorRegistry, Tier
+from behaviors.registry import Behavior, BehaviorRegistry, Tier
 from behaviors.hvac import (
     TemperatureThresholdRule,
     TemperatureZScoreBaseline,
@@ -236,8 +236,68 @@ def _resolve_cfp_assets(tenant: str, query) -> dict:
     return mapping
 
 
+class DynamicThresholdRule(Behavior):
+    """A Tier-C threshold rule instantiated from a published bundle's rule dict.
+    Watches a custom signal, reads setpoint from the graph, fires when the value
+    exceeds setpoint + offset for a sustained duration. Same contract as
+    TemperatureThresholdRule but parameterised from JSON."""
+
+    def __init__(self, rule: dict):
+        self.behavior_id = rule.get("behavior_id", "dynamic.threshold")
+        self.tier = Tier.C
+        signal = rule.get("watches", "")
+        self.watches = [signal] if signal else []
+        self.reads = ["setpoint from monitored asset"]
+        self.emits = rule.get("description", "Dynamic threshold Finding")
+        self.offset = float(rule.get("offset_c", 3.0))
+        from datetime import timedelta
+        self.duration = timedelta(minutes=float(rule.get("duration_minutes", 3.0)))
+        self.default_setpoint = 22.0
+        self._state: dict[str, dict] = {}
+
+    def evaluate(self, sample, query) -> list:
+        from behaviors.registry import Finding
+        setpoint = query.get_property(
+            sample.tenant_id, sample.entity_id, "setpoint",
+            default=self.default_setpoint,
+        )
+        try:
+            setpoint = float(setpoint)
+        except (TypeError, ValueError):
+            setpoint = self.default_setpoint
+        threshold = setpoint + self.offset
+
+        st = self._state.setdefault(sample.entity_id, {"start": None, "fired": False})
+
+        if sample.value <= threshold:
+            st["start"] = None
+            st["fired"] = False
+            return []
+
+        if st["start"] is None:
+            st["start"] = sample.timestamp
+            return []
+
+        sustained = sample.timestamp - st["start"]
+        if sustained >= self.duration and not st["fired"]:
+            st["fired"] = True
+            minutes = sustained.total_seconds() / 60.0
+            return [Finding(
+                behavior_id=self.behavior_id, tier=self.tier,
+                flags=sample.entity_id, severity="critical",
+                message=(f"{self.emits} — value {sample.value:.1f} exceeded "
+                         f"threshold {threshold:.1f} for {minutes:.0f} min."),
+                confidence=1.0,
+                evidence={"value": sample.value, "unit": sample.unit,
+                          "setpoint": setpoint, "threshold": threshold,
+                          "sustained_minutes": round(minutes, 1),
+                          "signal": sample.signal},
+            )]
+        return []
+
+
 def _build_registry() -> BehaviorRegistry:
-    """Build a fresh behavior registry with all HVAC + CFP behaviors."""
+    """Build a fresh behavior registry with all HVAC + CFP + published bundle behaviors."""
     registry = BehaviorRegistry()
     # HVAC behaviors (existing)
     registry.register(TemperatureThresholdRule(offset_c=3.0, duration_minutes=3.0))
@@ -257,7 +317,82 @@ def _build_registry() -> BehaviorRegistry:
     registry.register(FilterCloggedRule())
     registry.register(ChillerCOPBaseline())
     registry.register(PumpVibrationBaseline())
+
+    # Published bundle rules — instantiate as live Behavior objects.
+    try:
+        from agents.registry import get_registry
+        for bundle in get_registry().list_published():
+            for rule in bundle.get("rules", []):
+                kind = str(rule.get("kind", "")).lower()
+                if kind == "threshold" and rule.get("watches"):
+                    try:
+                        registry.register(DynamicThresholdRule(rule))
+                    except Exception:
+                        pass
+    except Exception:
+        pass  # registry unavailable — skip, hardcoded behaviors still work
+
     return registry
+
+
+def _simulate_authored_domain(tenant: str, entity_id: str, domain: str,
+                              query: GraphQuery):
+    """Generate synthetic telemetry for an authored (non-hardcoded) domain.
+    Reads the published bundle's primary_signal and rules to determine what
+    signal to generate and at what setpoint. Produces a ramp profile that
+    triggers Tier-C threshold rules in the second half of the run."""
+    from behaviors.registry import TelemetrySample
+    from datetime import datetime, timezone, timedelta
+    import random
+
+    # Find the bundle for this domain and its primary signal.
+    signal = f"{domain}:Temperature"  # fallback
+    setpoint = 22.0
+    try:
+        from agents.registry import get_registry
+        matches = get_registry().query(domain)
+        if matches:
+            bundle = get_registry().load(matches[0]["bundle_id"])
+            if bundle:
+                signal = bundle.get("primary_signal") or signal
+                # Get setpoint from the primary template
+                for t in bundle.get("entity_templates", []):
+                    sp = t.get("properties", {}).get("setpoint")
+                    if sp is not None:
+                        setpoint = float(sp)
+                        break
+    except Exception:
+        pass
+
+    # Also read setpoint from the actual graph entity.
+    try:
+        sp = query.get_property(tenant, entity_id, "setpoint")
+        if sp is not None:
+            setpoint = float(sp)
+    except Exception:
+        pass
+
+    rng = random.Random(42)
+    t0 = datetime.now(timezone.utc)
+    minutes = 60
+    normal_minutes = 30
+    samples = []
+
+    for m in range(minutes):
+        if m < normal_minutes:
+            value = setpoint + rng.gauss(0, 0.3)
+        else:
+            ramp = min(6.0, (m - normal_minutes + 1) * 0.8)
+            value = setpoint + ramp + rng.gauss(0, 0.3)
+        samples.append(TelemetrySample(
+            signal=signal,
+            entity_id=entity_id,
+            value=round(value, 2),
+            unit="DEG_C",
+            timestamp=t0 + timedelta(minutes=m),
+            tenant_id=tenant,
+        ))
+    return samples
 
 
 def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
@@ -292,10 +427,15 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
                 from feed.simulate_cfp import simulate_facility
                 cfp_assets = _resolve_cfp_assets(tenant, query)
                 samples = list(simulate_facility(tenant, cfp_assets))
-            else:
+            elif domain in ("hvac", "cooling", "facility", "building"):
                 # Default HVAC feed
                 samples = list(simulate_temperature(tenant, ahu_id,
                                                     setpoint=22.0, minutes=60))
+            else:
+                # Authored / custom domain — generate synthetic telemetry
+                # from the bundle's primary_signal so its rules can fire.
+                samples = list(_simulate_authored_domain(
+                    tenant, ahu_id, domain, query))
 
             with _feed_lock:
                 _feed_state["run"] = run_number

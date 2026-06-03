@@ -86,6 +86,10 @@ export const api = {
   twinAgentMessage: (session_id, message) =>
     request('/agents/twin/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
   twinAgentState: (session_id) => request(`/agents/twin/${session_id}`),
+  // Twin-building: expand an existing twin (add assets conversationally)
+  twinAgentExpand: (tenant, message) =>
+    request('/agents/twin/expand', { method: 'POST', body: JSON.stringify({ tenant, message }) }),
+
   // Twin-building: file upload for Vision Agent
   twinAgentUpload: (session_id, url, filename) =>
     request('/agents/twin/upload', { method: 'POST', body: JSON.stringify({ session_id, url, filename }) }),

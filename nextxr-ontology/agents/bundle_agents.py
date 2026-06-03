@@ -81,13 +81,20 @@ def _register_fragment(bundle_id: str, fragment: str, ns: str, primary_local: st
     except Exception:
         pass
 
-    # 2. Inject into the live cached ontology + clear the gate's lru_cache so
-    #    the next validate()/resolve_label() sees the new class immediately.
+    # 2. Inject into the live cached ontology so the next validate() /
+    #    resolve_label() sees the new class immediately.
     try:
         import gate
         live = gate.ontology_graph()
         for triple in g:
             live.add(triple)
+    except Exception:
+        pass
+
+    # 3. Clear the SchemaService cache so schema queries see the new class.
+    try:
+        from schema_service import SchemaService
+        SchemaService.load.cache_clear()
     except Exception:
         pass
 

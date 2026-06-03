@@ -114,6 +114,84 @@ def twin_state(session_id: str):
     return {"session_id": session_id, "state": _public(cur)}
 
 
+class ExpandRequest(BaseModel):
+    tenant: str
+    message: str
+    session_id: Optional[str] = None
+
+
+@router.post("/twin/expand")
+def twin_expand(req: ExpandRequest):
+    """Add assets to an existing twin conversationally.
+
+    The user says something like 'add 3 temperature sensors to Zone 1' and
+    the agents handle type resolution, validation, and commit. This reuses
+    the Schema Mapper + Validator + Graph Writer without re-classifying.
+    """
+    from agents.twin_agents import schema_mapper, validator, graph_writer
+
+    session_id = req.session_id or _new_session("expand")
+    tenant = req.tenant
+
+    # Check the twin exists.
+    try:
+        from twins import TwinRegistry
+        if TwinRegistry().get(tenant) is None:
+            raise HTTPException(404, f"No twin for tenant '{tenant}'.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    # Detect the twin's domain from the registry.
+    domain = "hvac"
+    bundles = []
+    try:
+        from twins import TwinRegistry
+        twin = TwinRegistry().get(tenant)
+        if twin:
+            domain = twin.get("domain") or twin.domain if hasattr(twin, "domain") else "hvac"
+        from agents.registry import get_registry
+        matches = get_registry().query(domain)
+        bundles = [m["bundle_id"] for m in matches[:1]]
+    except Exception:
+        pass
+
+    # Build a minimal state for the mapper → validator → writer chain.
+    state = new_twin_state(tenant, session_id)
+    state["conversation"] = [{"role": "user", "content": req.message}]
+    state["domain"] = domain
+    state["loaded_bundles"] = bundles
+    state["committed"] = False
+    state["next_action"] = "map"
+
+    # Run Schema Mapper.
+    update = schema_mapper(state)
+    state.update(update)
+
+    if not state.get("draft_entities"):
+        return {"session_id": session_id, "state": _public(state),
+                "error": "Could not map any entities from your description."}
+
+    # Run Validator.
+    update = validator(state)
+    state.update(update)
+
+    v = state.get("validation") or {}
+    if not v.get("ok"):
+        return {"session_id": session_id, "state": _public(state),
+                "error": "Validation failed.",
+                "violations": v.get("errors", [])}
+
+    # Run Graph Writer.
+    update = graph_writer(state)
+    state.update(update)
+
+    return {"session_id": session_id, "state": _public(state),
+            "committed": state.get("committed", False),
+            "reply": state.get("reply_to_user", "")}
+
+
 @router.post("/twin/upload")
 def twin_upload(req: dict):
     """Attach an image (base64 data-URI or URL) to an active twin session for

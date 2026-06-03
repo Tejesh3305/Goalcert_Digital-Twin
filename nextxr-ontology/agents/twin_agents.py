@@ -27,8 +27,9 @@ from agents.registry import get_registry
 CORE = "https://ontology.nextxr.io/v3/core#"
 
 # Known demo verticals the Domain Classifier chooses from.
-KNOWN_DOMAINS = ["hvac", "cooling", "facility", "building", "maritime",
-                 "energy", "manufacturing"]
+# NOTE: vague terms like "building", "facility" are NOT here — they're handled
+# in the low-confidence path so the Concierge asks for clarification.
+KNOWN_DOMAINS = ["hvac", "cooling", "maritime", "energy", "manufacturing"]
 CONFIDENCE_THRESHOLD = 0.7
 
 
@@ -282,10 +283,21 @@ def domain_classifier(state: dict) -> dict:
     intent = state.get("user_intent") or ""
 
     # Domains available right now = built-in known + every published bundle's domains.
+    # Also gather bundle metadata (names, entity catalogues) for richer matching.
     published_domains = []
+    published_bundles_meta = []  # [{domains, name, entities, rules}]
     try:
         for b in get_registry().list_published():
             published_domains += [d for d in b.get("domains", [])]
+            full = get_registry().load(b["bundle_id"])
+            if full:
+                published_bundles_meta.append({
+                    "domains": full.get("domains", []),
+                    "name": full.get("name", ""),
+                    "entities": [t.get("canonical_type", "").split("#")[-1]
+                                 for t in full.get("entity_templates", [])],
+                    "primary_signal": full.get("primary_signal", ""),
+                })
     except Exception:
         pass
     # Published domains first so they win on a keyword match.
@@ -294,27 +306,64 @@ def domain_classifier(state: dict) -> dict:
     def _stub() -> dict:
         text = (convo + " " + intent).lower()
         best, conf = None, 0.0
+
+        # 1. Exact domain name match (published first).
         for d in available:
             if d and d.lower() in text:
                 best, conf = d, 0.9
                 break
+
+        # 2. Match against published bundle entity names and bundle names.
         if best is None:
-            for kw, d in [("refriger", None), ("cold storage", None), ("freezer", None),
-                          ("cool", "cooling"), ("air", "hvac"), ("temperature", "hvac"),
-                          ("ship", "maritime"), ("port", "maritime"), ("power", "energy"),
-                          ("server", "hvac"), ("room", "hvac"), ("plant", "facility")]:
+            for bm in published_bundles_meta:
+                bundle_text = " ".join(bm["domains"] + bm["entities"] +
+                                       [bm["name"]]).lower()
+                # Check if any word from the conversation appears in the bundle.
+                for word in text.split():
+                    if len(word) > 3 and word in bundle_text:
+                        best = bm["domains"][0] if bm["domains"] else None
+                        conf = 0.85
+                        break
+                if best:
+                    break
+
+        # 3. Keyword heuristics (lowered confidence for vague terms).
+        if best is None:
+            for kw, d, c in [
+                ("refriger", None, 0.85), ("cold storage", None, 0.85),
+                ("freezer", None, 0.85), ("cool", "cooling", 0.8),
+                ("air condition", "hvac", 0.85), ("temperature", "hvac", 0.75),
+                ("ship", "maritime", 0.85), ("port", "maritime", 0.8),
+                ("power", "energy", 0.8), ("server room", "hvac", 0.8),
+                ("data cent", "hvac", 0.8),
+            ]:
                 if kw in text:
-                    # If a published bundle covers this keyword, prefer it.
                     match = d
                     for pd in published_domains:
                         if kw.split()[0] in pd.lower() or pd.lower() in text:
                             match = pd
                             break
                     if match:
-                        best, conf = match, 0.8
+                        best, conf = match, c
                         break
+
+        # 4. Very vague terms get LOW confidence (forces Concierge to clarify).
+        if best is None:
+            for kw, d in [("building", "facility"), ("plant", "facility"),
+                          ("room", "facility"), ("facility", "facility")]:
+                if kw in text:
+                    best, conf = d, 0.5  # below threshold — asks for clarification
+                    break
+
         return {"domain": best or "hvac", "sub_type": None,
                 "confidence": conf if best else 0.4}
+
+    # Build a richer context for the LLM including bundle descriptions.
+    bundle_hints = ""
+    if published_bundles_meta:
+        lines = [f"  - {bm['name']}: domains={bm['domains']}, "
+                 f"entities={bm['entities'][:5]}" for bm in published_bundles_meta]
+        bundle_hints = "\n\nPublished bundles (prefer these):\n" + "\n".join(lines)
 
     result = gw.complete_json(
         tenant_id=state["tenant_id"], session_id=state["session_id"],
@@ -322,8 +371,10 @@ def domain_classifier(state: dict) -> dict:
                 f"Choose `domain` from this list (earlier entries are preferred "
                 f"when they fit): {available}. Return JSON "
                 '{"domain": str, "sub_type": str|null, "confidence": 0.0-1.0}. '
-                "Set confidence below 0.7 only if the conversation is too vague."),
-        user=f"Conversation:\n{convo}\n\nStated intent: {intent}",
+                "Set confidence below 0.7 if the conversation is too vague or "
+                "generic (e.g. just 'building' with no specifics). Prefer "
+                "published bundles over generic built-in domains."),
+        user=f"Conversation:\n{convo}\n\nStated intent: {intent}{bundle_hints}",
         stub=_stub(),
     )
     domain = (result.get("domain") or "hvac").lower()
@@ -350,6 +401,32 @@ def concierge_agent(state: dict) -> dict:
     # If we just looped back from Validator/Classifier, lead with the reason.
     loopback = _loopback_reason(state)
 
+    # Load domain-specific elicitation questions from published bundles.
+    # These were authored by the Elicitation Designer — Team 3's output
+    # reconfiguring Team 1's behaviour (the elegant closed loop).
+    elicitation_hint = ""
+    try:
+        text_lower = convo.lower() + " " + (state.get("user_intent") or "").lower()
+        for b in get_registry().list_published():
+            bundle = get_registry().load(b["bundle_id"])
+            if not bundle:
+                continue
+            domains = [d.lower() for d in bundle.get("domains", [])]
+            # Check if the user's conversation mentions this bundle's domain.
+            if any(d in text_lower for d in domains if d):
+                questions = bundle.get("elicitation_questions") or []
+                if questions:
+                    qs = [q["question"] for q in questions[:5]
+                          if isinstance(q, dict) and q.get("question")]
+                    if qs:
+                        elicitation_hint = (
+                            "\n\nDomain-specific questions for this vertical "
+                            "(use these to guide the conversation):\n" +
+                            "\n".join(f"- {q}" for q in qs))
+                break
+    except Exception:
+        pass
+
     def _stub() -> dict:
         # Deterministic: if the user has said anything substantive, proceed.
         last_user = _last_user_msg(state)
@@ -359,6 +436,11 @@ def concierge_agent(state: dict) -> dict:
         if last_user and len(last_user.split()) >= 3:
             return {"reply_to_user": "Got it — let me set that up.",
                     "ready_to_classify": True}
+        # If we have elicitation questions, use the first one.
+        if elicitation_hint:
+            return {"reply_to_user": "I recognise this domain. " +
+                    elicitation_hint.strip().split("\n")[2].lstrip("- "),
+                    "ready_to_classify": False}
         return {"reply_to_user": "Tell me about the facility you want a digital "
                 "twin for — what kind of site is it, and what do you want to keep "
                 "an eye on?", "ready_to_classify": False}
@@ -377,7 +459,8 @@ def concierge_agent(state: dict) -> dict:
                 "facility type is genuinely unknown. When proceeding, keep "
                 "reply_to_user to a short confirmation like 'Got it — building "
                 "your <type> twin now.' If a reason for re-asking is provided, "
-                "voice it plainly first, then ask ONE focused question."),
+                "voice it plainly first, then ask ONE focused question."
+                + elicitation_hint),
         user=(f"{('Reason to re-ask: ' + loopback) if loopback else ''}\n\n"
               f"Conversation so far:\n{convo}\n\n"
               "Decide: do you already know the facility type and rough scope? "

@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NextXR — Complete Feature Register</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fbfaf7;--ink:#1c1b18;--ink-soft:#54524c;--ink-faint:#86847c;
+    --line:#e4e1d8;--line-soft:#efece4;
+    --teal:#0f6e56;--teal-soft:#e1f1ec;--teal-line:#bcdfd3;
+    --amber:#9a6206;--amber-soft:#fbf0db;--amber-line:#ecd6a8;
+    --rust:#8f3a20;--rust-soft:#f6e8e2;--rust-line:#e0c0b4;
+    --blue:#1d4ed8;--blue-soft:#eff6ff;--blue-line:#bfdbfe;
+    --violet:#6d28d9;--violet-soft:#f5f3ff;--violet-line:#ddd6fe;
+    --green:#15803d;--green-soft:#f0fdf4;--green-line:#bbf7d0;
+    --serif:'Newsreader',Georgia,serif;--sans:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.65;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:980px;margin:0 auto;padding:64px 40px 120px;}
+  h1,h2,h3,h4{font-family:var(--serif);font-weight:500;letter-spacing:-0.01em;line-height:1.15;}
+  h1{font-size:44px;margin:0 0 6px;}
+  h2{font-size:28px;margin:58px 0 4px;padding-top:28px;border-top:1px solid var(--line);}
+  h3{font-size:20px;margin:32px 0 6px;}
+  h4{font-size:16px;margin:22px 0 4px;font-weight:600;}
+  p{margin:10px 0;color:var(--ink-soft);}
+  b,strong{color:var(--ink);}
+  code{font-family:var(--mono);font-size:0.86em;background:var(--line-soft);padding:1px 5px;border-radius:4px;color:var(--ink);}
+  .lede{font-family:var(--serif);font-size:19px;line-height:1.5;color:var(--ink-soft);font-weight:400;margin:14px 0 0;}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:18px;}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:20px;padding-top:14px;border-top:1px solid var(--line);}
+
+  .badge{font-family:var(--mono);font-size:10.5px;font-weight:600;padding:2px 8px;border-radius:14px;display:inline-block;vertical-align:middle;margin-left:6px;}
+  .b-live{background:var(--green-soft);border:1px solid var(--green-line);color:var(--green);}
+  .b-partial{background:var(--amber-soft);border:1px solid var(--amber-line);color:var(--amber);}
+  .b-mock{background:var(--rust-soft);border:1px solid var(--rust-line);color:var(--rust);}
+
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:20px 0;}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 14px;text-align:center;}
+  .stat .num{font-family:var(--serif);font-size:30px;font-weight:600;color:var(--teal);line-height:1;}
+  .stat .label{font-family:var(--mono);font-size:10.5px;color:var(--ink-faint);margin-top:4px;letter-spacing:0.04em;}
+
+  /* Feature cards */
+  .feat{border:1px solid var(--line);border-radius:12px;background:#fff;padding:18px 22px;margin:14px 0;}
+  .feat .feat-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+  .feat .feat-title{font-family:var(--serif);font-size:18px;font-weight:600;}
+  .feat .feat-sub{color:var(--ink-soft);font-size:14px;margin:6px 0 0;}
+  .feat-details{margin:10px 0 0;font-size:14px;color:var(--ink-soft);}
+  .feat-details li{margin:3px 0;}
+  .feat-details li b{color:var(--ink);}
+
+  /* Section feature grid */
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0;}
+  @media(max-width:700px){.fgrid{grid-template-columns:1fr;}}
+  .fgrid .feat{margin:0;}
+
+  /* Agent roster table */
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:500;}
+
+  .flow-box{background:var(--teal-soft);border:1px solid var(--teal-line);border-radius:10px;padding:16px 20px;margin:14px 0;}
+  .flow-box h4{margin:0 0 4px;color:var(--teal);font-family:var(--sans);font-size:12px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;}
+  .flow-box .seam{font-family:var(--mono);font-size:12.5px;color:#2c4a40;}
+
+  .note{font-size:13px;color:var(--ink-faint);font-style:italic;border-left:2px solid var(--line);padding-left:14px;margin:14px 0;}
+
+  .pill-row{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0;}
+  .pill{font-family:var(--mono);font-size:11px;padding:3px 10px;border-radius:6px;background:#fff;border:1px solid var(--line);color:var(--ink-soft);}
+
+  @media(max-width:640px){.wrap{padding:40px 22px 80px;}h1{font-size:32px;}.stats{grid-template-columns:1fr 1fr;}}
+  @media print{body{background:#fff;}.feat{break-inside:avoid;page-break-inside:avoid;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">NextXR &middot; Universal Modular Digital Twin</div>
+  <h1>Complete Feature Register</h1>
+  <p class="lede">Every feature in the platform &mdash; what it does, how it works, and whether it's live, partial, or planned. Organised by capability area: the frontend panels, the agent system, the ontology, the behavior engine, the infrastructure, and the API surface.</p>
+  <div class="meta">Platform state: June 2026 &middot; Compiled for leadership review</div>
+
+  <!-- ========== AT A GLANCE ========== -->
+  <h2>Platform at a glance</h2>
+  <div class="stats">
+    <div class="stat"><div class="num">20</div><div class="label">AI Agents</div></div>
+    <div class="stat"><div class="num">16</div><div class="label">UI Panels</div></div>
+    <div class="stat"><div class="num">113</div><div class="label">Ontology Classes</div></div>
+    <div class="stat"><div class="num">47</div><div class="label">API Endpoints</div></div>
+    <div class="stat"><div class="num">17</div><div class="label">Behavior Rules</div></div>
+    <div class="stat"><div class="num">10</div><div class="label">Taxonomy Categories</div></div>
+    <div class="stat"><div class="num">30+</div><div class="label">Predicates</div></div>
+    <div class="stat"><div class="num">3</div><div class="label">Anomaly Detection Tiers</div></div>
+  </div>
+
+  <!-- ========== 1. FRONTEND PANELS ========== -->
+  <h2>1. Frontend panels (16 screens)</h2>
+  <p>Every screen an operator, engineer, or expert can interact with.</p>
+
+  <!-- Dashboard -->
+  <div class="feat">
+    <div class="feat-head"><span class="feat-title">Dashboard</span><span class="badge b-live">Live</span></div>
+    <div class="feat-sub">Real-time operations overview. The first thing an operator sees.</div>
+    <ul class="feat-details">
+      <li><b>Risk Score card</b> &mdash; computed from finding severity (critical&times;25 + warning&times;8 + info&times;2). Color-coded: HIGH (&ge;70), ELEVATED (&ge;35), NOMINAL.</li>
+      <li><b>Total Entities card</b> &mdash; live count split by assets + spaces.</li>
+      <li><b>Active Findings card</b> &mdash; total open findings with critical count highlighted.</li>
+      <li><b>Change Log Events card</b> &mdash; total mutation count with tamper-evident badge.</li>
+      <li><b>Active Findings list</b> &mdash; latest findings with severity pill, behavior ID, tier, timestamp.</li>
+      <li><b>Findings by Severity chart</b> &mdash; bar chart: critical / warning / info with counts.</li>
+      <li><b>Entity Breakdown chart</b> &mdash; bar rows per category (PhysicalAsset, Location, Finding, Incident, Process, Document, Actor) with icons and colors.</li>
+      <li><b>System Health grid</b> &mdash; Observations, Capabilities, Mobile Assets, Change Log counts.</li>
+      <li><b>Feed Controls</b> &mdash; start/stop telemetry with live stats (samples processed, findings emitted, latest value).</li>
+    </ul>
+  </div>
+
+  <!-- Build a Twin -->
+  <div class="feat">
+    <div class="feat-head"><span class="feat-title">Build a Twin (Concierge)</span><span class="badge b-live">Live</span></div>
+    <div class="feat-sub">Conversational twin creation powered by an 8-agent pipeline.</div>
+    <ul class="feat-details">
+      <li><b>Chat interface</b> &mdash; user describes their facility in plain language.</li>
+      <li><b>8-stage pipeline rail</b> &mdash; Concierge &rarr; Vision Agent &rarr; Domain Classifier &rarr; Capability Composer &rarr; Schema Mapper &rarr; Validator &rarr; Graph Writer &rarr; Scene Generator. Each stage lights up green as it completes.</li>
+      <li><b>Domain detection</b> &mdash; shows classified domain + confidence score.</li>
+      <li><b>Bundle loading</b> &mdash; shows which capability bundle was loaded.</li>
+      <li><b>Validation result</b> &mdash; passed/failed with SHACL violations if any.</li>
+      <li><b>Commit confirmation</b> &mdash; twin committed to graph with entity count.</li>
+      <li><b>File upload endpoint</b> &mdash; backend accepts images for the Vision Agent (frontend drag-and-drop in progress).</li>
+    </ul>
+    <div class="flow-box">
+      <h4>Agent pipeline</h4>
+      <div class="seam">Concierge &rarr; (Vision) &rarr; Classifier &rarr; Composer &rarr; Schema Mapper &rarr; Validator &rarr; Graph Writer &rarr; (Scene Generator)</div>
+    </div>
+  </div>
+
+  <!-- Twins -->
+  <div class="feat">
+    <div class="feat-head"><span class="feat-title">Twins</span><span class="badge b-live">Live</span></div>
+    <div class="feat-sub">Twin lifecycle management &mdash; create, view, switch, delete.</div>
+    <ul class="feat-details">
+      <li><b>Twin cards</b> &mdash; 3-column grid showing name, domain, entity count, creation date, ACTIVE pill.</li>
+      <li><b>Create Twin modal</b> &mdash; name field + domain template selector (HVAC, Generic Facility, Blank).</li>
+      <li><b>Domain templates</b> &mdash; HVAC (Site + Space + AirHandler + behaviors), Generic Facility (3-floor building with 15+ assets across 8 systems), Blank (empty Site for hand-building).</li>
+      <li><b>Seeding</b> &mdash; all entities created through the validated write path (SHACL gate &rarr; Neo4j &rarr; Change Log &rarr; Event Bus).</li>
+      <li><b>Delete with confirm</b> &mdash; removes graph entities + registry entry; change log preserved for audit.</li>
+      <li><b>Twin switching</b> &mdash; click to set active twin; all panels scope to that tenant.</li>
+    </ul>
+  </div>
+
+  <!-- Asset Graph -->
+  <div class="feat">
+    <div class="feat-head"><span class="feat-title">Asset Graph</span><span class="badge b-live">Live</span></div>
+    <div class="feat-sub">Full knowledge graph entity browser with create, inspect, and delete.</div>
+    <ul class="feat-details">
+      <li><b>Entity list</b> &mdash; filterable by label (PhysicalAsset, Location, Incident, Process, Capability, Document, Actor, MobileAsset, Observation).</li>
+      <li><b>Entity detail panel</b> &mdash; all properties as key-value pairs, outgoing relationships with predicate + target.</li>
+      <li><b>Add Asset modal</b> &mdash; dropdown of all instantiable ontology types (grouped by category), display name, status, setpoint, optional relationship (predicate + target entity). SHACL violations shown inline if rejected.</li>
+      <li><b>Delete entity</b> &mdash; with confirm dialog. DETACH DELETE from Neo4j, logged to change log.</li>
+    </ul>
+  </div>
+
+  <!-- Live Ops -->
+  <div class="feat">
+    <div class="feat-head"><span class="feat-title">Live Ops</span><span class="badge b-live">Live</span></div>
+    <div class="feat-sub">Real-time event streaming and operational monitoring.</div>
+    <ul class="feat-details">
+      <li><b>Sensor grid</b> &mdash; 7 live indicators: Air Temperature (&deg;C), UPS State of Charge (%), Transformer Oil Temp (&deg;C), Filter Delta P (Pa), Chiller COP, Samples Processed, Findings Emitted. Color-coded by severity thresholds.</li>
+      <li><b>Live Mutation Stream</b> &mdash; SSE-powered event list showing every CREATE/UPDATE/DELETE as it happens. Entity type, actor, entity ID, timestamp.</li>
+      <li><b>Correlated Incidents</b> &mdash; incident list from the graph (top 5) with severity and status.</li>
+      <li><b>Connection indicator</b> &mdash; green dot when SSE connected, reconnects automatically.</li>
+      <li><b>Feed Controls</b> &mdash; start/stop with live sample counter.</li>
+    </ul>
+  </div>
+
+  <!-- Bundle Author -->
+  <div class="feat">
+    <div class="feat-head"><span class="feat-title">Bundle Author</span><span class="badge b-live">Live</span></div>
+    <div class="feat-sub">Create new industry verticals by conversation. 9-agent pipeline with human approval gate.</div>
+    <ul class="feat-details">
+      <li><b>Init form</b> &mdash; domain name + bundle name fields.</li>
+      <li><b>Chat interface</b> &mdash; expert describes entities, measurements, faults in plain language.</li>
+      <li><b>9-stage pipeline rail</b> &mdash; Interviewer &rarr; Ontology Drafter &rarr; Behavior Modeler &rarr; Rule Author &rarr; Elicitation Designer &rarr; Asset Curator &rarr; Linter &rarr; Human Gate &rarr; Publisher.</li>
+      <li><b>Ontology Fragment card</b> &mdash; displays the drafted RDF/Turtle with classes, subclass hierarchy, taxonomy categories.</li>
+      <li><b>Behavior Models card</b> &mdash; shows each fault classified as Tier A/B/C with colored badges.</li>
+      <li><b>Authored Rules card</b> &mdash; Tier-C threshold rules with behavior_id, tier, description.</li>
+      <li><b>Elicitation Questions card</b> &mdash; numbered list of questions the Concierge will use for this domain.</li>
+      <li><b>Asset Manifest card</b> &mdash; matched/gap status per entity with color-coded pills (green=matched, red=gap).</li>
+      <li><b>Lint result</b> &mdash; passed/failed with issue list (errors block publish; warnings are advisory).</li>
+      <li><b>Human Approval Gate</b> &mdash; amber card with "Approve & Publish" button. Non-negotiable.</li>
+      <li><b>Published confirmation</b> &mdash; green card showing bundle ID, links to Build a Twin to test the closed loop.</li>
+    </ul>
+    <div class="flow-box">
+      <h4>Agent pipeline</h4>
+      <div class="seam">Interviewer &rarr; Drafter &rarr; Behavior Modeler &rarr; Rule Author &rarr; Elicitation Designer &rarr; Asset Curator &rarr; Linter &rarr; [Human Gate] &rarr; Publisher</div>
+    </div>
+  </div>
+
+  <div class="fgrid">
+    <!-- AI Agents -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">AI Agents</span><span class="badge b-partial">Partial</span></div>
+      <div class="feat-sub">Autonomous operational intelligence.</div>
+      <ul class="feat-details">
+        <li><b>Agent roster</b> &mdash; 5 agents listed (Diagnosis, Correlation live; Maintenance, Safety, Energy planned).</li>
+        <li><b>Diagnosis cards</b> &mdash; real data from graph: root-cause hypotheses with confidence, evidence.</li>
+        <li><b>Recommendation cards</b> &mdash; actions tagged auto/manual, advisory-only lock.</li>
+        <li><b>Action cards</b> &mdash; execution mode (manual/automatic), priority, status.</li>
+      </ul>
+    </div>
+
+    <!-- Change Log -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Change Log</span><span class="badge b-live">Live</span></div>
+      <div class="feat-sub">Tamper-evident audit trail.</div>
+      <ul class="feat-details">
+        <li><b>Event list</b> &mdash; every mutation with action (CREATE/UPDATE/DELETE), actor, entity ID, timestamp.</li>
+        <li><b>SHA-256 hash chain</b> &mdash; each entry linked to the previous by hash. Tamper-evident by design.</li>
+        <li><b>Per-entity history</b> &mdash; filter by entity to see its full mutation history.</li>
+        <li><b>Survives deletion</b> &mdash; change log entries persist when twins or entities are deleted.</li>
+      </ul>
+    </div>
+
+    <!-- Plugin SDK -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Plugin SDK</span><span class="badge b-live">Live</span></div>
+      <div class="feat-sub">Scaffold platform extensions.</div>
+      <ul class="feat-details">
+        <li><b>Chat interface</b> &mdash; describe the plugin you want.</li>
+        <li><b>6 extension points</b> &mdash; adapter, behavior, view, webhook, transform, auth.</li>
+        <li><b>Generated code</b> &mdash; real Python/JSX with proper base class contracts.</li>
+        <li><b>Syntax-highlighted output</b> &mdash; file path, language, content.</li>
+      </ul>
+    </div>
+
+    <!-- Accelerator Packs -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Accelerator Packs</span><span class="badge b-live">Live</span></div>
+      <div class="feat-sub">Assemble Solution Accelerator Packs.</div>
+      <ul class="feat-details">
+        <li><b>Chat interface</b> &mdash; describe the target domain.</li>
+        <li><b>Bundle selection</b> &mdash; auto-selects relevant bundles from the registry.</li>
+        <li><b>Adapter identification</b> &mdash; MQTT, OPC-UA, BACnet adapter configs.</li>
+        <li><b>Compliance docs</b> &mdash; ISO 55000, IEC 62443 stubs.</li>
+        <li><b>Pack manifest</b> &mdash; complete SAP with metadata, version, bundle count.</li>
+      </ul>
+    </div>
+
+    <!-- Twin Health -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Twin Health</span><span class="badge b-partial">Partial</span></div>
+      <div class="feat-sub">Structural coverage and data freshness.</div>
+      <ul class="feat-details">
+        <li><b>Coverage checklist</b> &mdash; has assets, has locations, has observations, has reasoning output. Score 0&ndash;100%.</li>
+        <li><b>Data freshness</b> &mdash; telemetry feed status, graph status, change log status. Green/amber/red indicators.</li>
+      </ul>
+    </div>
+
+    <!-- Copilot -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Copilot</span><span class="badge b-mock">Planned</span></div>
+      <div class="feat-sub">Natural language access to the platform.</div>
+      <ul class="feat-details">
+        <li><b>Chat interface</b> &mdash; quick-chip suggestions + free-text input.</li>
+        <li><b>Live stat grounding</b> &mdash; answers include real counts (findings, entities).</li>
+        <li><b>Planned</b>: LLM wired to GraphQuery + SchemaService + feed stats as callable tools.</li>
+      </ul>
+    </div>
+
+    <!-- Predict -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Predict</span><span class="badge b-mock">Planned</span></div>
+      <div class="feat-sub">Predictive maintenance forecasts.</div>
+      <ul class="feat-details">
+        <li><b>Forecast cards</b> &mdash; RUL (Remaining Useful Life) estimates with confidence.</li>
+        <li><b>Priority tags</b> &mdash; HIGH / MEDIUM / LOW.</li>
+        <li><b>Planned</b>: IsolationForest + Prophet Tier-B behaviors feeding real RUL data.</li>
+      </ul>
+    </div>
+
+    <!-- Compliance -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Compliance</span><span class="badge b-mock">Planned</span></div>
+      <div class="feat-sub">Standards coverage and gap analysis.</div>
+      <ul class="feat-details">
+        <li><b>Coverage bars</b> &mdash; ISO 55001, ISO 27001, Safe Work, Local Building Code.</li>
+        <li><b>AI-identified gaps</b> &mdash; specific missing requirements with standard references.</li>
+        <li><b>Planned</b>: Document entities in graph linked via <code>nxr:governedBy</code>.</li>
+      </ul>
+    </div>
+
+    <!-- Simulation -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Simulation</span><span class="badge b-mock">Planned</span></div>
+      <div class="feat-sub">What-if scenario analysis.</div>
+      <ul class="feat-details">
+        <li><b>Scenario selector</b> &mdash; power outage, cooling loss, load surge, staff shortage.</li>
+        <li><b>Impact cards</b> &mdash; description, time estimates, confidence.</li>
+        <li><b>Planned</b>: fork twin into scenario tenant, replay behaviors with modified parameters.</li>
+      </ul>
+    </div>
+
+    <!-- Marketplace -->
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Marketplace</span><span class="badge b-mock">Planned</span></div>
+      <div class="feat-sub">Capability pack marketplace.</div>
+      <ul class="feat-details">
+        <li><b>Installed packs</b> &mdash; Common Facilities Pack (82 classes), HVAC Pack.</li>
+        <li><b>Available packs</b> &mdash; Maritime, Datacenter, Hospital.</li>
+        <li><b>Planned</b>: runtime install/unload wired to bundle loader.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ========== 2. AGENT SYSTEM ========== -->
+  <h2>2. AI agent system (20 agents, 4 teams)</h2>
+  <p>Every agent in the platform, what it does, and how they connect.</p>
+
+  <h3>Team 1 &mdash; Twin-Building (8 agents)</h3>
+  <p>Takes a user from a sentence to a live twin. The Concierge is the only one that speaks; the rest run silently.</p>
+  <table>
+    <tr><th>Agent</th><th>Type</th><th>What it does</th></tr>
+    <tr><td><b>Concierge</b></td><td>LLM, user-facing</td><td>Jargon-free guide. Holds conversation, asks the right next question, decides when enough is known to proceed. The only agent the operator sees.</td></tr>
+    <tr><td><b>Vision Agent</b></td><td>Multimodal</td><td>Reads uploaded images &mdash; floor plans, equipment photos, nameplates &mdash; and extracts structured findings (asset counts, types, locations). Uses GPT-4o vision.</td></tr>
+    <tr><td><b>Domain Classifier</b></td><td>LLM</td><td>Picks the vertical (HVAC, maritime, refrigeration, etc.) with a confidence score. Below 0.7 threshold routes back to Concierge for clarification.</td></tr>
+    <tr><td><b>Capability Composer</b></td><td>Hybrid</td><td>Loads the matching capability bundle from the registry. The plug-and-play moment &mdash; makes bundle loading visible.</td></tr>
+    <tr><td><b>Schema Mapper</b></td><td>LLM</td><td>Maps free-text descriptions + vision findings to concrete ontology entities with canonical types. Falls back to bundle templates without LLM.</td></tr>
+    <tr><td><b>Validator</b></td><td>Deterministic</td><td>SHACL validation gate. Runs every draft entity through the ontology shapes. Produces human-readable errors for the Concierge to voice.</td></tr>
+    <tr><td><b>Graph Writer</b></td><td>Deterministic</td><td>The only thing that mutates Neo4j. Atomic commit with idempotent UUIDv7 keys. Emits Change Log events.</td></tr>
+    <tr><td><b>Scene Generator</b></td><td>Stub</td><td>Extracts graph topology for 3D rendering. Currently returns entity list; awaiting Three.js integration.</td></tr>
+  </table>
+
+  <h3>Team 2 &mdash; Runtime / Operational (3 agents)</h3>
+  <p>Wakes when findings accumulate into an Incident. No human drives them; operators read their output on the dashboard.</p>
+  <table>
+    <tr><th>Agent</th><th>Type</th><th>What it does</th></tr>
+    <tr><td><b>Context Gatherer</b></td><td>Deterministic</td><td>Fetches finding details, downstream dependents, and past incidents from the graph. Populates the context for reasoning.</td></tr>
+    <tr><td><b>Diagnosis Agent</b></td><td>LLM</td><td>Produces ranked root-cause hypotheses with confidence scores and evidence. 24-hour cache by incident signature. Writes Diagnosis nodes to the graph.</td></tr>
+    <tr><td><b>Recommender Agent</b></td><td>LLM</td><td>Produces ranked recommended actions tagged auto (advisory) or manual (needs human). Advisory-only lock &mdash; can never actuate, only recommend.</td></tr>
+  </table>
+
+  <h3>Team 3 &mdash; Bundle Authoring (9 agents)</h3>
+  <p>The verticalization factory. A domain expert creates an entire new capability bundle by conversation &mdash; no code.</p>
+  <table>
+    <tr><th>Agent</th><th>Type</th><th>What it does</th></tr>
+    <tr><td><b>Industry Interviewer</b></td><td>LLM, user-facing</td><td>Conducts an adaptive interview. Builds entity, fault, and measurement catalogues. Never uses jargon.</td></tr>
+    <tr><td><b>Ontology Drafter</b></td><td>LLM</td><td>Produces RDF/Turtle fragments extending the platform ontology. Freeze rule: adds downward, never edits core.</td></tr>
+    <tr><td><b>Behavior Modeler</b></td><td>LLM</td><td>Classifies each fault as Tier A (physics skeleton), Tier B (baseline config), or Tier C (threshold rule).</td></tr>
+    <tr><td><b>Rule Author</b></td><td>LLM</td><td>Generates starter rule library. At least one Tier-C rule so the bundle can fire findings in the demo.</td></tr>
+    <tr><td><b>Elicitation Designer</b></td><td>LLM</td><td>Generates the question set the Concierge will use for this domain. Team 3's output reconfigures Team 1.</td></tr>
+    <tr><td><b>Asset Curator</b></td><td>Hybrid</td><td>Matches entities to a 3D asset library. Reports matches and gaps.</td></tr>
+    <tr><td><b>Linter</b></td><td>Deterministic</td><td>Checks Turtle parses, freeze rule holds, at least one Tier-C rule exists. Lint failure loops back to Interviewer.</td></tr>
+    <tr><td><b>Human Approval Gate</b></td><td>Gate</td><td>Mandatory human approval before publish. Non-negotiable regardless of agent capability.</td></tr>
+    <tr><td><b>Publisher</b></td><td>Deterministic</td><td>Writes the signed bundle to the registry via the Plugin SDK. Idempotent on bundle_id.</td></tr>
+  </table>
+
+  <h3>Team 4 &mdash; Platform Extension (5 agents across 2 flows)</h3>
+  <p>Helps platform engineers extend the platform itself.</p>
+  <table>
+    <tr><th>Agent</th><th>Type</th><th>What it does</th></tr>
+    <tr><td><b>Plugin Interviewer</b></td><td>LLM, user-facing</td><td>Interviews about which extension point and what the plugin should do.</td></tr>
+    <tr><td><b>Plugin Scaffolder</b></td><td>Hybrid</td><td>Generates SDK boilerplate for 6 extension points: adapter, behavior, view, webhook, transform, auth.</td></tr>
+    <tr><td><b>Pack Interviewer</b></td><td>LLM, user-facing</td><td>Interviews about the target domain and compliance needs for an Accelerator Pack.</td></tr>
+    <tr><td><b>Bundle Selector</b></td><td>Hybrid</td><td>Selects relevant bundles from the registry and identifies adapter/compliance needs.</td></tr>
+    <tr><td><b>Pack Assembler</b></td><td>Deterministic</td><td>Combines bundles, adapters, and compliance docs into a tender-ready SAP manifest.</td></tr>
+  </table>
+
+  <div class="flow-box">
+    <h4>The closed loop &mdash; the platform's signature feature</h4>
+    <div class="seam">1. Bundle Author publishes a new vertical (with a Tier-C rule) &rarr; 2. Concierge &rarr; Classifier &rarr; Composer loads that bundle &rarr; 3. Validator &rarr; Graph Writer commits a live twin &rarr; 4. Feed runs, the Tier-C rule fires a Finding &rarr; 5. Diagnosis Agent explains why &rarr; Alert on dashboard.</div>
+    <p style="color:#2c4a40;margin:8px 0 0;font-size:13px;">Step 5 pays off step 1. Every component visibly connects.</p>
+  </div>
+
+  <!-- ========== 3. ONTOLOGY ========== -->
+  <h2>3. Ontology (113 classes, 4 layers)</h2>
+  <p>The formal model that governs every entity in the platform. Grounded in ISO (BFO) and W3C (SOSA) standards.</p>
+
+  <h3>Layer 1 &mdash; Upper ontology (imported, read-only)</h3>
+  <div class="fgrid">
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">BFO (Basic Formal Ontology)</span></div>
+      <div class="feat-sub">ISO 21838. Provides: MaterialEntity, Site, Process, Disposition, GenericallyDependentContinuant. The philosophical foundation.</div>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">SOSA / SSN</span></div>
+      <div class="feat-sub">W3C Semantic Sensor Network. Provides: Sensor, Observation, ObservableProperty, Result. The measurement foundation.</div>
+    </div>
+  </div>
+
+  <h3>Layer 2 &mdash; Platform core (27 classes, frozen)</h3>
+  <p>The mid-level ontology. Domain packs extend it; nobody modifies it.</p>
+
+  <h4>10 closed taxonomy categories (machine-enforced)</h4>
+  <div class="pill-row">
+    <span class="pill">PhysicalAsset</span>
+    <span class="pill">MobileAsset</span>
+    <span class="pill">Actor</span>
+    <span class="pill">Location</span>
+    <span class="pill">Process</span>
+    <span class="pill">Observation</span>
+    <span class="pill">Finding</span>
+    <span class="pill">Incident</span>
+    <span class="pill">Document</span>
+    <span class="pill">Capability</span>
+  </div>
+  <p class="note">Every entity class must declare exactly one category. Adding an 11th fails the governance check. This is enforced by SHACL at build and runtime.</p>
+
+  <h4>Core classes</h4>
+  <table>
+    <tr><th>Category</th><th>Classes</th></tr>
+    <tr><td>PhysicalAsset</td><td>PhysicalAsset (abstract), Equipment (abstract), Sensor</td></tr>
+    <tr><td>MobileAsset</td><td>MobileAsset (abstract)</td></tr>
+    <tr><td>Actor</td><td>Actor (abstract)</td></tr>
+    <tr><td>Location</td><td>Site, Space (abstract)</td></tr>
+    <tr><td>Process</td><td>Process (abstract), Incident, MaintenanceEvent</td></tr>
+    <tr><td>Observation</td><td>Observation</td></tr>
+    <tr><td>Finding / Reasoning</td><td>Finding, FailureMode, Diagnosis, Recommendation, Action</td></tr>
+    <tr><td>Document</td><td>Document (abstract)</td></tr>
+    <tr><td>Capability</td><td>Capability (abstract), CapabilityBundle, IntegrationAdapter, MLModel</td></tr>
+    <tr><td>Structural</td><td>Port (abstract), InputPort, OutputPort, StateMachine, State, Transition</td></tr>
+  </table>
+
+  <h4>Core predicates (30+)</h4>
+  <table>
+    <tr><th>Category</th><th>Predicates</th></tr>
+    <tr><td>Spatial</td><td><code>locatedAt</code>, <code>containedIn</code> (transitive), <code>contains</code>, <code>partOf</code> (transitive), <code>hasPart</code></td></tr>
+    <tr><td>Ports</td><td><code>hasPort</code>, <code>portOf</code> (functional), <code>connectsTo</code> (symmetric), <code>carries</code></td></tr>
+    <tr><td>Dependency</td><td><code>dependsOn</code> (transitive), <code>feeds</code>, <code>fedBy</code></td></tr>
+    <tr><td>Observation</td><td><code>monitors</code>, <code>observedAs</code></td></tr>
+    <tr><td>Reasoning chain</td><td><code>flags</code>, <code>groupedInto</code> (functional), <code>groups</code>, <code>affects</code>, <code>diagnosedAs</code>, <code>indicatesFailureMode</code>, <code>recommends</code>, <code>proposesAction</code></td></tr>
+    <tr><td>Actors</td><td><code>assignedTo</code>, <code>participatesIn</code>, <code>performedBy</code>, <code>targetsAsset</code></td></tr>
+    <tr><td>Documents</td><td><code>describes</code></td></tr>
+    <tr><td>Capabilities</td><td><code>provides</code>, <code>requiresCapability</code> (transitive)</td></tr>
+    <tr><td>State machines</td><td><code>hasStateMachine</code> (functional), <code>hasState</code>, <code>initialState</code> (functional), <code>allowsTransition</code>, <code>fromState</code> (functional), <code>toState</code> (functional)</td></tr>
+  </table>
+
+  <h3>Layer 3 &mdash; Common Facilities Pack (82 classes, frozen)</h3>
+  <p>Universal building-services layer covering 11 systems. Domain packs (HVAC, maritime, etc.) subclass these.</p>
+  <div class="pill-row">
+    <span class="pill">HVAC (AHU, Chiller, Fan, Filter, Pump, Valve, Coil, Duct, Diffuser)</span>
+    <span class="pill">Power (UPS, Transformer, Generator, Panel, Battery Bank)</span>
+    <span class="pill">Fire (Smoke/Heat/Flame Detector, Fire Alarm Panel, Suppression Head)</span>
+    <span class="pill">Security (Access Door, Reader, Camera, Barrier)</span>
+    <span class="pill">Water (Tank, Meter, Valve, Leak Sensor)</span>
+    <span class="pill">Vertical Transport (Elevator, Escalator)</span>
+    <span class="pill">Environmental (Humidity, Air Quality, Light Sensors)</span>
+    <span class="pill">ICT (Edge Node, Network Panel, Switch)</span>
+    <span class="pill">Spatial (Building, Floor, Zone, Room, Rack, RackRow)</span>
+    <span class="pill">Process (WorkOrder, MaintenanceTask, Inspection)</span>
+    <span class="pill">20+ Observable Properties (temperature, humidity, COP, vibration, smoke, door state, etc.)</span>
+  </div>
+
+  <h3>Layer 4 &mdash; Domain packs (extensible)</h3>
+  <div class="fgrid">
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">HVAC Pack (4 classes)</span></div>
+      <div class="feat-sub">Air Handler, Chiller, Temperature Sensor, Air Temperature (observable). Includes <code>hvac:servesSpace</code> predicate, state machine (off &rarr; running &rarr; degraded &rarr; fault), and FilterClogged failure mode.</div>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Published / Authored Packs</span></div>
+      <div class="feat-sub">Any bundle published by the Bundle Author appears here. The refrigeration pack you author in the demo becomes a real Layer 4 extension &mdash; loaded on startup, classes resolved by the write gate.</div>
+    </div>
+  </div>
+
+  <h3>Base entity shape (10 universal properties)</h3>
+  <p>Every entity in the graph carries these. Enforced by SHACL.</p>
+  <table>
+    <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    <tr><td><code>id</code></td><td>UUIDv7</td><td>Time-ordered, globally unique, never reused</td></tr>
+    <tr><td><code>tenantId</code></td><td>string</td><td>Tenant isolation key. Present on every operation.</td></tr>
+    <tr><td><code>canonicalType</code></td><td>IRI</td><td>Ontology class IRI. Immutable after creation.</td></tr>
+    <tr><td><code>displayName</code></td><td>string</td><td>Human-friendly label. Freely renameable.</td></tr>
+    <tr><td><code>createdAt</code></td><td>dateTime</td><td>ISO 8601 UTC. Set once at creation.</td></tr>
+    <tr><td><code>updatedAt</code></td><td>dateTime</td><td>ISO 8601 UTC. Touched on every property mutation.</td></tr>
+    <tr><td><code>createdBy</code></td><td>string</td><td>Actor ID: user, agent, or system.</td></tr>
+    <tr><td><code>changeLogRef</code></td><td>string</td><td>ULID pointer to latest Change Log entry.</td></tr>
+    <tr><td><code>tags</code></td><td>string[]</td><td>Free-form tags. Repeatable.</td></tr>
+    <tr><td><code>status</code></td><td>string</td><td>State-machine state. Legal transitions declared by <code>nxr:hasStateMachine</code>.</td></tr>
+  </table>
+
+  <!-- ========== 4. BEHAVIOR ENGINE ========== -->
+  <h2>4. Behavior engine (17 rules, 3 tiers)</h2>
+  <p>The anomaly detection and reasoning system. Behaviors watch telemetry signals, evaluate against models, and emit Findings.</p>
+
+  <h3>Three tiers working together</h3>
+  <table>
+    <tr><th>Tier</th><th>Type</th><th>How it works</th><th>What it catches</th></tr>
+    <tr><td><b>A &mdash; Physics</b></td><td>First-principles equations</td><td>Predicts expected values from energy balance / thermal models. Fires when observed diverges from predicted.</td><td>Faults that violate physical laws &mdash; catches what rules and statistics can't see.</td></tr>
+    <tr><td><b>B &mdash; Statistical</b></td><td>Learned baselines</td><td>Learns what "normal" looks like from a warmup window, then flags deviations (z-score). Fires once per anomaly episode.</td><td>Drift, degradation, load changes &mdash; anything that shifts from the learned baseline.</td></tr>
+    <tr><td><b>C &mdash; Rules</b></td><td>Hand-written thresholds</td><td>Fires when a value exceeds a setpoint + offset for a sustained duration. Stateful per entity with debouncing.</td><td>Obvious threshold violations. The fastest, most deterministic layer.</td></tr>
+  </table>
+
+  <h3>HVAC behaviors (3)</h3>
+  <table>
+    <tr><th>Behavior</th><th>Tier</th><th>Watches</th><th>What it does</th></tr>
+    <tr><td><code>hvac.thermal_physics</code></td><td>A</td><td>hvac:AirTemperature</td><td>Lumped-parameter thermal model. T(t) = T_sp + (T_0 - T_sp) &times; e<sup>-t/&tau;</sup>. Fires when residual &gt; 4&deg;C.</td></tr>
+    <tr><td><code>hvac.temp_zscore</code></td><td>B</td><td>hvac:AirTemperature</td><td>Learns mean+std from 12 samples, freezes baseline. Fires when z-score &gt; 3&sigma;.</td></tr>
+    <tr><td><code>hvac.temp_threshold</code></td><td>C</td><td>hvac:AirTemperature</td><td>Fires when air temp &gt; setpoint + 3&deg;C sustained for &ge;3 minutes.</td></tr>
+  </table>
+
+  <h3>Common Facilities Pack behaviors (14)</h3>
+  <table>
+    <tr><th>Behavior</th><th>Tier</th><th>Watches</th><th>Trigger</th></tr>
+    <tr><td><code>cfp.ups_on_battery</code></td><td>C</td><td>cfp:upsSoC</td><td>SoC drops below 95% (mains lost)</td></tr>
+    <tr><td><code>cfp.generator_fuel_low</code></td><td>C</td><td>cfp:fuelLevel</td><td>Fuel below 20%</td></tr>
+    <tr><td><code>cfp.transformer_over_temp</code></td><td>C</td><td>cfp:oilTemperature</td><td>&gt;85&deg;C sustained 2 min</td></tr>
+    <tr><td><code>cfp.filter_clogged</code></td><td>C</td><td>cfp:filterDeltaP</td><td>&gt;250 Pa sustained 5 min</td></tr>
+    <tr><td><code>cfp.smoke_alarm</code></td><td>C</td><td>cfp:smokeObscuration</td><td>Smoke above alarm level (safety-critical)</td></tr>
+    <tr><td><code>cfp.door_forced</code></td><td>C</td><td>cfp:doorState</td><td>Door forced or held open</td></tr>
+    <tr><td><code>cfp.leak_detected</code></td><td>C</td><td>cfp:leakState</td><td>Wet state detected</td></tr>
+    <tr><td><code>cfp.tank_low_level</code></td><td>C</td><td>cfp:tankLevel</td><td>Tank level below threshold</td></tr>
+    <tr><td><code>cfp.continuous_flow_leak</code></td><td>C</td><td>cfp:waterFlow</td><td>Sustained unexpected flow</td></tr>
+    <tr><td><code>cfp.heartbeat_loss</code></td><td>C</td><td>cfp:heartbeat</td><td>Heartbeat missed (node offline)</td></tr>
+    <tr><td><code>cfp.repeated_deny</code></td><td>C</td><td>cfp:accessAttempts</td><td>Repeated denied access attempts</td></tr>
+    <tr><td><code>cfp.chiller_cop_baseline</code></td><td>B</td><td>cfp:chillerCOP</td><td>COP drops &gt;2.5&sigma; below learned baseline</td></tr>
+    <tr><td><code>cfp.pump_vibration_baseline</code></td><td>B</td><td>cfp:vibration</td><td>Vibration exceeds learned upper bound</td></tr>
+  </table>
+
+  <h3>Diagnosis reasoning chain</h3>
+  <div class="flow-box">
+    <h4>Full chain (persisted to graph via single write path)</h4>
+    <div class="seam">Finding &mdash;[groupedInto]&rarr; Incident &mdash;[diagnosedAs]&rarr; Diagnosis &mdash;[recommends]&rarr; Recommendation &mdash;[proposesAction]&rarr; Action</div>
+  </div>
+  <table>
+    <tr><th>Step</th><th>What happens</th></tr>
+    <tr><td>1. Correlation</td><td>Findings on the same entity are grouped into an Incident. Severity: critical if any finding is critical.</td></tr>
+    <tr><td>2. Diagnosis (deterministic)</td><td>Pattern analysis across behavior IDs and tiers. Confidence 0.6&ndash;0.98 based on tier coverage.</td></tr>
+    <tr><td>3. Diagnosis (LLM-enhanced)</td><td>Ranked root-cause hypotheses with evidence. Cached 24h by signature. Augments, doesn't replace, the deterministic path.</td></tr>
+    <tr><td>4. Recommendation</td><td>Ranked actions tagged auto/manual. Advisory-only lock prevents actuation.</td></tr>
+    <tr><td>5. Action</td><td>Concrete step with execution mode (manual/automatic) and status tracking.</td></tr>
+  </table>
+
+  <!-- ========== 5. INFRASTRUCTURE ========== -->
+  <h2>5. Infrastructure</h2>
+
+  <div class="fgrid">
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Neo4j 5 (Graph Database)</span></div>
+      <ul class="feat-details">
+        <li>Stores every entity, relationship, and finding.</li>
+        <li>Tenant-scoped queries. APOC plugin enabled.</li>
+        <li>Health-checked via Docker. Graceful degradation when offline.</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Redis 7 (Event Bus)</span></div>
+      <ul class="feat-details">
+        <li>Redis Streams for per-tenant real-time event fan-out.</li>
+        <li>Best-effort: never blocks the write path. In-memory fallback when Redis is down.</li>
+        <li>SSE endpoint for frontend live subscriptions.</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">SHACL Validation Gate</span></div>
+      <ul class="feat-details">
+        <li>Every mutation validated against ontology shapes before commit.</li>
+        <li>Inference OFF by design (prevents silent illegal relationship legalization).</li>
+        <li>Returns 422 with human-readable violations.</li>
+        <li>7/7 gate tests passing.</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Graph Writer (Single Write Path)</span></div>
+      <ul class="feat-details">
+        <li>The only code that mutates Neo4j. validate &rarr; commit &rarr; changelog &rarr; event bus.</li>
+        <li>Idempotent on UUIDv7 keys (safe under retries).</li>
+        <li>Methods: create, update, delete, relate.</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Change Log (SQLite, Hash-Chained)</span></div>
+      <ul class="feat-details">
+        <li>SHA-256 hash chain per tenant. Tamper-evident.</li>
+        <li>Every mutation recorded: event_id (ULID), action, actor, field_changes.</li>
+        <li>Survives entity deletion. Zero external dependencies (stdlib only).</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">LLM Gateway</span></div>
+      <ul class="feat-details">
+        <li>Single choke-point for all model calls. Per-session call cap (100).</li>
+        <li>Text completion, JSON completion, vision completion (multimodal).</li>
+        <li>Mandatory deterministic stubs: system works without any API key.</li>
+        <li>Currently OpenAI (gpt-4o-mini / gpt-4o for vision). One-file swap to Claude.</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Agent Engine (LangGraph-compatible)</span></div>
+      <ul class="feat-details">
+        <li>In-house StateGraph engine matching the LangGraph API surface.</li>
+        <li>SQLite checkpointer for resumable sessions across process restarts.</li>
+        <li>INTERRUPT_KEY for human-in-the-loop pauses.</li>
+        <li>Designed for one-import-line swap to real LangGraph.</li>
+      </ul>
+    </div>
+    <div class="feat">
+      <div class="feat-head"><span class="feat-title">Schema Service</span></div>
+      <ul class="feat-details">
+        <li>Queries the ontology: legal types, predicates, class info, properties, governance.</li>
+        <li>9 HTTP endpoints under <code>/api/v1/schema/</code>.</li>
+        <li>Feeds the Add Asset modal, the Schema Mapper, and the Copilot (planned).</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ========== 6. API SURFACE ========== -->
+  <h2>6. API surface (47 endpoints)</h2>
+
+  <h3>Entity operations (15 endpoints)</h3>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>What it does</th></tr>
+    <tr><td>GET</td><td><code>/entities</code></td><td>List entities by label (tenant, label, limit)</td></tr>
+    <tr><td>GET</td><td><code>/entities/{id}</code></td><td>Get entity + relationships</td></tr>
+    <tr><td>POST</td><td><code>/entities</code></td><td>Create entity (SHACL-validated, change-logged)</td></tr>
+    <tr><td>PATCH</td><td><code>/entities/{id}</code></td><td>Update properties (re-validated)</td></tr>
+    <tr><td>DELETE</td><td><code>/entities/{id}</code></td><td>Delete entity (DETACH DELETE, logged)</td></tr>
+    <tr><td>POST</td><td><code>/entities/{id}/rel</code></td><td>Add relationship (source re-validated)</td></tr>
+    <tr><td>GET</td><td><code>/findings</code></td><td>List findings (optional entity filter)</td></tr>
+    <tr><td>GET</td><td><code>/stats</code></td><td>KPI summary: entity counts, severity breakdown, totals</td></tr>
+    <tr><td>GET</td><td><code>/topology</code></td><td>Graph topology: nodes + edges + finding counts</td></tr>
+    <tr><td>GET</td><td><code>/changelog</code></td><td>Tenant changelog (limit)</td></tr>
+    <tr><td>GET</td><td><code>/changelog/{id}</code></td><td>Entity-specific changelog</td></tr>
+    <tr><td>GET</td><td><code>/bus/stats</code></td><td>Event bus status</td></tr>
+    <tr><td>GET</td><td><code>/bus/events</code></td><td>Read events from stream</td></tr>
+    <tr><td>GET</td><td><code>/bus/stream</code></td><td>SSE live event stream</td></tr>
+    <tr><td>GET</td><td><code>/health</code></td><td>Health check (always 200)</td></tr>
+  </table>
+
+  <h3>Twin management (5 endpoints)</h3>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>What it does</th></tr>
+    <tr><td>GET</td><td><code>/twins</code></td><td>List all twins with entity summaries</td></tr>
+    <tr><td>GET</td><td><code>/twins/templates</code></td><td>Available domain templates (HVAC, Generic, Blank)</td></tr>
+    <tr><td>POST</td><td><code>/twins</code></td><td>Create + seed twin (validates, seeds, registers)</td></tr>
+    <tr><td>GET</td><td><code>/twins/{tenant}</code></td><td>Twin metadata + summary</td></tr>
+    <tr><td>DELETE</td><td><code>/twins/{tenant}</code></td><td>Remove twin (graph + registry, not changelog)</td></tr>
+  </table>
+
+  <h3>Schema query (9 endpoints)</h3>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>What it does</th></tr>
+    <tr><td>GET</td><td><code>/schema/version</code></td><td>Ontology version</td></tr>
+    <tr><td>GET</td><td><code>/schema/types</code></td><td>All legal types (instantiable_only flag)</td></tr>
+    <tr><td>GET</td><td><code>/schema/categories</code></td><td>10 closed taxonomy categories</td></tr>
+    <tr><td>GET</td><td><code>/schema/predicates</code></td><td>Full predicate vocabulary with domain/range</td></tr>
+    <tr><td>GET</td><td><code>/schema/class/{name}</code></td><td>Class metadata (supertypes, state machine, etc.)</td></tr>
+    <tr><td>GET</td><td><code>/schema/class/{name}/properties</code></td><td>All properties (base + shape-derived)</td></tr>
+    <tr><td>GET</td><td><code>/schema/asset-types</code></td><td>Instantiable types grouped by category (for dropdowns)</td></tr>
+    <tr><td>POST</td><td><code>/schema/validate</code></td><td>SHACL validation of a Turtle fragment</td></tr>
+    <tr><td>GET</td><td><code>/schema/governance</code></td><td>T-Box governance check (closed taxonomy)</td></tr>
+  </table>
+
+  <h3>Agent orchestration (18 endpoints)</h3>
+  <table>
+    <tr><th>Method</th><th>Endpoint</th><th>What it does</th></tr>
+    <tr><td>GET</td><td><code>/agents/info</code></td><td>Gateway + registry status</td></tr>
+    <tr><td>POST</td><td><code>/agents/twin/start</code></td><td>Start twin-building session</td></tr>
+    <tr><td>POST</td><td><code>/agents/twin/message</code></td><td>Send message to Concierge</td></tr>
+    <tr><td>POST</td><td><code>/agents/twin/upload</code></td><td>Upload image for Vision Agent</td></tr>
+    <tr><td>POST</td><td><code>/agents/twin/scene</code></td><td>Request scene generation</td></tr>
+    <tr><td>GET</td><td><code>/agents/twin/{session}</code></td><td>Get twin session state</td></tr>
+    <tr><td>POST</td><td><code>/agents/bundle/start</code></td><td>Start bundle authoring session</td></tr>
+    <tr><td>POST</td><td><code>/agents/bundle/message</code></td><td>Send message to Interviewer</td></tr>
+    <tr><td>POST</td><td><code>/agents/bundle/approve</code></td><td>Human approval gate &rarr; publish</td></tr>
+    <tr><td>GET</td><td><code>/agents/bundle/{session}</code></td><td>Get bundle session state</td></tr>
+    <tr><td>POST</td><td><code>/agents/ops/diagnose</code></td><td>Trigger LLM diagnosis for an incident</td></tr>
+    <tr><td>GET</td><td><code>/agents/ops/{session}</code></td><td>Get operational session state</td></tr>
+    <tr><td>POST</td><td><code>/agents/plugin/start</code></td><td>Start plugin scaffolding session</td></tr>
+    <tr><td>POST</td><td><code>/agents/plugin/message</code></td><td>Send message to Plugin Interviewer</td></tr>
+    <tr><td>GET</td><td><code>/agents/plugin/{session}</code></td><td>Get plugin session state</td></tr>
+    <tr><td>POST</td><td><code>/agents/accelerator/start</code></td><td>Start accelerator session</td></tr>
+    <tr><td>POST</td><td><code>/agents/accelerator/message</code></td><td>Send message to Pack Interviewer</td></tr>
+    <tr><td>GET</td><td><code>/agents/accelerator/{session}</code></td><td>Get accelerator session state</td></tr>
+  </table>
+
+  <!-- ========== 7. FIVE DISCIPLINES ========== -->
+  <h2>7. The five disciplines</h2>
+  <p>The engineering principles that hold the platform together across all 20 agents and 47 endpoints.</p>
+
+  <table>
+    <tr><th>Discipline</th><th>What it means</th></tr>
+    <tr><td><b>Single write path</b></td><td>Only the Graph Writer mutates Neo4j. validate &rarr; commit &rarr; changelog &rarr; bus. No agent, no endpoint bypasses it.</td></tr>
+    <tr><td><b>State, not calls</b></td><td>Agents never call each other. They read/write a shared state object. The graph owns control flow. You can add/remove/reorder agents without touching other agents' code.</td></tr>
+    <tr><td><b>Tenant isolation everywhere</b></td><td>Every entity, finding, event, and bus stream is scoped to a tenant. Multi-twin on a single platform instance.</td></tr>
+    <tr><td><b>Idempotent commits</b></td><td>UUIDv7 keys + upserts. Safe under checkpoint/Temporal retries. The Graph Writer can be retried without double-writing.</td></tr>
+    <tr><td><b>Human gate before publish</b></td><td>Bundle Author cannot sign without <code>approved=true</code>. Recommender Agent has an advisory-only lock. Safety-critical decisions stay with humans.</td></tr>
+  </table>
+
+  <div class="meta">NextXR Complete Feature Register &middot; 16 panels, 20 agents, 113 classes, 47 endpoints, 17 behaviors &middot; June 2026</div>
+
+</div>
+</body>
+</html>

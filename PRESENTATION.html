@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NextXR — Storyboard &amp; Presentation Script</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#fbfaf7;--ink:#1c1b18;--ink-soft:#54524c;--ink-faint:#86847c;
+    --line:#e4e1d8;--line-soft:#efece4;
+    --teal:#0f6e56;--teal-soft:#e1f1ec;--teal-line:#bcdfd3;
+    --amber:#9a6206;--amber-soft:#fbf0db;--amber-line:#ecd6a8;
+    --rust:#8f3a20;--rust-soft:#f6e8e2;
+    --blue:#1d4ed8;--blue-soft:#eff6ff;--blue-line:#bfdbfe;
+    --violet:#6d28d9;--violet-soft:#f5f3ff;--violet-line:#ddd6fe;
+    --green:#15803d;--green-soft:#f0fdf4;--green-line:#bbf7d0;
+    --serif:'Newsreader',Georgia,serif;--sans:'IBM Plex Sans',sans-serif;--mono:'IBM Plex Mono',monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);font-size:15.5px;line-height:1.65;-webkit-font-smoothing:antialiased;}
+  .wrap{max-width:940px;margin:0 auto;padding:64px 40px 120px;}
+  h1,h2,h3,h4{font-family:var(--serif);font-weight:500;letter-spacing:-0.01em;line-height:1.15;}
+  h1{font-size:44px;margin:0 0 6px;}
+  h2{font-size:29px;margin:64px 0 4px;padding-top:30px;border-top:1px solid var(--line);}
+  h3{font-size:21px;margin:36px 0 6px;}
+  h4{font-size:17px;margin:24px 0 4px;font-weight:600;}
+  p{margin:10px 0;color:var(--ink-soft);}
+  b,strong{color:var(--ink);}
+  code{font-family:var(--mono);font-size:0.86em;background:var(--line-soft);padding:1px 5px;border-radius:4px;color:var(--ink);}
+  .lede{font-family:var(--serif);font-size:19px;line-height:1.5;color:var(--ink-soft);font-weight:400;margin:14px 0 0;}
+  .kicker{font-family:var(--mono);font-size:12px;letter-spacing:0.16em;text-transform:uppercase;color:var(--teal);font-weight:600;margin-bottom:18px;}
+  .meta{font-family:var(--mono);font-size:12px;color:var(--ink-faint);margin-top:20px;padding-top:14px;border-top:1px solid var(--line);}
+
+  /* Scene cards */
+  .scene{border:1px solid var(--line);border-radius:14px;background:#fff;padding:24px 28px;margin:24px 0;position:relative;overflow:hidden;}
+  .scene::before{content:'';position:absolute;top:0;left:0;width:5px;height:100%;}
+  .scene.s1::before{background:var(--teal);}
+  .scene.s2::before{background:var(--blue);}
+  .scene.s3::before{background:var(--amber);}
+  .scene.s4::before{background:var(--violet);}
+  .scene.s5::before{background:var(--green);}
+  .scene.s6::before{background:var(--rust);}
+  .scene.s7::before{background:var(--ink);}
+
+  .scene-num{font-family:var(--mono);font-size:11px;letter-spacing:0.1em;text-transform:uppercase;font-weight:600;margin-bottom:4px;}
+  .scene.s1 .scene-num{color:var(--teal);}
+  .scene.s2 .scene-num{color:var(--blue);}
+  .scene.s3 .scene-num{color:var(--amber);}
+  .scene.s4 .scene-num{color:var(--violet);}
+  .scene.s5 .scene-num{color:var(--green);}
+  .scene.s6 .scene-num{color:var(--rust);}
+  .scene.s7 .scene-num{color:var(--ink-faint);}
+
+  .scene h3{margin:0 0 8px;font-size:22px;}
+  .scene .duration{font-family:var(--mono);font-size:11px;color:var(--ink-faint);position:absolute;top:24px;right:28px;}
+  .scene .show{font-size:13px;color:var(--teal);margin:12px 0 6px;font-weight:600;font-family:var(--mono);letter-spacing:0.04em;text-transform:uppercase;}
+  .scene .show-item{font-size:14px;color:var(--ink-soft);padding:3px 0 3px 18px;border-left:2px solid var(--line-soft);margin:4px 0;}
+  .scene .say{background:var(--teal-soft);border:1px solid var(--teal-line);border-radius:10px;padding:14px 18px;margin:14px 0 6px;color:#2c4a40;font-size:14.5px;line-height:1.6;}
+  .scene .say b{color:#0f5a44;}
+  .scene .note{font-size:12.5px;color:var(--ink-faint);font-style:italic;margin:8px 0 0;}
+
+  /* Stats bar */
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin:20px 0;}
+  .stat{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 16px;text-align:center;}
+  .stat .num{font-family:var(--serif);font-size:32px;font-weight:600;color:var(--teal);line-height:1;}
+  .stat .label{font-family:var(--mono);font-size:11px;color:var(--ink-faint);margin-top:4px;letter-spacing:0.04em;}
+
+  /* Flow diagram */
+  .flow-box{background:var(--teal-soft);border:1px solid var(--teal-line);border-radius:12px;padding:18px 22px;margin:16px 0;}
+  .flow-box h4{margin:0 0 6px;color:var(--teal);font-family:var(--sans);font-size:13px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600;}
+  .flow-box .seam{font-family:var(--mono);font-size:13px;color:#2c4a40;}
+
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;}
+  th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{font-family:var(--mono);font-size:11px;letter-spacing:0.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:500;}
+
+  .badge{font-family:var(--mono);font-size:11px;font-weight:500;padding:2px 8px;border-radius:16px;display:inline-block;}
+  .b-live{background:var(--green-soft);border:1px solid var(--green-line);color:var(--green);}
+  .b-stub{background:var(--amber-soft);border:1px solid var(--amber-line);color:var(--amber);}
+  .b-next{background:var(--blue-soft);border:1px solid var(--blue-line);color:var(--blue);}
+
+  @media(max-width:640px){.wrap{padding:40px 22px 80px;}h1{font-size:32px;}.scene .duration{position:static;display:block;margin-bottom:6px;}.stats{grid-template-columns:1fr 1fr;}}
+  @media print{body{background:#fff;}.scene{break-inside:avoid;page-break-inside:avoid;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="kicker">NextXR &middot; Presentation Storyboard</div>
+  <h1>The Complete NextXR Digital Twin Platform</h1>
+  <p class="lede">A scene-by-scene script for presenting the entire platform to leadership. Seven scenes, ~25 minutes total. Each scene tells you what to show on screen, what to say, and what the boss should take away.</p>
+  <div class="meta">Prepared for internal presentation &middot; Platform build state: June 2026</div>
+
+  <!-- ================================ BY THE NUMBERS ================================ -->
+  <h2>The platform at a glance</h2>
+  <p>Start here. These numbers frame the scale before the demo begins.</p>
+
+  <div class="stats">
+    <div class="stat"><div class="num">20</div><div class="label">AI Agents</div></div>
+    <div class="stat"><div class="num">4</div><div class="label">Agent Teams</div></div>
+    <div class="stat"><div class="num">113</div><div class="label">Ontology Classes</div></div>
+    <div class="stat"><div class="num">47</div><div class="label">API Endpoints</div></div>
+    <div class="stat"><div class="num">69</div><div class="label">Python Modules</div></div>
+    <div class="stat"><div class="num">30</div><div class="label">React Components</div></div>
+    <div class="stat"><div class="num">14</div><div class="label">TTL Ontology Files</div></div>
+    <div class="stat"><div class="num">5</div><div class="label">State Machines</div></div>
+  </div>
+
+  <table>
+    <tr><th>Layer</th><th>Technology</th><th>Role</th></tr>
+    <tr><td>Graph Database</td><td>Neo4j 5</td><td>Stores every entity, relationship, and finding. The twin lives here.</td></tr>
+    <tr><td>Event Bus</td><td>Redis 7 Streams</td><td>Real-time fan-out of every mutation to agents and the dashboard.</td></tr>
+    <tr><td>Ontology</td><td>RDF/Turtle + SHACL + OWL-RL</td><td>113 classes, 30+ predicates, formal validation. Nothing enters the graph without passing the gate.</td></tr>
+    <tr><td>API</td><td>FastAPI (Python)</td><td>47 endpoints: read, write, schema query, agent orchestration, feed control.</td></tr>
+    <tr><td>Agents</td><td>LangGraph-compatible engine</td><td>20 agents across 4 teams. LLM-powered with deterministic fallbacks.</td></tr>
+    <tr><td>Frontend</td><td>React 18 + Vite</td><td>14 panels. Dashboard, twin builder, bundle author, copilot, and more.</td></tr>
+    <tr><td>Audit</td><td>SQLite (hash-chained)</td><td>Tamper-evident change log. Every mutation is recorded with a cryptographic chain.</td></tr>
+  </table>
+
+  <!-- ================================ SCENE 1 ================================ -->
+  <div class="scene s1">
+    <div class="scene-num">Scene 1 of 7</div>
+    <div class="duration">~3 min</div>
+    <h3>The Problem &amp; The Vision</h3>
+    <p>No screen yet. This is the pitch. Set the context before showing anything.</p>
+
+    <div class="say">
+      <b>What we built is a universal digital twin platform.</b> Not a digital twin for one building or one factory &mdash; a platform that can create a digital twin for <em>any</em> industry. HVAC, maritime, energy, data centres, hospitals. The key word is <b>universal</b>.
+      <br><br>
+      The problem with digital twins today is they're all custom. Every deployment is a bespoke engineering project. You need domain experts, you need months of integration, and you end up with something that only works for that one site.
+      <br><br>
+      We solved that with three ideas:
+      <br><br>
+      <b>First</b>, a formal ontology &mdash; 113 classes that describe the physical world. Equipment, sensors, spaces, findings, incidents, actions. Every entity in the system is governed by this ontology. Nothing enters the graph without passing a SHACL validation gate. This is what makes it universal &mdash; the ontology is the common language across all industries.
+      <br><br>
+      <b>Second</b>, capability bundles &mdash; plug-and-play industry packs. The HVAC pack adds air handlers and temperature rules. The Common Facilities Pack adds 82 classes for power, fire, security, water, and more. And here's the key: <b>these packs can be authored by conversation</b>. A domain expert talks to our AI, and a new industry vertical gets created. No code.
+      <br><br>
+      <b>Third</b>, an AI agent system. 20 agents across 4 teams that handle everything from onboarding a new twin to diagnosing an incident to scaffolding a platform extension. Every agent has a deterministic fallback, so the system works even without the AI &mdash; the AI makes it smarter, not dependent.
+    </div>
+
+    <div class="note">Pause. Let this land. Then say: "Let me show you."</div>
+  </div>
+
+  <!-- ================================ SCENE 2 ================================ -->
+  <div class="scene s2">
+    <div class="scene-num">Scene 2 of 7</div>
+    <div class="duration">~5 min</div>
+    <h3>The Closed Loop &mdash; Author a Bundle, Build a Twin</h3>
+    <p>This is the star demo. It proves the platform is self-extending.</p>
+
+    <div class="show">Show on screen</div>
+    <div class="show-item">Open the app at <code>http://localhost:8000</code></div>
+    <div class="show-item">Navigate to <b>Bundle Author</b> in the sidebar</div>
+    <div class="show-item">Type domain: <code>refrigeration</code>, bundle name: <code>Fridge Pack</code>, click Start</div>
+    <div class="show-item">In the chat, type: <code>cold storage facility with compressor units, temperature sensors, condenser coils. main fault is overheat when compressor fails</code></div>
+    <div class="show-item">Watch the 9-stage pipeline rail light up as each agent runs</div>
+    <div class="show-item">Point out the artifacts: ontology fragment (Turtle RDF), behavior models (Tier classification), rules (threshold), elicitation questions, asset manifest</div>
+    <div class="show-item">Click <b>Approve &amp; Publish</b> when the human gate appears</div>
+
+    <div class="say">
+      What you just saw is a domain expert &mdash; not a developer, not an ontologist &mdash; creating an entirely new industry vertical by having a conversation. Behind that conversation, <b>9 AI agents</b> ran in sequence:
+      <br><br>
+      The <b>Interviewer</b> extracted the entity catalogue. The <b>Ontology Drafter</b> wrote formal RDF. The <b>Behavior Modeler</b> classified the fault as Tier C. The <b>Rule Author</b> produced a threshold rule. The <b>Elicitation Designer</b> generated questions that the twin-building concierge will use for this domain in the future. The <b>Asset Curator</b> checked our 3D library. The <b>Linter</b> validated everything against the platform's freeze rules. And the <b>Publisher</b> signed and registered the bundle.
+      <br><br>
+      That bundle is now live in the registry. Watch what happens next.
+    </div>
+
+    <div class="show">Now show the closed loop</div>
+    <div class="show-item">Navigate to <b>Build a Twin</b></div>
+    <div class="show-item">Type: <code>build me a refrigeration monitoring twin for my cold storage warehouse</code></div>
+    <div class="show-item">Watch: Concierge &rarr; Classifier picks "refrigeration" &rarr; Composer loads the Fridge Pack you just published &rarr; Schema Mapper &rarr; Validator &rarr; Graph Writer commits</div>
+
+    <div class="say">
+      The <b>Concierge</b> understood the request. The <b>Domain Classifier</b> identified "refrigeration" and matched it to the bundle we authored 30 seconds ago. The <b>Capability Composer</b> loaded that exact bundle. The <b>Schema Mapper</b> converted it to ontology entities. The <b>Validator</b> ran SHACL checks. The <b>Graph Writer</b> committed it to Neo4j.
+      <br><br>
+      <b>The bundle we authored is now a live twin.</b> Step 1 created the vertical. Step 2 consumed it. That's the closed loop &mdash; and it's what makes this a platform, not a product.
+    </div>
+
+    <div class="flow-box">
+      <h4>The closed loop</h4>
+      <div class="seam">Bundle Author publishes &rarr; Registry &rarr; Composer loads it &rarr; Twin built from it &rarr; Feed fires the authored rule &rarr; Alert on dashboard</div>
+    </div>
+  </div>
+
+  <!-- ================================ SCENE 3 ================================ -->
+  <div class="scene s3">
+    <div class="scene-num">Scene 3 of 7</div>
+    <div class="duration">~4 min</div>
+    <h3>The Living Twin &mdash; Dashboard, Feed, Real-Time Findings</h3>
+    <p>Show the twin is alive and producing operational intelligence.</p>
+
+    <div class="show">Show on screen</div>
+    <div class="show-item">Navigate to <b>Dashboard</b></div>
+    <div class="show-item">Click <b>Start Feed</b> (top right area)</div>
+    <div class="show-item">Watch: entity count grows, findings appear, risk score climbs</div>
+    <div class="show-item">Point out the severity breakdown (critical / warning / info)</div>
+    <div class="show-item">Navigate to <b>Live Ops</b> &mdash; show the real-time event stream</div>
+    <div class="show-item">Navigate to <b>Asset Graph</b> &mdash; show the entities in the graph</div>
+
+    <div class="say">
+      The feed is simulating telemetry from the twin &mdash; temperature readings every half second. The platform's <b>Behavior Registry</b> is evaluating every sample against three tiers of anomaly detection:
+      <br><br>
+      <b>Tier C</b> &mdash; hand-written threshold rules. The one our bundle authored fires when temperature exceeds the setpoint by 3 degrees for 3 minutes.
+      <br><br>
+      <b>Tier B</b> &mdash; statistical baselines. A z-score model that learns what "normal" looks like and flags deviations.
+      <br><br>
+      <b>Tier A</b> &mdash; physics models. A first-principles thermal equation that detects when observed temperature violates the energy balance.
+      <br><br>
+      These three tiers work together. A threshold rule catches the obvious. The statistical baseline catches drift. The physics model catches what neither of them can see. And every finding is written through the <b>single write path</b> &mdash; SHACL validated, change-logged, and published to the event bus.
+    </div>
+  </div>
+
+  <!-- ================================ SCENE 4 ================================ -->
+  <div class="scene s4">
+    <div class="scene-num">Scene 4 of 7</div>
+    <div class="duration">~3 min</div>
+    <h3>AI Diagnosis &amp; Recommendations</h3>
+    <p>Show the LLM-powered operational intelligence layer.</p>
+
+    <div class="show">Show on screen</div>
+    <div class="show-item">Navigate to <b>AI Agents</b></div>
+    <div class="show-item">Show the diagnosis cards with root-cause hypotheses and confidence scores</div>
+    <div class="show-item">Show recommendations tagged <code>auto</code> vs <code>manual</code></div>
+    <div class="show-item">Navigate to <b>Change Log</b> &mdash; show the Diagnosis and Recommendation nodes in the audit trail</div>
+
+    <div class="say">
+      When findings accumulate, the platform groups them into an <b>Incident</b>. Then our <b>Diagnosis Agent</b> runs &mdash; an LLM that reasons over the finding patterns, the graph topology (what's downstream of the affected equipment), and past incidents. It produces <b>ranked root-cause hypotheses with confidence scores</b>.
+      <br><br>
+      Then the <b>Recommender Agent</b> takes that diagnosis and produces <b>actionable recommendations</b>. Each one is tagged "auto" &mdash; the system can handle it &mdash; or "manual" &mdash; a human needs to act. And there's an <b>advisory-only lock</b>: this agent can never actuate, only recommend. Safety-critical decisions stay with humans.
+      <br><br>
+      This entire chain &mdash; finding, incident, diagnosis, recommendation, action &mdash; is <b>written to the graph through the same validated write path</b>. It's auditable, it's traceable, it's tamper-evident. Every decision the AI made is in the change log.
+    </div>
+  </div>
+
+  <!-- ================================ SCENE 5 ================================ -->
+  <div class="scene s5">
+    <div class="scene-num">Scene 5 of 7</div>
+    <div class="duration">~3 min</div>
+    <h3>Platform Extension &mdash; Plugin SDK &amp; Accelerator Packs</h3>
+    <p>Show that the platform is extensible by engineers, not just domain experts.</p>
+
+    <div class="show">Show on screen</div>
+    <div class="show-item">Navigate to <b>Plugin SDK</b></div>
+    <div class="show-item">Click Start, type: <code>I want a behavior plugin for vibration monitoring on pumps</code></div>
+    <div class="show-item">Show the generated Python code with the Behavior base class contract</div>
+    <div class="show-item">Navigate to <b>Accelerators</b></div>
+    <div class="show-item">Click Start, type: <code>build an HVAC accelerator pack for commercial buildings</code></div>
+    <div class="show-item">Show the assembled manifest with bundles, adapters, and compliance docs</div>
+
+    <div class="say">
+      The Bundle Author lets domain experts create verticals. But what about platform engineers who want to extend the platform itself?
+      <br><br>
+      The <b>Plugin Scaffolder</b> generates SDK boilerplate for six extension points: data adapters, behavior models, visualization panels, webhooks, data transforms, and auth middleware. An engineer says what they want, and they get a code skeleton that follows the platform's contracts. They write the logic; the platform provides the structure.
+      <br><br>
+      The <b>Accelerator Pack Composer</b> goes one level higher. It assembles multiple bundles, adapters, and compliance documents into a <b>Solution Accelerator Pack</b> &mdash; like a pre-packaged "Maritime SAP" or "HVAC SAP" that a consortium lead drops into a bid. It selects relevant bundles from the registry, identifies adapter needs, and produces a tender-ready manifest.
+    </div>
+  </div>
+
+  <!-- ================================ SCENE 6 ================================ -->
+  <div class="scene s6">
+    <div class="scene-num">Scene 6 of 7</div>
+    <div class="duration">~4 min</div>
+    <h3>The Architecture &mdash; Why This Works</h3>
+    <p>Pull back from features to the engineering principles. This is what makes it credible.</p>
+
+    <div class="show">Show on screen</div>
+    <div class="show-item">Navigate to <b>Change Log</b> &mdash; show hash-chained entries</div>
+    <div class="show-item">Open the Neo4j browser at <code>http://localhost:7474</code> &mdash; run <code>MATCH (n) RETURN n LIMIT 50</code> to show the graph</div>
+    <div class="show-item">Show <code>http://localhost:8000/api/v1/schema/types</code> in the browser &mdash; the full type vocabulary</div>
+    <div class="show-item">Show <code>http://localhost:8000/api/v1/health</code> &mdash; healthy status with Neo4j + Redis</div>
+
+    <div class="say">
+      Five disciplines hold this together:
+      <br><br>
+      <b>One: Single write path.</b> Only the Graph Writer mutates Neo4j. Every mutation passes through a SHACL validation gate. No agent, no API endpoint, no UI action can bypass it. This is why the change log is a faithful record &mdash; because there's only one door.
+      <br><br>
+      <b>Two: Ontology governance.</b> 113 classes across a formal ontology grounded in BFO and SOSA &mdash; ISO and W3C standards. Ten closed taxonomy categories, machine-enforced. You literally cannot add an 11th category without failing the governance check. The ontology isn't documentation; it's a runtime contract.
+      <br><br>
+      <b>Three: State, not calls.</b> Agents never call each other. They read and write a shared state object, and the graph decides who runs next. This means you can add, remove, or reorder agents without touching any other agent's code.
+      <br><br>
+      <b>Four: Tenant isolation.</b> Every entity, every finding, every event, every bus stream is scoped to a tenant. Multi-twin on a single platform instance.
+      <br><br>
+      <b>Five: Graceful degradation.</b> No API key? Agents use deterministic stubs. Neo4j down? The app loads in degraded mode. Redis down? In-memory event bus. Every external dependency has a fallback.
+    </div>
+  </div>
+
+  <!-- ================================ SCENE 7 ================================ -->
+  <div class="scene s7">
+    <div class="scene-num">Scene 7 of 7</div>
+    <div class="duration">~3 min</div>
+    <h3>What's Next &mdash; The Roadmap</h3>
+    <p>End with the forward view. Show you know what's missing and have a plan.</p>
+
+    <div class="say">
+      What we've built is the <b>complete agent system</b> &mdash; all 20 agents, all 4 teams, the closed loop, the operational intelligence layer, and the platform extension tools. But we know what's next:
+      <br><br>
+      <b>Near-term</b> &mdash; a real Copilot that operators can talk to, with tools that query the live graph. Drag-and-drop floor plan upload so the Vision Agent can extract assets from images. Real-time WebSocket streaming instead of polling.
+      <br><br>
+      <b>Medium-term</b> &mdash; MQTT and OPC-UA adapters for real industrial protocols. Machine-learning Tier-B behaviors for predictive maintenance. Compliance modelling for ISO 55000 and IEC 62443. What-if simulation by forking twins into scenarios.
+      <br><br>
+      <b>Long-term</b> &mdash; a Three.js 3D renderer so operators see their facility, not just data about it. Temporal workflows for crash-resilient agent sessions. Edge deployment for safety-critical rules. And full authentication with role-based access.
+      <br><br>
+      The foundation is in place. The ontology governs. The agents reason. The write path is auditable. Everything from here is additive &mdash; we extend the platform, we don't rebuild it.
+    </div>
+
+    <div class="note">End with: "Happy to take questions."</div>
+  </div>
+
+  <!-- ================================ CHEAT SHEET ================================ -->
+  <h2>Quick-reference cheat sheet</h2>
+  <p>Keep this open on a second screen during the presentation.</p>
+
+  <h4>URLs to have open</h4>
+  <table>
+    <tr><td><code>http://localhost:8000</code></td><td>The app (all panels)</td></tr>
+    <tr><td><code>http://localhost:7474</code></td><td>Neo4j browser (show the graph)</td></tr>
+    <tr><td><code>http://localhost:8000/api/v1/health</code></td><td>Health check (show connected status)</td></tr>
+    <tr><td><code>http://localhost:8000/api/v1/schema/types</code></td><td>Full type vocabulary (113 classes)</td></tr>
+    <tr><td><code>http://localhost:8000/api/v1/agents/info</code></td><td>Agent gateway + registry status</td></tr>
+  </table>
+
+  <h4>Demo inputs to copy-paste</h4>
+  <table>
+    <tr><th>Scene</th><th>Input</th></tr>
+    <tr><td>Bundle Author</td><td><code>cold storage facility with compressor units, temperature sensors, condenser coils. main fault is overheat when compressor fails</code></td></tr>
+    <tr><td>Build a Twin</td><td><code>build me a refrigeration monitoring twin for my cold storage warehouse</code></td></tr>
+    <tr><td>Plugin SDK</td><td><code>I want a behavior plugin for vibration monitoring on pumps</code></td></tr>
+    <tr><td>Accelerators</td><td><code>build an HVAC accelerator pack for commercial buildings</code></td></tr>
+  </table>
+
+  <h4>The 20 agents (in case someone asks)</h4>
+  <table>
+    <tr><th>Team</th><th>Agents</th><th>Count</th></tr>
+    <tr>
+      <td>1 &middot; Twin-Building</td>
+      <td>Concierge, Domain Classifier, Vision Agent, Capability Composer, Schema Mapper, Validator, Graph Writer, Scene Generator</td>
+      <td>8</td>
+    </tr>
+    <tr>
+      <td>2 &middot; Runtime</td>
+      <td>Context Gatherer, Diagnosis Agent, Recommender Agent</td>
+      <td>3</td>
+    </tr>
+    <tr>
+      <td>3 &middot; Bundle Authoring</td>
+      <td>Interviewer, Ontology Drafter, Behavior Modeler, Rule Author, Elicitation Designer, Asset Curator, Linter, Approval Gate, Publisher</td>
+      <td>9</td>
+    </tr>
+    <tr>
+      <td>4 &middot; Platform Extension</td>
+      <td>Plugin Interviewer, Plugin Scaffolder, Pack Interviewer, Bundle Selector, Pack Assembler</td>
+      <td>5</td>
+    </tr>
+  </table>
+
+  <h4>Numbers to drop</h4>
+  <table>
+    <tr><td>Total agents</td><td><b>20</b> (with 5 sub-nodes in Team 4 = 25 graph nodes total)</td></tr>
+    <tr><td>Ontology classes</td><td><b>113</b> (27 core + 82 CFP + 4 HVAC + authored)</td></tr>
+    <tr><td>API endpoints</td><td><b>47</b></td></tr>
+    <tr><td>Taxonomy categories</td><td><b>10</b> (closed, machine-enforced)</td></tr>
+    <tr><td>Behavior tiers</td><td><b>3</b> (A: physics, B: statistical, C: rules)</td></tr>
+    <tr><td>Extension points</td><td><b>6</b> (adapter, behavior, view, webhook, transform, auth)</td></tr>
+    <tr><td>SHACL gate tests</td><td><b>7/7</b> passing</td></tr>
+    <tr><td>Lines of backend code</td><td><b>~5,000</b> Python</td></tr>
+    <tr><td>Lines of frontend code</td><td><b>~3,000</b> JSX/JS</td></tr>
+  </table>
+
+  <h4>If the boss asks tough questions</h4>
+  <table>
+    <tr><th>Question</th><th>Answer</th></tr>
+    <tr><td>"What if the AI is wrong?"</td><td>Every agent has a deterministic fallback. The system works without AI; the AI makes it smarter. Safety-critical decisions (bundle publish, rule authoring) always require human approval. The advisory-only lock prevents the Recommender from ever actuating.</td></tr>
+    <tr><td>"How is this different from existing digital twins?"</td><td>Existing twins are bespoke. Ours is a platform &mdash; new industries are added by conversation, not code. The closed loop (author a bundle &rarr; build a twin from it) is the proof.</td></tr>
+    <tr><td>"What about security / compliance?"</td><td>Every mutation is SHACL-validated and hash-chain logged. Tenant isolation is enforced at every layer. RBAC is on the roadmap. The audit trail is tamper-evident by design.</td></tr>
+    <tr><td>"Can this scale?"</td><td>Neo4j handles millions of nodes. Redis Streams handle thousands of events/sec. The checkpointer can swap to Temporal for crash-resilient workflows. The architecture is designed for it; the current deployment is a demo.</td></tr>
+    <tr><td>"What's left to build?"</td><td>3D visualisation (Three.js), real telemetry adapters (MQTT/OPC-UA), predictive ML behaviors, compliance modelling, and auth. All additive &mdash; the foundation doesn't change.</td></tr>
+  </table>
+
+  <div class="meta">NextXR Presentation Storyboard &middot; 7 scenes, ~25 minutes &middot; prepared for leadership review</div>
+
+</div>
+</body>
+</html>
