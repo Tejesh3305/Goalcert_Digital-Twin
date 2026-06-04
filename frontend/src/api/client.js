@@ -70,10 +70,17 @@ export const api = {
   assetTypes: () => request('/schema/asset-types'),
   schemaVersion: () => request('/schema/version'),
   classProperties: (name) => request(`/schema/class/${encodeURIComponent(name)}/properties`),
+  // How a class behaves: dynamics archetype + params + monitoring rules (binding layer).
+  classBehavior: (name) => request(`/schema/class/${encodeURIComponent(name)}/behavior`),
+  // The behaviour archetype catalog (generative dynamics archetypes + monitoring kinds).
+  archetypes: () => request('/schema/archetypes'),
 
   // ── Feed ──
   feedStatus: () => request('/feed/status'),
-  startFeed: (tenant) => request(`/feed/start?${qs({ tenant })}`, { method: 'POST' }),
+  // mode: 'scripted' (canned profiles) | 'dynamics' (generative coupled engine).
+  // speed: dynamics time multiplier (sim-seconds per real second).
+  startFeed: (tenant, mode = 'scripted', speed = 60) =>
+    request(`/feed/start?${qs({ tenant, mode, speed })}`, { method: 'POST' }),
   stopFeed: () => request('/feed/stop', { method: 'POST' }),
 
   // ── Live event stream URL (for EventSource) ──

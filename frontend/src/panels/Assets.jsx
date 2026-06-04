@@ -142,6 +142,70 @@ function EntityDetail({ tenant, entity, onChanged }) {
               </div>
             ))}
       </Card>
+
+      <BehaviorCard canonicalType={node.canonicalType} />
     </div>
+  )
+}
+
+/** How this entity behaves — its generative dynamics archetype + parameters and
+ *  the monitoring rules watching it, resolved from the binding layer (the core's
+ *  class→behaviour catalog). This is what makes the twin "alive": the archetype
+ *  produces telemetry; the rules raise Findings when it misbehaves. */
+function BehaviorCard({ canonicalType }) {
+  const { data, loading, error } = useApi(
+    () => api.classBehavior(canonicalType), [canonicalType], { skip: !canonicalType },
+  )
+  if (!canonicalType) return null
+  const dyn = data?.dynamics
+  const params = dyn?.params || {}
+  const mon = data?.monitoring || []
+  const sevColor = (s) => ({ critical: 'var(--accent-red)', warning: 'var(--accent-amber)' }[s] || 'var(--accent-blue)')
+
+  return (
+    <Card title={<><i className="ti ti-activity-heartbeat" style={{ marginRight: 6 }} />How it behaves</>}>
+      {loading && <div className="muted" style={{ fontSize: 11 }}>Resolving behaviour…</div>}
+      {error && <div className="muted" style={{ fontSize: 11 }}>No behaviour profile.</div>}
+      {data && (
+        <div style={{ fontSize: 11 }}>
+          <div style={{ marginBottom: 10 }}>
+            <span style={{ color: 'var(--muted)' }}>Dynamics archetype</span><br />
+            {dyn?.archetype
+              ? <span className="pill pill-blue" style={{ marginTop: 3, display: 'inline-block' }}>{dyn.archetype}</span>
+              : <span className="muted">none — no generated telemetry</span>}
+          </div>
+
+          {Object.keys(params).length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <span style={{ color: 'var(--muted)' }}>Parameters (defaults — overridden by node properties)</span>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 4 }}>
+                {Object.entries(params).map(([k, v]) => (
+                  <div key={k}><span style={{ color: 'var(--hint)' }}>{k}</span> <b>{String(v)}</b></div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <span style={{ color: 'var(--muted)' }}>Monitoring ({mon.length})</span>
+            {mon.length === 0
+              ? <div className="muted" style={{ marginTop: 3 }}>No monitors bound to this class.</div>
+              : mon.map((r, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+                    <span className="pill" style={{ background: sevColor(r.severity), color: '#fff' }}>{r.kind}</span>
+                    <span className="mono" style={{ fontSize: 10 }}>{localName(r.watches)}</span>
+                    {r.message && <span style={{ color: 'var(--muted)' }}>— {r.message}</span>}
+                  </div>
+                ))}
+          </div>
+
+          {data.boundOn && (
+            <div className="muted" style={{ marginTop: 10, fontSize: 10 }}>
+              inherited from <b>{localName(data.boundOn)}</b>
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
   )
 }
