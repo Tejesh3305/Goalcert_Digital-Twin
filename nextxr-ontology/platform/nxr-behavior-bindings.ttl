@@ -1,0 +1,243 @@
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix hvac: <https://ontology.nextxr.io/v3/hvac#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  NEXTXR BEHAVIOR BINDING LAYER  —  the class→behavior catalog
+#
+#  This is the single resource an agent reads to give an entity its
+#  behaviour. For each ontology CLASS it declares:
+#    nxr:dynamicsArchetype  — which generative physics archetype drives it
+#    nxr:archetypeParams    — default parameters (JSON), overridable per
+#                             instance by node properties, or per vertical by a
+#                             bundle 'dynamics' block
+#    nxr:monitoringRules    — the detective rules (JSON list of rule dicts) that
+#                             watch its signals and raise Findings
+#
+#  >>> NOT FROZEN. This layer is APPENDED to (downward) by packs and agents; it
+#  never edits the frozen ontology. Bindings are subclass-aware: a binding on a
+#  base class (e.g. cfp:FacilityEquipment) is the default for every subclass
+#  unless a more specific binding overrides it. The ontology + core stay the
+#  same across every twin; per-twin specifics live on the Neo4j nodes.
+#
+#  Coverage here: the spine + the universal fallback. Full CFP coverage is
+#  authored class-by-class in this same file.
+#################################################################
+
+### Annotation properties (so the binding triples are well-typed) ###
+nxr:dynamicsArchetype a owl:AnnotationProperty ;
+    rdfs:label "dynamics archetype" ;
+    skos:definition "Name of the generative DynamicsModel archetype that drives instances of this class (e.g. 'ThermalTransferDevice'). Resolved by the dynamics engine via the archetype registry." .
+
+nxr:archetypeParams a owl:AnnotationProperty ;
+    rdfs:label "archetype parameters" ;
+    skos:definition "Default parameters for the dynamics archetype, as a JSON object string. Overridden by per-instance node properties and per-vertical bundle dynamics blocks." .
+
+nxr:monitoringRules a owl:AnnotationProperty ;
+    rdfs:label "monitoring rules" ;
+    skos:definition "The detective monitoring rules for this class, as a JSON array of rule dicts (kind/watches/params), instantiated as live Behaviors by behaviors.archetypes.make_behavior." .
+
+#################################################################
+#  UNIVERSAL FALLBACK
+#  Every FacilityEquipment subclass without a more specific binding gets a
+#  believable constant-load model so the twin is never silent.
+#################################################################
+cfp:FacilityEquipment
+    nxr:dynamicsArchetype "DefaultEquipment" ;
+    nxr:archetypeParams """{"baseLoadKW": 1.0}""" .
+
+#################################################################
+#  SPATIAL — the coupling medium
+#################################################################
+cfp:Zone
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2": 100, "ceilingHeightM": 3.0, "thermalMassFactor": 5.0, "lightingWperM2": 8.0, "wattsPerPerson": 100}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.zone_overtemp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/cfp#temperature","setpoint_from_graph":true,"offset":3.0,"duration_minutes":5,"direction":"above","severity":"warning","message":"Zone temperature above setpoint"},
+      {"behavior_id":"cfp.zone_co2_high","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#airQualityIndex","bound":1000,"direction":"above","severity":"warning","message":"Zone CO2 high"}
+    ]""" .
+
+cfp:Room  nxr:dynamicsArchetype "SpaceThermal" .
+cfp:Floor nxr:dynamicsArchetype "SpaceThermal" .
+
+#################################################################
+#  ELECTRICAL CHAIN
+#################################################################
+cfp:UtilityFeed
+    nxr:dynamicsArchetype "PowerSource" ;
+    nxr:archetypeParams """{"nominalVoltage": 400, "outageRatePerHour": 0.0}""" .
+
+cfp:Transformer
+    nxr:dynamicsArchetype "ElectricalConverter" ;
+    nxr:archetypeParams """{"ratedCapacity": 1000, "powerFactor": 0.95, "oilRiseRated": 55, "oilWarn": 85, "oilTrip": 95}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.transformer_over_temp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/cfp#oilTemperature","bound":85,"duration_minutes":2,"direction":"above","severity":"critical","message":"Transformer oil over-temperature"}
+    ]""" .
+
+cfp:UPS
+    nxr:dynamicsArchetype "EnergyStore" ;
+    nxr:archetypeParams """{"batteryEnergyKWh": 20, "inverterEff": 0.95, "peukert": 1.2}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.ups_on_battery","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#upsSoC","bound":95,"direction":"below","severity":"critical","message":"UPS on battery (mains may be lost)"}
+    ]""" .
+
+#################################################################
+#  HVAC PLANT
+#################################################################
+cfp:Chiller
+    nxr:dynamicsArchetype "ThermalTransferDevice" ;
+    nxr:archetypeParams """{"ratedCapacity": 500, "chwSetpoint": 7.0, "condenserTemp": 35, "secondLawEff": 0.5}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.chiller_cop_baseline","kind":"zscore","watches":"https://ontology.nextxr.io/v3/cfp#chillerCOP","warmup":15,"z_threshold":2.5,"side":"low","severity":"warning","message":"Chiller efficiency (COP) drift"}
+    ]""" .
+
+cfp:AirHandlingUnit
+    nxr:dynamicsArchetype "AirHandler" ;
+    nxr:archetypeParams """{"setpoint": 22.0, "ratedAirflowLps": 2000, "ratedFanKW": 15, "coilEffectiveness": 0.7, "filterDPClean": 120}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.filter_clogged","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#filterDeltaP","bound":300,"direction":"above","severity":"warning","message":"Air filter clogged (high differential pressure)"}
+    ]""" .
+
+hvac:AirHandler
+    nxr:dynamicsArchetype "AirHandler" ;
+    nxr:archetypeParams """{"setpoint": 22.0}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hvac.temp_threshold","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hvac#AirTemperature","setpoint_from_graph":true,"offset":3.0,"duration_minutes":3,"direction":"above","severity":"critical","message":"Supply air temperature exceeded setpoint+3"},
+      {"behavior_id":"hvac.temp_zscore","kind":"zscore","watches":"https://ontology.nextxr.io/v3/hvac#AirTemperature","warmup":12,"z_threshold":3.0,"side":"both","severity":"warning","message":"Air temperature deviates from learned baseline"}
+    ]""" .
+
+#################################################################
+#  IT / COMPUTE
+#################################################################
+cfp:Server
+    nxr:dynamicsArchetype "ComputeLoad" ;
+    nxr:archetypeParams """{"idlePowerKW": 0.2, "maxPowerKW": 0.8, "throttleTempC": 30, "tripTempC": 40}""" .
+
+cfp:EdgeNode
+    nxr:dynamicsArchetype "ComputeLoad" ;
+    nxr:archetypeParams """{"idlePowerKW": 0.05, "maxPowerKW": 0.2}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.heartbeat_loss","kind":"state","watches":"https://ontology.nextxr.io/v3/cfp#heartbeat","compare":"missing","severity":"warning","message":"Edge node heartbeat lost"}
+    ]""" .
+
+#################################################################
+#  FULL CFP COVERAGE  (Phase C-cont)
+#  Every physical-asset / sensor class bound to an archetype + (where it mirrors
+#  an existing monitor) a monitoring profile. Signal IRIs match what the
+#  archetypes emit. Subclasses without an entry inherit via subClassOf.
+#################################################################
+
+### HVAC plant ###
+cfp:Boiler          nxr:dynamicsArchetype "ThermalTransferDevice" ;
+    nxr:archetypeParams """{"mode":"heating","ratedCapacity":400,"chwSetpoint":70,"condenserTemp":20,"secondLawEff":0.6}""" .
+cfp:CoolingTower    nxr:dynamicsArchetype "ThermalTransferDevice" ;
+    nxr:archetypeParams """{"ratedCapacity":600,"chwSetpoint":29,"condenserTemp":35}""" .
+cfp:PrecisionCooler nxr:dynamicsArchetype "AirHandler" ;
+    nxr:archetypeParams """{"setpoint":24,"ratedAirflowLps":1500,"ratedFanKW":8}""" .
+cfp:FanCoilUnit     nxr:dynamicsArchetype "AirHandler" ;
+    nxr:archetypeParams """{"setpoint":22,"ratedAirflowLps":300,"ratedFanKW":0.5}""" .
+cfp:VAVBox          nxr:dynamicsArchetype "AirHandler" ;
+    nxr:archetypeParams """{"setpoint":22,"ratedAirflowLps":200,"ratedFanKW":0.2}""" .
+cfp:Pump            nxr:dynamicsArchetype "FluidMover" ;
+    nxr:archetypeParams """{"ratedFlowLps":50,"ratedHeadM":30,"ratedPowerKW":15}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.pump_vibration_baseline","kind":"zscore","watches":"https://ontology.nextxr.io/v3/cfp#vibration","warmup":15,"z_threshold":2.5,"side":"high","severity":"warning","message":"Pump vibration above learned baseline"}]""" .
+cfp:AirFilter       nxr:dynamicsArchetype "DefaultEquipment" .
+
+### Electrical ###
+cfp:Switchgear      nxr:dynamicsArchetype "Aggregator" .
+cfp:PowerPanel      nxr:dynamicsArchetype "Aggregator" .
+cfp:Circuit         nxr:dynamicsArchetype "Aggregator" .
+cfp:EnergyMeter     nxr:dynamicsArchetype "Aggregator" .
+cfp:TransferSwitch  nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:Generator       nxr:dynamicsArchetype "PrimeMover" ;
+    nxr:archetypeParams """{"fuelCapacityL":1000,"idleBurnLph":5,"burnLpkWh":0.25}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.generator_fuel_low","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#fuelLevel","bound":20,"direction":"below","severity":"warning","message":"Generator fuel low"}]""" .
+cfp:BatteryStorage  nxr:dynamicsArchetype "EnergyStore" ;
+    nxr:archetypeParams """{"batteryEnergyKWh":100,"inverterEff":0.92}""" .
+cfp:SolarArray      nxr:dynamicsArchetype "DefaultEquipment" .
+
+### Fire / life-safety ###
+cfp:SmokeDetector       nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#smokeObscuration","baseline":0.5,"alarmValue":6.0,"noise":0.1,"eventRatePerHour":0.0,"eventDurationMin":5}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.smoke_alarm","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#smokeObscuration","bound":3.0,"direction":"above","severity":"critical","message":"Smoke detected"}]""" .
+cfp:AspiratingDetector  nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#smokeObscuration","baseline":0.3,"alarmValue":5.0,"noise":0.05}""" .
+cfp:HeatDetector        nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#temperature","noise":0.2,"fallback":24}""" .
+cfp:FlameDetector       nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#flameSignal","baseline":0.0,"alarmValue":1.0}""" .
+cfp:FireAlarmPanel      nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:SuppressionSystem   nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:FireDamper          nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:EmergencyExit       nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:Extinguisher        nxr:dynamicsArchetype "DefaultEquipment" .
+
+### Security ###
+cfp:AccessDoor      nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#doorState","baseline":0.0,"alarmValue":1.0,"eventRatePerHour":0.0,"eventDurationMin":1}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.door_forced","kind":"state","watches":"https://ontology.nextxr.io/v3/cfp#doorState","alarm_value":1.0,"compare":"eq","severity":"warning","message":"Door forced open"}]""" .
+cfp:AccessReader    nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#accessDeny","baseline":0.0,"alarmValue":1.0,"eventRatePerHour":0.0}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.repeated_deny","kind":"state","watches":"https://ontology.nextxr.io/v3/cfp#accessDeny","alarm_value":1.0,"compare":"eq","count_in_window":3,"window_minutes":5,"severity":"warning","message":"Repeated access denials"}]""" .
+cfp:IntrusionSensor nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#doorState","baseline":0.0,"alarmValue":1.0}""" .
+cfp:Camera          nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#heartbeat","baseline":1.0,"alarmValue":0.0,"eventRatePerHour":0.0}""" .
+cfp:BoomBarrier     nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:SecurityPanel   nxr:dynamicsArchetype "DefaultEquipment" .
+
+### Water ###
+cfp:WaterTank       nxr:dynamicsArchetype "StorageVessel" ;
+    nxr:archetypeParams """{"capacityL":20000,"initialLevelPct":80,"demandLps":0.3,"leakLps":2.0}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.tank_low_level","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#tankLevel","bound":20,"direction":"below","severity":"warning","message":"Water tank level low"}]""" .
+cfp:WaterPump       nxr:dynamicsArchetype "FluidMover" ;
+    nxr:archetypeParams """{"ratedFlowLps":40,"ratedHeadM":40,"ratedPowerKW":11}""" .
+cfp:SumpPump        nxr:dynamicsArchetype "FluidMover" ;
+    nxr:archetypeParams """{"ratedFlowLps":20,"ratedHeadM":10,"ratedPowerKW":3}""" .
+cfp:WaterMeter      nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#flowRate","noise":0.05,"fallback":1.0}""" .
+cfp:LeakSensor      nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/cfp#leakState","baseline":0.0,"alarmValue":1.0,"eventRatePerHour":0.0}""" ;
+    nxr:monitoringRules """[{"behavior_id":"cfp.leak_detected","kind":"state","watches":"https://ontology.nextxr.io/v3/cfp#leakState","alarm_value":1.0,"compare":"eq","severity":"critical","message":"Water leak detected"}]""" .
+cfp:Valve               nxr:dynamicsArchetype "DefaultEquipment" .
+cfp:WaterTreatmentPlant nxr:dynamicsArchetype "DefaultEquipment" .
+
+### Vertical transport ###
+cfp:Elevator      nxr:dynamicsArchetype "DiscreteTransport" ;
+    nxr:archetypeParams """{"floorCount":10,"maxTripsPerHour":80,"movingKW":12}""" .
+cfp:Escalator     nxr:dynamicsArchetype "DiscreteTransport" ;
+    nxr:archetypeParams """{"floorCount":1,"maxTripsPerHour":200,"movingKW":8}""" .
+cfp:RollerShutter nxr:dynamicsArchetype "DiscreteTransport" ;
+    nxr:archetypeParams """{"floorCount":1,"maxTripsPerHour":10,"movingKW":2}""" .
+cfp:AutomaticDoor nxr:dynamicsArchetype "DiscreteTransport" ;
+    nxr:archetypeParams """{"floorCount":1,"maxTripsPerHour":120,"movingKW":0.5}""" .
+
+### Environmental sensors (derived observers) ###
+cfp:TemperatureSensor nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#temperature","noise":0.2,"fallback":22}""" .
+cfp:HumiditySensor    nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#relativeHumidity","noise":1.0,"fallback":50}""" .
+cfp:AirQualitySensor  nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#airQualityIndex","noise":5,"fallback":450}""" .
+cfp:OccupancySensor   nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#occupancyCount","noise":0,"fallback":0}""" .
+cfp:LightSensor       nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#illuminance","noise":10,"fallback":400}""" .
+cfp:NoiseSensor       nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#soundLevel","noise":2,"fallback":45}""" .
+cfp:WaterQualitySensor nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#waterQuality","noise":1,"fallback":7}""" .
+cfp:VibrationSensor   nxr:dynamicsArchetype "DerivedObserver" ;
+    nxr:archetypeParams """{"observes":"https://ontology.nextxr.io/v3/cfp#vibration","noise":0.1,"fallback":2.5}""" .
+
+### ICT / network ###
+cfp:NetworkSwitch nxr:dynamicsArchetype "ComputeLoad" ;
+    nxr:archetypeParams """{"idlePowerKW":0.1,"maxPowerKW":0.3}""" .
+cfp:WirelessAP    nxr:dynamicsArchetype "ComputeLoad" ;
+    nxr:archetypeParams """{"idlePowerKW":0.02,"maxPowerKW":0.05}""" .
+cfp:VideoRecorder nxr:dynamicsArchetype "ComputeLoad" ;
+    nxr:archetypeParams """{"idlePowerKW":0.15,"maxPowerKW":0.4}""" .
+cfp:FibreSegment  nxr:dynamicsArchetype "DefaultEquipment" .

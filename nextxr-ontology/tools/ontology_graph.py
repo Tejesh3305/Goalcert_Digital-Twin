@@ -50,6 +50,15 @@ GOVERNANCE_FILES = [
     "platform/nxr-governance.ttl",
 ]
 
+# Behavior binding layer (NON-FROZEN): class -> dynamics archetype + params +
+# monitoring rules. Pure class-level annotations (inert for SHACL: they add no
+# shapes and declare no new classes), so loading them into the shared graph is
+# safe for the gate and lets SchemaService.behavior_profile() answer
+# "how does this class behave?" from the same surface as "what is legal?".
+BINDING_FILES = [
+    "platform/nxr-behavior-bindings.ttl",
+]
+
 ALL_FILES = PLATFORM_FILES + PACK_FILES
 
 
@@ -65,7 +74,7 @@ def build_graph(include_packs=True, reason=False):
     OWL-RL closure so subclass/inverse/transitive facts are explicit."""
     g = Graph()
     g.bind("nxr", NXR_CORE)
-    files = PLATFORM_FILES + (PACK_FILES if include_packs else [])
+    files = PLATFORM_FILES + (PACK_FILES if include_packs else []) + BINDING_FILES
     for rel in files:
         path = ROOT / rel
         if path.exists():

@@ -74,6 +74,36 @@ def class_properties(name: str):
         raise HTTPException(status_code=404, detail=str(e))
 
 
+@router.get("/class/{name}/behavior")
+def class_behavior(name: str):
+    """How a class behaves: its dynamics archetype + default params and monitoring
+    rules, from the binding layer (subclass-aware). The agent-facing 'how does X
+    behave?' surface used when composing/authoring a twin."""
+    try:
+        return _get_svc().behavior_profile(name)
+    except KeyError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/archetypes")
+def archetypes():
+    """The behaviour archetype catalog an agent picks from: generative dynamics
+    archetypes (what each produces/consumes) + the monitoring rule kinds. This is
+    the menu of reusable, parameterizable behaviours — no code per asset."""
+    out = {"dynamics": [], "monitoring_kinds": []}
+    try:
+        from dynamics import build_dynamics_registry
+        out["dynamics"] = build_dynamics_registry().describe()
+    except Exception as e:
+        out["dynamics_error"] = str(e)
+    try:
+        from behaviors.archetypes import _KINDS
+        out["monitoring_kinds"] = sorted(_KINDS.keys())
+    except Exception as e:
+        out["monitoring_error"] = str(e)
+    return out
+
+
 @router.get("/asset-types")
 def asset_types():
     """Instantiable entity types across core + packs, grouped by taxonomy

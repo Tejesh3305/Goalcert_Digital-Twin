@@ -21,6 +21,7 @@ A thin HTTP surface over this lives in schema_api.py.
 
 from __future__ import annotations
 
+import json
 from dataclasses import asdict
 from functools import lru_cache
 from typing import Dict, List, Optional
@@ -34,6 +35,7 @@ import gate
 
 NXR = NXR_CORE
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
+CFP = "https://ontology.nextxr.io/v3/cfp#"
 OWL_NS = str(OWL)
 
 # Logical characteristics we surface on predicates.
@@ -192,6 +194,45 @@ class SchemaService:
             "stateMachine": self._state_machine(sm) if sm else None,
         }
 
+    # ---------- "how does this class behave?" (the binding layer) ----------
+    def behavior_profile(self, class_name: str) -> Dict:
+        """Resolve a class's behaviour binding: its dynamics archetype + default
+        params and its monitoring rules, walking rdfs:subClassOf for the nearest
+        binding (so subclasses inherit, packs/agents override). This is the
+        agent-facing 'how does X behave?' surface, paired with legal_types/
+        properties_of ('what is X?'). Reads the nxr-behavior-bindings layer."""
+        iri = self._resolve(class_name)
+        if iri is None:
+            raise KeyError(f"Unknown class: {class_name}")
+        DYN = URIRef(NXR + "dynamicsArchetype")
+        PARAMS = URIRef(NXR + "archetypeParams")
+        MON = URIRef(NXR + "monitoringRules")
+        seen, frontier = set(), [URIRef(iri)]
+        while frontier:
+            cur = frontier.pop(0)
+            if cur in seen:
+                continue
+            seen.add(cur)
+            arch = self.g.value(cur, DYN)
+            if arch is not None:
+                def _j(p, d):
+                    v = self.g.value(cur, p)
+                    if not v:
+                        return d
+                    try:
+                        return json.loads(str(v))
+                    except Exception:
+                        return d
+                return {
+                    "class": _qname(iri), "iri": iri,
+                    "boundOn": _qname(str(cur)),
+                    "dynamics": {"archetype": str(arch), "params": _j(PARAMS, {})},
+                    "monitoring": _j(MON, []),
+                }
+            frontier.extend(self.g.objects(cur, RDFS.subClassOf))
+        return {"class": _qname(iri), "iri": iri, "boundOn": None,
+                "dynamics": None, "monitoring": []}
+
     # ---------- delegate to the write gate ----------
     def validate(self, mutation) -> Dict:
         result = gate.validate(mutation)
@@ -227,11 +268,17 @@ class SchemaService:
             iri = NXR + name[4:]
         elif name.startswith("hvac:"):
             iri = HVAC + name[5:]
+        elif name.startswith("cfp:"):
+            iri = CFP + name[4:]
         else:
             iri = NXR + name  # bare name defaults to core
         if (URIRef(iri), RDF.type, OWL.Class) in self.g:
             return iri
-        # fall back: try hvac namespace for a bare name
+        # fall back: try cfp then hvac namespace for a bare name
+        for ns in (CFP, HVAC):
+            alt = ns + name
+            if (URIRef(alt), RDF.type, OWL.Class) in self.g:
+                return alt
         alt = HVAC + name
         if (URIRef(alt), RDF.type, OWL.Class) in self.g:
             return alt

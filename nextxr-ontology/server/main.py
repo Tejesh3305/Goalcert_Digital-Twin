@@ -318,17 +318,26 @@ def _build_registry() -> BehaviorRegistry:
     registry.register(ChillerCOPBaseline())
     registry.register(PumpVibrationBaseline())
 
-    # Published bundle rules — instantiate as live Behavior objects.
+    # Published bundle rules + authored behavior_models — instantiate as live
+    # Behaviors via the data-driven monitoring archetypes (all 6 kinds). This is
+    # the universal path: any rule dict (from a bundle, a behavior_model, or the
+    # class binding layer) becomes a live Behavior with no new Python.
     try:
         from agents.registry import get_registry
+        from behaviors.archetypes import make_behavior, behavior_models_to_rules
+        seen = set()  # dedupe by behavior_id (register() rejects duplicates)
         for bundle in get_registry().list_published():
-            for rule in bundle.get("rules", []):
-                kind = str(rule.get("kind", "")).lower()
-                if kind == "threshold" and rule.get("watches"):
-                    try:
-                        registry.register(DynamicThresholdRule(rule))
-                    except Exception:
-                        pass
+            rules = list(bundle.get("rules", []))
+            rules += behavior_models_to_rules(bundle.get("behavior_models", []))
+            for rule in rules:
+                b = make_behavior(rule)
+                if b is None or b.behavior_id in seen:
+                    continue
+                try:
+                    registry.register(b)
+                    seen.add(b.behavior_id)
+                except Exception:
+                    pass
     except Exception:
         pass  # registry unavailable — skip, hardcoded behaviors still work
 
@@ -514,11 +523,138 @@ def _run_feed_loop(tenant: str, ahu_id: str, cl: ChangeLog):
             _feed_state["error"] = str(e)
 
 
+# ── Dynamics-driven feed (generative, coupled) ──────────────────────
+
+def _run_diagnosis_pass(tenant, writer, query, affected_id):
+    """Group ungrouped findings into an incident and run the reasoning chain +
+    best-effort LLM operational flow. Shared by the scripted and dynamics loops."""
+    try:
+        all_findings = query.get_findings(tenant)
+        finding_ids = [f["id"] for f in all_findings
+                       if f.get("id") and not f.get("groupedInto")]
+        if not finding_ids:
+            return
+        result = DiagnosisEngine(writer, query).analyze(tenant, finding_ids, affected_id)
+        with _feed_lock:
+            _feed_state["diagnosis"] = {
+                "incident_id": result.incident_id,
+                "diagnosis_id": result.diagnosis_id,
+                "recommendation_id": result.recommendation_id,
+                "action_id": result.action_id,
+                "findings_grouped": result.findings_grouped,
+            }
+        if result.incident_id:
+            try:
+                from agents.operational_graph import app as ops_app
+                from agents.state import new_operational_state
+                sid = f"ops-{tenant}-{result.incident_id}"
+                ops_app.invoke(new_operational_state(
+                    tenant_id=tenant, session_id=sid, incident_id=result.incident_id,
+                    finding_ids=finding_ids, affected_entity_id=affected_id), thread_id=sid)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _augment_registry_with_bindings(registry, tenant, query):
+    """Add the binding layer's monitoring rules for every class present in the
+    twin, as live Behaviors. This is the universal, data-driven monitoring path:
+    a twin of ANY domain gets its bound monitors with no code — the same way the
+    dynamics engine gets its generative models. Dedupe by behavior_id."""
+    try:
+        from dynamics.bindings import monitoring_rules_for
+        from behaviors.archetypes import make_behavior
+        seen = {b.behavior_id for b in registry.all()}
+        types = set()
+        for label in ("PhysicalAsset", "Location"):
+            try:
+                for n in query.list_by_label(tenant, label, limit=500):
+                    ct = n.get("canonicalType")
+                    if ct:
+                        types.add(ct)
+            except Exception:
+                pass
+        for ct in types:
+            for rule in monitoring_rules_for(ct):
+                b = make_behavior(rule)
+                if b and b.behavior_id not in seen:
+                    try:
+                        registry.register(b)
+                        seen.add(b.behavior_id)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return registry
+
+
+def _run_dynamics_loop(tenant: str, ahu_id: str, cl: ChangeLog, speed: float = 60.0):
+    """Generative, coupled feed: the DynamicsEngine produces physics-based telemetry
+    for every entity (coupled via the graph), pushed into the SAME FindingsLoop the
+    scripted feed uses — so detection, change log, bus, diagnosis, and dashboard all
+    work unchanged, now on realistic data. Monitoring is data-driven from the
+    binding layer (per-class rules) plus the hardcoded back-compat behaviours."""
+    global _feed_state
+    try:
+        writer = GraphWriter(changelog=cl)
+        query = GraphQuery()
+        from dynamics import build_dynamics_registry, DynamicsEngine
+
+        registry = _build_registry()
+        _augment_registry_with_bindings(registry, tenant, query)
+        loop = FindingsLoop(registry, writer, query)
+        eng = DynamicsEngine(tenant, build_dynamics_registry(), query, speed=speed)
+        eng.load_topology()
+
+        with _feed_lock:
+            _feed_state["domain"] = _detect_twin_domain(tenant)
+            _feed_state["mode"] = "dynamics"
+            _feed_state["signals"] = {}
+
+        last_house = [time.time()]
+
+        def on_samples(samples):
+            for s in samples:
+                outcomes = loop.process(s)
+                with _feed_lock:
+                    _feed_state["samples_processed"] += 1
+                    _feed_state["latest_value"] = s.value
+                    _feed_state["latest_timestamp"] = s.timestamp.isoformat()
+                    _feed_state["findings_emitted"] += len(outcomes)
+                    _feed_state["signals"][s.signal] = round(s.value, 2)
+            # every ~20s wall: persist evolving status + run the reasoning chain
+            if time.time() - last_house[0] > 20:
+                last_house[0] = time.time()
+                try:
+                    eng.persist(writer)
+                except Exception:
+                    pass
+                _run_diagnosis_pass(tenant, writer, query, ahu_id)
+
+        eng.run_realtime(on_samples,
+                         should_stop=lambda: not _feed_state["running"],
+                         wall_interval=0.5)
+
+        with _feed_lock:
+            _feed_state["running"] = False
+    except Exception as e:
+        with _feed_lock:
+            _feed_state["running"] = False
+            _feed_state["error"] = str(e)
+
+
 # ── Feed control endpoints ──────────────────────────────────────────
 
 @app.post("/api/v1/feed/start")
-def start_feed(tenant: str = DEFAULT_TENANT):
-    """Start the simulated telemetry feed + findings loop."""
+def start_feed(tenant: str = DEFAULT_TENANT, mode: str = "scripted",
+               speed: float = 60.0):
+    """Start the telemetry feed + findings loop.
+
+    mode="scripted" (default): the original canned profiles (back-compat, tests).
+    mode="dynamics": the generative, coupled DynamicsEngine — physics-based,
+    relationship-coupled telemetry with monitoring driven by the binding layer.
+    `speed` is the dynamics time multiplier (sim-seconds per real second)."""
     global _feed_state
 
     with _feed_lock:
@@ -548,13 +684,19 @@ def start_feed(tenant: str = DEFAULT_TENANT):
             "latest_timestamp": None,
             "signals": {},
             "domain": "",
+            "mode": mode,
             "error": None,
         })
 
-    thread = threading.Thread(target=_run_feed_loop, args=(tenant, ahu_id, cl), daemon=True)
+    if mode == "dynamics":
+        thread = threading.Thread(target=_run_dynamics_loop,
+                                  args=(tenant, ahu_id, cl, speed), daemon=True)
+    else:
+        thread = threading.Thread(target=_run_feed_loop,
+                                  args=(tenant, ahu_id, cl), daemon=True)
     thread.start()
 
-    return {"status": "started", "tenant": tenant, "ahu_id": ahu_id}
+    return {"status": "started", "tenant": tenant, "ahu_id": ahu_id, "mode": mode}
 
 
 @app.get("/api/v1/feed/status")
