@@ -1,34 +1,56 @@
-/* theme.css — NextXR design tokens.
-   Adapted from the InfraOS prototype, rebranded for NextXR. The prototype
-   referenced --color-* variables from a host app; here we define a concrete
-   dark theme so the app is self-contained. */
+/* theme.css — Goalcert "Workforce Intelligence" design tokens.
+   A light, airy SaaS theme built around the Goalcert purple→blue brand.
+
+   IMPORTANT: every CSS custom-property name from the previous (dark) theme is
+   preserved here so the panels' inline `var(--…)` styles keep resolving — only
+   the VALUES changed (dark → light). New `--brand-*` tokens drive the chrome. */
 
 :root {
-  --font: 'Space Grotesk', system-ui, sans-serif;
+  /* type */
+  --font: 'Inter', system-ui, -apple-system, sans-serif;
+  --display: 'Poppins', var(--font);
   --mono: 'JetBrains Mono', ui-monospace, monospace;
 
-  /* surfaces */
-  --bg: #0d1017;
-  --surface: #141925;
-  --surface2: #1b2230;
-  --border: #232c3d;
-  --border2: #32405a;
+  /* ── brand ── */
+  --brand: #6d28d9;          /* primary purple (buttons, active nav, focus) */
+  --brand-strong: #5b21b6;   /* pressed / deep purple */
+  --brand-2: #7c3aed;        /* violet — the "Workforce Intelligence" accent */
+  --brand-blue: #2563eb;     /* gradient end / secondary accent */
+  --brand-soft: #f3effc;     /* lavender tint surface */
+  --brand-softer: #faf8ff;   /* barely-there lavender wash */
+  --brand-ring: rgba(109, 40, 217, .18);
+  --gradient: linear-gradient(135deg, #7c3aed 0%, #2563eb 100%);
+  --gradient-cta: linear-gradient(135deg, #2e1065 0%, #312e81 60%, #1e3a8a 100%);
 
-  /* text */
-  --text: #e6e9ef;
-  --muted: #93a1b5;
-  --hint: #5f6b80;
+  /* ── surfaces ── */
+  --bg: #f7f7fb;             /* app canvas */
+  --surface: #ffffff;        /* cards, bars */
+  --surface2: #f4f3f9;       /* subtle inset / hover / inputs */
+  --border: #ebe9f2;         /* hairline */
+  --border2: #ddd9ea;        /* stronger hairline / control borders */
 
-  /* accents */
-  --accent-blue: #4b8bf5;
-  --accent-teal: #18a999;
-  --accent-amber: #e0962f;
-  --accent-red: #e2564e;
-  --accent-purple: #8b6df0;
-  --accent-green: #4fae3a;
+  /* ── text ── */
+  --text: #16131f;           /* near-black headings/body */
+  --muted: #6b7280;          /* secondary text */
+  --hint: #9aa1ad;           /* tertiary / captions */
 
-  --ok: #22cc77;
-  --radius: 10px;
+  /* ── accents (semantic — kept distinct, tuned for white bg) ── */
+  --accent-blue: #2563eb;
+  --accent-teal: #0d9488;
+  --accent-amber: #d97706;
+  --accent-red: #e11d48;
+  --accent-purple: #7c3aed;
+  --accent-green: #16a34a;
+
+  --ok: #16a34a;
+  --radius: 16px;            /* card radius */
+  --radius-sm: 10px;         /* controls / chips */
+
+  /* ── elevation ── */
+  --shadow-sm: 0 1px 2px rgba(22, 19, 31, .05);
+  --shadow: 0 4px 16px rgba(22, 19, 31, .06);
+  --shadow-lg: 0 18px 48px rgba(46, 16, 101, .14);
+  --shadow-brand: 0 8px 22px rgba(109, 40, 217, .22);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -41,17 +63,19 @@ body {
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a { color: inherit; text-decoration: none; }
 
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 9px; height: 9px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: #d8d4e6; border-radius: 6px; border: 2px solid var(--bg); }
+::-webkit-scrollbar-thumb:hover { background: #c4bedb; }
 
-@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .45 } }
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .4 } }
 @keyframes spin { to { transform: rotate(360deg) } }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(4px) } to { opacity: 1; transform: none } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(6px) } to { opacity: 1; transform: none } }
 
 .mono { font-family: var(--mono); }
 .muted { color: var(--muted); }

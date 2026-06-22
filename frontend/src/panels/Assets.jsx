@@ -42,7 +42,7 @@ export default function Assets() {
     <div className="panel">
       <PanelHeader
         title="Asset Knowledge Graph"
-        subtitle={`${entities.length} entities · validated against the NextXR ontology`}
+        subtitle={`${entities.length} entities · validated against the Goalcert ontology`}
       >
         <button className="btn btn-primary" onClick={() => setShowAdd(true)}>
           <i className="ti ti-plus" /> Add Asset

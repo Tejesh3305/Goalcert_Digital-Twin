@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="Goalcert">
+  <defs>
+    <linearGradient id="gc" x1="14" y1="14" x2="106" y2="106" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#2563eb"/>
+    </linearGradient>
+  </defs>
+  <!-- ring -->
+  <circle cx="60" cy="62" r="33" stroke="url(#gc)" stroke-width="13"/>
+  <!-- vertical bar -->
+  <rect x="53" y="11" width="14" height="100" rx="3" fill="url(#gc)"/>
+  <!-- serif caps -->
+  <rect x="44" y="11" width="32" height="9" rx="3" fill="url(#gc)"/>
+  <rect x="44" y="102" width="32" height="9" rx="3" fill="url(#gc)"/>
+</svg>

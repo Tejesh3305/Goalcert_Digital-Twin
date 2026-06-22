@@ -2,6 +2,7 @@ import { usePolling } from '../../hooks/useApi'
 import api from '../../api/client'
 import { useTwin } from '../../context/TwinContext'
 import TwinSwitcher from './TwinSwitcher'
+import Logo from '../ui/Logo'
 
 /** Top bar: brand, twin switcher, live platform stats, health dot. */
 export default function Topbar() {
@@ -30,7 +31,7 @@ export default function Topbar() {
 
   return (
     <div className="topbar">
-      <div className="logo">NEXT<span>XR</span></div>
+      <Logo size={30} />
       <TwinSwitcher />
       <div className="topbar-breadcrumb">
         {activeTwin

@@ -5,8 +5,8 @@ export default function MockBanner({ what }) {
   return (
     <div style={{
       display: 'flex', gap: 8, alignItems: 'flex-start',
-      background: 'rgba(224,150,47,.08)', border: '1px solid rgba(224,150,47,.25)',
-      borderRadius: 8, padding: '9px 12px', marginBottom: 16, fontSize: 11.5,
+      background: 'rgba(217,119,6,.07)', border: '1px solid rgba(217,119,6,.22)',
+      borderRadius: 12, padding: '11px 14px', marginBottom: 18, fontSize: 11.5,
     }}>
       <i className="ti ti-flask" style={{ color: 'var(--accent-amber)', fontSize: 15, marginTop: 1 }} />
       <div>

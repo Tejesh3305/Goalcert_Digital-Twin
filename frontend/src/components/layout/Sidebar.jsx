@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { NAV } from '../../nav'
 import { usePolling } from '../../hooks/useApi'
 import api from '../../api/client'
@@ -8,6 +8,7 @@ import { useTwin } from '../../context/TwinContext'
  *  makes sense (findings, incidents). */
 export default function Sidebar() {
   const { activeTenant } = useTwin()
+  const navigate = useNavigate()
   const { data: stats } = usePolling(
     () => api.stats(activeTenant), 5000, [activeTenant], { skip: !activeTenant },
   )
@@ -25,22 +26,32 @@ export default function Sidebar() {
 
   return (
     <div className="sidebar">
-      {NAV.map((item, i) => {
-        if (item.section) return <div key={`s${i}`} className="sidebar-section">{item.section}</div>
-        const badge = badgeFor(item.id)
-        return (
-          <NavLink
-            key={item.id}
-            to={item.path}
-            end={item.path === '/'}
-            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-          >
-            <i className={`ti ${item.icon}`} aria-hidden="true" />
-            {item.label}
-            {badge && <span className={`nav-badge ${badge.cls}`}>{badge.text}</span>}
-          </NavLink>
-        )
-      })}
+      <div className="sidebar-nav">
+        {NAV.map((item, i) => {
+          if (item.section) return <div key={`s${i}`} className="sidebar-section">{item.section}</div>
+          const badge = badgeFor(item.id)
+          return (
+            <NavLink
+              key={item.id}
+              to={item.path}
+              end={item.path === '/'}
+              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+            >
+              <i className={`ti ${item.icon}`} aria-hidden="true" />
+              {item.label}
+              {badge && <span className={`nav-badge ${badge.cls}`}>{badge.text}</span>}
+            </NavLink>
+          )
+        })}
+      </div>
+
+      <div className="sidebar-foot">
+        <div className="sidebar-help" onClick={() => navigate('/build')}>
+          <i className="ti ti-sparkles" aria-hidden="true" />
+          Build a twin
+        </div>
+        <div className="sidebar-ver">Goalcert · v1.0</div>
+      </div>
     </div>
   )
 }

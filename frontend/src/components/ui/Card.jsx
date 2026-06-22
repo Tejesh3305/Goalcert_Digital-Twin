@@ -16,7 +16,7 @@ export function Card({ title, action, children, style, className = '' }) {
 
 export function KpiCard({ label, value, change, changeDir, valueColor }) {
   return (
-    <div className="card">
+    <div className="card kpi">
       <div className="card-label">{label}</div>
       <div className="card-value" style={valueColor ? { color: valueColor } : undefined}>
         {value}

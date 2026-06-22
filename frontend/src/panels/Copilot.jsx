@@ -66,7 +66,7 @@ export default function Copilot() {
           <div className="chat-messages">
             {messages.map((m, i) => (
               <div key={i} className={`chat-bubble ${m.role === 'user' ? 'bubble-user' : 'bubble-ai'}`}>
-                {m.role === 'ai' && <div className="bubble-label">NextXR Copilot</div>}
+                {m.role === 'ai' && <div className="bubble-label">Goalcert Copilot</div>}
                 {m.text}
               </div>
             ))}
