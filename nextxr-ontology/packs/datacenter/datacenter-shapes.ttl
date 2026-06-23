@@ -1,0 +1,22 @@
+@prefix dc:   <https://ontology.nextxr.io/v3/datacenter#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  DATACENTER SHACL SHAPES
+#
+#  Datacenter classes inherit base validation via subclass targeting:
+#    dc:ComputeRack (⊑ cfp:FacilityEquipment ⊑ nxr:PhysicalAsset) → PhysicalAssetShape
+#    dc:CRAHUnit (⊑ cfp:PrecisionCooler ⊑ … ⊑ nxr:PhysicalAsset)  → PhysicalAssetShape
+#    dc:BusbarPDU (⊑ cfp:PowerPanel ⊑ … ⊑ nxr:PhysicalAsset)      → PhysicalAssetShape
+#    dc:DataHall / dc:ColdAisle (⊑ cfp:Zone ⊑ nxr:Space)          → SpaceShape
+#  Explicit permissive shapes below for self-containment.
+#################################################################
+
+dc:ComputeRackShape a sh:NodeShape ;
+    sh:targetClass dc:ComputeRack ;
+    sh:node nxr:BaseEntityShape .
+
+dc:BusbarPDUShape a sh:NodeShape ;
+    sh:targetClass dc:BusbarPDU ;
+    sh:node nxr:BaseEntityShape .

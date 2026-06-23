@@ -1,0 +1,74 @@
+@prefix dc:   <https://ontology.nextxr.io/v3/datacenter#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  DATACENTER PACK v1.0  —  Layer 4 (extends CFP downward)
+#
+#  CFP already covers UPS, Transformer, UtilityFeed, Generator,
+#  NetworkSwitch, Server, PrecisionCooler, PowerPanel, EnergyMeter.
+#  This pack adds the data-centre-distinct assets + spaces:
+#    ComputeRack (rack-scale heat/power workhorse), CRAHUnit,
+#    BusbarPDU, DataHall, ColdAisle.
+#
+#  Stack: BFO -> SOSA -> platform -> CFP -> DATACENTER
+#################################################################
+
+<https://ontology.nextxr.io/v3/datacenter> a owl:Ontology ;
+    dct:title "NextXR Data Center Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Data-centre asset + space layer: compute racks, CRAH units, busbar PDUs, and data-hall spaces with dedicated thermal/power physics and rack-level monitoring." ;
+    owl:imports <https://ontology.nextxr.io/v3/cfp> .
+
+
+#################################################################
+#  OBSERVABLE PROPERTY (distinct rack inlet signal → no cross-fire)
+#################################################################
+dc:rackInletTemp a sosa:ObservableProperty ;
+    rdfs:label "rack inlet temperature" ;
+    skos:definition "Cold-aisle air temperature (°C) drawn in at a compute rack." .
+
+
+#################################################################
+#  ASSETS
+#################################################################
+dc:ComputeRack a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Compute Rack" ;
+    skos:definition "A rack of servers; draws a nonlinear IT load, dumps it as heat into the data hall, and thermal-throttles on hot inlet air." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+dc:CRAHUnit a owl:Class ;
+    rdfs:subClassOf cfp:PrecisionCooler ;
+    rdfs:label "CRAH Unit" ;
+    skos:definition "Computer-room air handler: chilled-water coil + fan delivering cold air to the data hall." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+dc:BusbarPDU a owl:Class ;
+    rdfs:subClassOf cfp:PowerPanel ;
+    rdfs:label "Busbar PDU" ;
+    skos:definition "Power distribution unit / busway feeding racks; aggregates and meters downstream IT load." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  SPACES
+#################################################################
+dc:DataHall a owl:Class ;
+    rdfs:subClassOf cfp:Zone ;
+    rdfs:label "Data Hall" ;
+    skos:definition "White-space hall housing compute racks, cooled to a tight setpoint by CRAH units." ;
+    nxr:taxonomyCategory "Location" .
+
+dc:ColdAisle a owl:Class ;
+    rdfs:subClassOf cfp:Zone ;
+    rdfs:label "Cold Aisle" ;
+    skos:definition "Contained cold-aisle supplying chilled air to rack inlets." ;
+    nxr:taxonomyCategory "Location" .

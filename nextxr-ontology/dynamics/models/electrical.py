@@ -51,16 +51,24 @@ class UtilityFeedModel(DynamicsModel):
 
     def step(self, ctx, state):
         nominal_v = ctx.fnum("nominalVoltage", 400.0)
-        # rare outage events (Poisson). rate per hour from params.
-        rate = ctx.fnum("outageRatePerHour", 0.0)
-        avail = state.internal.get("available", True)
-        if avail and ctx.rng.random() < rate * (ctx.dt / 3600.0):
-            avail = False
-            state.internal["outage_left"] = ctx.fnum("outageMinutes", 5.0) * 60.0
-        if not avail:
-            state.internal["outage_left"] = state.internal.get("outage_left", 0) - ctx.dt
-            if state.internal["outage_left"] <= 0:
-                avail = True
+        sched = ctx.param("outageAtMinute", None)
+        if sched is not None:
+            # deterministic outage window (for reproducible demos): mains drops
+            # at outageAtMinute for outageMinutes, then returns.
+            start = float(sched) * 60.0
+            dur = ctx.fnum("outageMinutes", 20.0) * 60.0
+            avail = not (start <= ctx.t < start + dur)
+        else:
+            # rare outage events (Poisson). rate per hour from params.
+            rate = ctx.fnum("outageRatePerHour", 0.0)
+            avail = state.internal.get("available", True)
+            if avail and ctx.rng.random() < rate * (ctx.dt / 3600.0):
+                avail = False
+                state.internal["outage_left"] = ctx.fnum("outageMinutes", 5.0) * 60.0
+            if not avail:
+                state.internal["outage_left"] = state.internal.get("outage_left", 0) - ctx.dt
+                if state.internal["outage_left"] <= 0:
+                    avail = True
         state.internal["available"] = avail
         v = (nominal_v * (1 + ctx.rng.gauss(0, 0.005))) if avail else 0.0
         state.status = "running" if avail else "fault"
@@ -86,6 +94,24 @@ class TransformerModel(DynamicsModel):
         pf = ctx.fnum("powerFactor", 0.95)
         v = ctx.fnum("secondaryVoltage", 400.0)
         load_kw = _downstream_load_kw(ctx)
+
+        # Propagate an upstream utility outage: a transformer with no primary
+        # supply has no secondary output (so the chain's UPS detects mains loss).
+        mains_ok = True
+        for sts in ctx.inputs.values():
+            for s in sts:
+                if (CFP + "available") in s.signals:
+                    mains_ok = mains_ok and s.signals[CFP + "available"] > 0.5
+                elif SIG_V in s.signals:
+                    mains_ok = mains_ok and s.signals[SIG_V] > 100.0
+        if not mains_ok:
+            oil = state.internal.get("oil", ctx.fnum("ambientTemp", 30.0))
+            oil += (ctx.fnum("ambientTemp", 30.0) - oil) / ctx.fnum("oilTimeConstantSec", 10800.0) * ctx.dt
+            state.internal["oil"] = oil
+            state.status = "fault"
+            state.signals = {SIG_OIL: round(oil, 1), SIG_I: 0.0, SIG_PWR: 0.0,
+                             SIG_V: 0.0, SIG_PF: round(pf, 3), CFP + "available": 0.0}
+            return state
         load_kva = load_kw / max(pf, 0.1)
         K = load_kva / max(rated_kva, 1.0)                 # per-unit load
         I = load_kva * 1000.0 / (math.sqrt(3) * v) if v else 0.0  # 3-phase amps
@@ -111,7 +137,7 @@ class TransformerModel(DynamicsModel):
 
         state.signals = {SIG_OIL: round(oil, 1), SIG_I: round(I, 1),
                          SIG_PWR: round(load_kw, 2), SIG_V: round(v, 1),
-                         SIG_PF: round(pf, 3)}
+                         SIG_PF: round(pf, 3), CFP + "available": 1.0}
         return state
 
 

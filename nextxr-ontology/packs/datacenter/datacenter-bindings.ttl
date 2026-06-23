@@ -1,0 +1,39 @@
+@prefix dc:   <https://ontology.nextxr.io/v3/datacenter#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+
+#################################################################
+#  DATACENTER BEHAVIOUR BINDINGS — class -> physics archetype + params + monitors
+#################################################################
+
+### Compute rack — IT load + heat + thermal throttling, rack-level over-temp ###
+dc:ComputeRack
+    nxr:dynamicsArchetype "ComputeRack" ;
+    nxr:archetypeParams """{"idlePowerKW":2.0,"maxPowerKW":8.0,"throttleTempC":27,"tripTempC":40}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"dc.rack_inlet_high","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/datacenter#rackInletTemp","bound":26,"duration_minutes":2,"direction":"above","severity":"warning","message":"Rack inlet over-temperature — cooling shortfall, throttling"}
+    ]""" .
+
+### CRAH — chilled-water air handler delivering cold air to the hall ###
+dc:CRAHUnit
+    nxr:dynamicsArchetype "AirHandler" ;
+    nxr:archetypeParams """{"setpoint":24,"ratedAirflowLps":1800,"ratedFanKW":8,"coilEffectiveness":0.72,"filterDPClean":120}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"dc.crah_filter_clogged","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#filterDeltaP","bound":300,"direction":"above","severity":"warning","message":"CRAH filter clogged (high differential pressure)"}
+    ]""" .
+
+### Busbar PDU — aggregates + meters downstream rack load ###
+dc:BusbarPDU
+    nxr:dynamicsArchetype "Aggregator" ;
+    nxr:archetypeParams """{"voltage":400,"powerFactor":0.98}""" .
+
+### Data hall — tight thermal setpoint, hall over-temperature monitor ###
+dc:DataHall
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2":300,"ceilingHeightM":3.6,"thermalMassFactor":4.0,"lightingWperM2":6,"wattsPerPerson":100,"occupancyCap":4}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"dc.hall_overtemp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/cfp#temperature","setpoint_from_graph":true,"offset":3.0,"duration_minutes":3,"direction":"above","severity":"critical","message":"Data hall temperature above cooling setpoint"}
+    ]""" .
+
+dc:ColdAisle
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2":60,"ceilingHeightM":3.6,"thermalMassFactor":3.0,"lightingWperM2":6,"wattsPerPerson":40,"occupancyCap":2}""" .

@@ -1,0 +1,72 @@
+@prefix hsp:  <https://ontology.nextxr.io/v3/hospital#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+
+#################################################################
+#  HOSPITAL BEHAVIOUR BINDINGS — class -> physics archetype + params + monitors
+#  (appended to the binding layer; subclass-aware, never edits frozen layers)
+#################################################################
+
+### Imaging (MRI / CT) — heavy power + chiller-coupled coolant + helium ###
+hsp:ImagingDevice
+    nxr:dynamicsArchetype "ImagingDevice" ;
+    nxr:archetypeParams """{"idleKW":5,"scanPowerKW":40,"coolantBaseC":18,"coolantMaxC":28,"chwSetpoint":7,"heBoiloffPctPerHour":0.02}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.imaging_coolant_high","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#imagingCoolantTemp","bound":28,"duration_minutes":2,"direction":"above","severity":"critical","message":"Imaging coolant over-temperature (cooling supply failing)"}
+    ]""" .
+
+hsp:MRIScanner
+    nxr:dynamicsArchetype "ImagingDevice" ;
+    nxr:archetypeParams """{"idleKW":8,"scanPowerKW":45,"coolantBaseC":17,"coolantMaxC":27,"chwSetpoint":7,"heBoiloffPctPerHour":0.03}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.imaging_coolant_high","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#imagingCoolantTemp","bound":27,"duration_minutes":2,"direction":"above","severity":"critical","message":"MRI coolant over-temperature — magnet at risk"},
+      {"behavior_id":"hsp.mri_helium_low","kind":"threshold","watches":"https://ontology.nextxr.io/v3/hospital#heliumLevel","bound":30,"direction":"below","severity":"warning","message":"MRI helium level low"}
+    ]""" .
+
+hsp:CTScanner
+    nxr:dynamicsArchetype "ImagingDevice" ;
+    nxr:archetypeParams """{"idleKW":4,"scanPowerKW":60,"coolantBaseC":19,"coolantMaxC":30,"chwSetpoint":7,"heBoiloffPctPerHour":0.0}""" .
+
+### Medical gas manifold — regulated pressure + reserve ###
+hsp:MedicalGasManifold
+    nxr:dynamicsArchetype "GasManifold" ;
+    nxr:archetypeParams """{"nominalPressureBar":4.1,"lowPressureBar":3.4,"initialLevelPct":90,"demandPctPerHour":1.5,"refillAtPct":25,"baseLoadKW":0.05}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.medgas_low_pressure","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#gasPressure","bound":3.4,"duration_minutes":1,"direction":"below","severity":"critical","message":"Medical gas line pressure low"}
+    ]""" .
+
+### Cold-chain fridge — tight setpoint + over-temp alarm ###
+hsp:ColdChainFridge
+    nxr:dynamicsArchetype "RefrigeratedUnit" ;
+    nxr:archetypeParams """{"setpointC":4,"bandC":2,"alarmAboveC":8,"compressorKW":0.8,"idleKW":0.08,"coolKperMin":0.6,"uaLeak":0.02}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.coldchain_over_temp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#coldChainTemp","bound":8,"duration_minutes":3,"direction":"above","severity":"critical","message":"Cold-chain over-temperature — stock at risk"}
+    ]""" .
+
+### Nurse call — discrete event source ###
+hsp:NurseCallSystem
+    nxr:dynamicsArchetype "BinaryEventSource" ;
+    nxr:archetypeParams """{"signal":"https://ontology.nextxr.io/v3/hospital#nurseCall","baseline":0.0,"alarmValue":1.0,"eventRatePerHour":4.0,"eventDurationMin":2}""" .
+
+### Patient monitor — small constant electronic load (kept alive by Default) ###
+hsp:PatientMonitor
+    nxr:dynamicsArchetype "ComputeLoad" ;
+    nxr:archetypeParams """{"idlePowerKW":0.05,"maxPowerKW":0.12}""" .
+
+### Critical-care spaces — tighter thermal targets than a generic room ###
+hsp:OperatingRoom
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2":45,"ceilingHeightM":3.0,"thermalMassFactor":4.0,"wattsPerPerson":120,"lightingWperM2":18}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.or_temp_high","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/cfp#temperature","setpoint_from_graph":true,"offset":2.0,"duration_minutes":3,"direction":"above","severity":"critical","message":"Operating-room temperature above clinical bound"}
+    ]""" .
+
+hsp:ICU
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2":120,"ceilingHeightM":3.0,"thermalMassFactor":5.0,"wattsPerPerson":110,"lightingWperM2":12}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.icu_temp_high","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/cfp#temperature","setpoint_from_graph":true,"offset":2.5,"duration_minutes":4,"direction":"above","severity":"critical","message":"ICU temperature above clinical bound"}
+    ]""" .
+
+hsp:IsolationRoom
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2":24,"ceilingHeightM":3.0,"thermalMassFactor":4.0,"wattsPerPerson":110,"lightingWperM2":12}""" .

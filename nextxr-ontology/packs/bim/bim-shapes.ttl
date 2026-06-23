@@ -1,0 +1,30 @@
+@prefix bim:  <https://ontology.nextxr.io/v3/bim#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+#  BIM PACK SHACL SHAPES
+#
+#  The BIM pack adds GEOMETRY, not new structural requirements.
+#  Its classes inherit all the validation they need from the
+#  platform base shapes via subclass targeting (pySHACL applies
+#  sh:targetClass across rdfs:subClassOf):
+#
+#    - bim:BuildingPlan        → nxr:DocumentShape (base entity)
+#    - cfp:Building (reused)   → nxr:SiteShape     (base entity)
+#    - cfp:Floor/Zone/Room     → nxr:SpaceShape    (base entity)
+#    - cfp:* equipment (reused)→ nxr:PhysicalAssetShape (base entity)
+#
+#  Geometry datatype properties (bim:footprint, bim:originX/Y/Z,
+#  bim:widthM, bim:lengthM, bim:rotationDeg, bim:assetKind) are
+#  deliberately OPTIONAL — a plan may be parsed with partial
+#  geometry, and the Scene Generator has a procedural fallback.
+#  So this file only declares an explicit (permissive) shape for
+#  the one genuinely new class, for self-containment.
+#################################################################
+
+### BuildingPlan — provenance document; base entity props only ###
+bim:BuildingPlanShape a sh:NodeShape ;
+    sh:targetClass bim:BuildingPlan ;
+    sh:node nxr:BaseEntityShape .

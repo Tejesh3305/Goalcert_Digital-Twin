@@ -4,6 +4,7 @@ import Sidebar from './components/layout/Sidebar'
 
 import Dashboard from './panels/Dashboard'
 import Concierge from './panels/Concierge'
+import BimStudio from './panels/BimStudio'
 import BundleAuthor from './panels/BundleAuthor'
 import Twins from './panels/Twins'
 import Assets from './panels/Assets'
@@ -29,6 +30,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/build" element={<Concierge />} />
+            <Route path="/bim" element={<BimStudio />} />
             <Route path="/bundle-author" element={<BundleAuthor />} />
             <Route path="/twins" element={<Twins />} />
             <Route path="/assets" element={<Assets />} />

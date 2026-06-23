@@ -2,6 +2,7 @@ import { PanelHeader, KpiCard, Card } from '../components/ui/Card'
 import { SeverityPill } from '../components/ui/Modal'
 import NoTwin from '../components/NoTwin'
 import FeedControls from '../components/FeedControls'
+import BimViewer from '../components/BimViewer'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
 import { timeOf } from '../lib/format'
@@ -33,6 +34,13 @@ export default function Dashboard() {
       >
         <FeedControls />
       </PanelHeader>
+
+      {/* Live interactive 3-D twin — the reconstructed building, alerts overlaid. */}
+      <Card title="Live 3-D Twin" className="section-gap"
+            action={<span className="pill pill-blue" style={{ fontSize: 10 }}>BIM</span>}
+            style={{ padding: 0, overflow: 'hidden' }}>
+        <BimViewer tenant={activeTenant} />
+      </Card>
 
       <div className="grid-4 section-gap">
         <KpiCard label="Risk Score" value={risk.score}

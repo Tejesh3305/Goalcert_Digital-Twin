@@ -47,8 +47,9 @@ class TwinBuildState(TypedDict):
     # --- Phase 1 expansion: Vision · Schema Mapper · Scene Generator ------
     uploaded_files: list[dict]     # [{url, type, filename}] for Vision Agent
     vision_findings: list[dict]    # [{label, count, location, confidence}]
+    bim_model: Optional[dict]      # Plan Parser → format-agnostic building geometry
     mapping_source: Optional[str]  # "bundle" | "mapper" — who wrote drafts
-    scene_result: Optional[dict]   # {status, topology, message}
+    scene_result: Optional[dict]   # Scene Generator → nxr-scene/1 scene-graph
 
 
 def new_twin_state(tenant_id: str, session_id: str,
@@ -74,6 +75,7 @@ def new_twin_state(tenant_id: str, session_id: str,
         reply_to_user=None,
         uploaded_files=[],
         vision_findings=[],
+        bim_model=None,
         mapping_source=None,
         scene_result=None,
     )

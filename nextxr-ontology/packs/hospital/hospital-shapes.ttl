@@ -1,0 +1,38 @@
+@prefix hsp:  <https://ontology.nextxr.io/v3/hospital#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  HOSPITAL SHACL SHAPES
+#
+#  Hospital classes inherit all the validation they need from the
+#  platform base shapes via subclass targeting (pySHACL applies
+#  sh:targetClass across rdfs:subClassOf):
+#    hsp:* equipment  (⊑ cfp:FacilityEquipment ⊑ nxr:PhysicalAsset) → PhysicalAssetShape
+#    hsp:OperatingRoom / IsolationRoom (⊑ cfp:Room ⊑ nxr:Space)      → SpaceShape
+#    hsp:ICU (⊑ cfp:Zone ⊑ nxr:Space)                               → SpaceShape
+#
+#  Physics/clinical parameters live on the binding layer + node props,
+#  not as mandatory SHACL constraints, so a plan-built twin always
+#  commits. These explicit (permissive) shapes are for self-containment.
+#################################################################
+
+hsp:ImagingDeviceShape a sh:NodeShape ;
+    sh:targetClass hsp:ImagingDevice ;
+    sh:node nxr:BaseEntityShape .
+
+hsp:MedicalGasManifoldShape a sh:NodeShape ;
+    sh:targetClass hsp:MedicalGasManifold ;
+    sh:node nxr:BaseEntityShape .
+
+hsp:ColdChainFridgeShape a sh:NodeShape ;
+    sh:targetClass hsp:ColdChainFridge ;
+    sh:node nxr:BaseEntityShape .
+
+hsp:NurseCallSystemShape a sh:NodeShape ;
+    sh:targetClass hsp:NurseCallSystem ;
+    sh:node nxr:BaseEntityShape .
+
+hsp:PatientMonitorShape a sh:NodeShape ;
+    sh:targetClass hsp:PatientMonitor ;
+    sh:node nxr:BaseEntityShape .

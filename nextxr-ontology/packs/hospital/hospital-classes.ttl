@@ -1,0 +1,127 @@
+@prefix hsp:  <https://ontology.nextxr.io/v3/hospital#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix qudt: <http://qudt.org/schema/qudt/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  HOSPITAL PACK v1.0  —  Layer 4 (extends CFP downward)
+#
+#  CFP already covers the common building services every hospital runs
+#  (AHU, Chiller, UPS, Transformer, Generator, AccessDoor, sensors…).
+#  This pack adds ONLY the clinically-distinct assets + spaces that have
+#  their own physics and life-safety monitoring:
+#    ImagingDevice (MRI/CT), MedicalGasManifold, ColdChainFridge,
+#    NurseCallSystem, PatientMonitor, OperatingRoom, ICU, IsolationRoom.
+#
+#  Stack: BFO -> SOSA -> platform -> CFP -> HOSPITAL
+#################################################################
+
+<https://ontology.nextxr.io/v3/hospital> a owl:Ontology ;
+    dct:title "NextXR Hospital Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Clinical asset + space layer: imaging, medical gas, cold-chain, nurse-call, patient monitoring, and critical-care spaces, with dedicated physics and life-safety monitoring." ;
+    owl:imports <https://ontology.nextxr.io/v3/cfp> .
+
+
+#################################################################
+#  OBSERVABLE PROPERTIES (distinct signals → no monitor cross-fire)
+#################################################################
+hsp:coldChainTemp a sosa:ObservableProperty ;
+    rdfs:label "cold-chain temperature" ;
+    skos:definition "Internal temperature (°C) of a refrigerated medical unit (pharmacy/blood/vaccine fridge)." .
+
+hsp:gasPressure a sosa:ObservableProperty ;
+    rdfs:label "medical gas pressure" ;
+    skos:definition "Line pressure (bar) at a medical-gas manifold (O2/N2O/medical air)." .
+
+hsp:gasLevel a sosa:ObservableProperty ;
+    rdfs:label "medical gas reserve" ;
+    skos:definition "Reserve remaining (%) in a medical-gas manifold/cylinder bank." .
+
+hsp:imagingCoolantTemp a sosa:ObservableProperty ;
+    rdfs:label "imaging coolant temperature" ;
+    skos:definition "Magnet/scanner coolant temperature (°C) of an imaging device." .
+
+hsp:heliumLevel a sosa:ObservableProperty ;
+    rdfs:label "helium level" ;
+    skos:definition "Cryogen (helium) remaining (%) in an MRI magnet." .
+
+hsp:nurseCall a sosa:ObservableProperty ;
+    rdfs:label "nurse call state" ;
+    skos:definition "Active nurse-call signal (0 idle / 1 call active)." .
+
+
+#################################################################
+#  CLINICAL EQUIPMENT
+#################################################################
+hsp:ImagingDevice a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Imaging Device" ;
+    skos:definition "Diagnostic imaging modality with heavy intermittent power draw and a chilled-water cooling dependency." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:MRIScanner a owl:Class ;
+    rdfs:subClassOf hsp:ImagingDevice ;
+    rdfs:label "MRI Scanner" ;
+    skos:definition "Magnetic-resonance scanner; superconducting magnet cooled by helium, dependent on chilled water." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:CTScanner a owl:Class ;
+    rdfs:subClassOf hsp:ImagingDevice ;
+    rdfs:label "CT Scanner" ;
+    skos:definition "Computed-tomography scanner; high peak power during acquisition." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:MedicalGasManifold a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Medical Gas Manifold" ;
+    skos:definition "Manifold/cylinder bank distributing a medical gas (O2/N2O/medical air) at a regulated pressure." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:ColdChainFridge a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Cold-Chain Fridge" ;
+    skos:definition "Refrigerated unit for pharmacy/blood/vaccine storage with a tight low-temperature setpoint and over-temperature alarm." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:NurseCallSystem a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Nurse Call System" ;
+    skos:definition "Bedside/bathroom call system raising attention requests to staff." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:PatientMonitor a owl:Class ;
+    rdfs:subClassOf cfp:FacilityEquipment ;
+    rdfs:label "Patient Monitor" ;
+    skos:definition "Bedside vitals monitor (ECG/SpO2/NIBP)." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  CRITICAL-CARE SPACES (tighter thermal + life-safety than a generic room)
+#################################################################
+hsp:OperatingRoom a owl:Class ;
+    rdfs:subClassOf cfp:Room ;
+    rdfs:label "Operating Room" ;
+    skos:definition "Surgical theatre with tight temperature/humidity control and positive pressure." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:ICU a owl:Class ;
+    rdfs:subClassOf cfp:Zone ;
+    rdfs:label "Intensive Care Unit" ;
+    skos:definition "Critical-care zone with continuous monitoring and strict environmental bounds." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:IsolationRoom a owl:Class ;
+    rdfs:subClassOf cfp:Room ;
+    rdfs:label "Isolation Room" ;
+    skos:definition "Negative-pressure room for infection control." ;
+    nxr:taxonomyCategory "Location" .

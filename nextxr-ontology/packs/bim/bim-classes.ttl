@@ -1,0 +1,97 @@
+@prefix bim:  <https://ontology.nextxr.io/v3/bim#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  BIM PACK v1.0  —  Layer 4 (extends CFP downward)
+#
+#  Adds the *geometry* the Plan Parser needs to reconstruct a
+#  building in 3-D: footprints, origins, dimensions, rotation —
+#  plus a BuildingPlan document subtype that retains the source
+#  plan for provenance.
+#
+#  Reuses CFP's spatial classes (cfp:Building / cfp:Floor /
+#  cfp:Zone / cfp:Room) and CFP's areaM2 / heightM / levelIndex /
+#  elevationM unchanged (respects the CFP freeze rule — extends,
+#  never edits). Geometry datatype properties are declared for
+#  schema introspection; the GraphWriter flattens them to nxr:
+#  keys and SHACL shapes leave them optional.
+#
+#  Stack position: BFO → SOSA → platform → CFP → BIM → domain packs
+#################################################################
+
+<https://ontology.nextxr.io/v3/bim> a owl:Ontology ;
+    dct:title "NextXR BIM Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Geometry layer for plan-to-3D reconstruction: footprints, origins, dimensions, and a BuildingPlan provenance document." ;
+    owl:imports <https://ontology.nextxr.io/v3/cfp> .
+
+
+#################################################################
+#  GEOMETRY DATATYPE PROPERTIES
+#
+#  Plan coordinates are in metres, origin at the building corner,
+#  x/y in the floor plane, z up. Stored flat as nxr:<key> by the
+#  writer; consumed by the Scene Generator to extrude geometry.
+#################################################################
+
+bim:footprint a owl:DatatypeProperty ;
+    rdfs:label "footprint" ;
+    skos:definition "Room/building outline as a GeoJSON or WKT polygon string in plan metres." ;
+    rdfs:range xsd:string .
+
+bim:originX a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "origin X (m)" ;
+    skos:definition "X coordinate (plan metres) of the entity's placement / bbox corner." ;
+    rdfs:range xsd:double .
+
+bim:originY a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "origin Y (m)" ;
+    skos:definition "Y coordinate (plan metres) of the entity's placement / bbox corner." ;
+    rdfs:range xsd:double .
+
+bim:originZ a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "origin Z (m)" ;
+    skos:definition "Z coordinate (elevation, metres) of the entity's placement." ;
+    rdfs:range xsd:double .
+
+bim:widthM a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "width (m)" ;
+    skos:definition "Extent along the X axis in metres." ;
+    rdfs:range xsd:double .
+
+bim:lengthM a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "length (m)" ;
+    skos:definition "Extent along the Y axis in metres." ;
+    rdfs:range xsd:double .
+
+bim:rotationDeg a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "rotation (deg)" ;
+    skos:definition "Rotation about the vertical (Z) axis in degrees." ;
+    rdfs:range xsd:double .
+
+bim:assetKind a owl:DatatypeProperty , owl:FunctionalProperty ;
+    rdfs:label "asset kind" ;
+    skos:definition "Rendering/prop hint for the 3-D viewer (e.g. rack, crac, ups, ahu, door, sensor, camera)." ;
+    rdfs:range xsd:string .
+
+bim:sourcePlan a owl:DatatypeProperty ;
+    rdfs:label "source plan" ;
+    skos:definition "Reference (filename or data-URI) to the 2-D plan a twin was reconstructed from." ;
+    rdfs:range xsd:string .
+
+
+#################################################################
+#  CLASSES
+#################################################################
+
+bim:BuildingPlan a owl:Class ;
+    rdfs:subClassOf nxr:Document ;
+    rdfs:label "Building Plan" ;
+    skos:definition "The source 2-D plan (image/PDF/IFC) a building twin was reconstructed from. Retained for provenance and re-reconstruction." .

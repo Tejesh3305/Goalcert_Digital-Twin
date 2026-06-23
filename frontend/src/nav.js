@@ -11,6 +11,9 @@ export const NAV = [
   { section: 'Overview' },
   { id: 'dashboard',   path: '/',            label: 'Dashboard',   icon: 'ti-layout-dashboard', backing: 'live' },
   { id: 'concierge',   path: '/build',       label: 'Build a Twin', icon: 'ti-sparkles',        backing: 'live' },
+
+  { section: 'BIM' },
+  { id: 'bim',         path: '/bim',         label: 'BIM Studio',  icon: 'ti-cube',             backing: 'live' },
   { id: 'twins',       path: '/twins',       label: 'Twins',       icon: 'ti-stack-2',          backing: 'live' },
   { id: 'assets',      path: '/assets',      label: 'Asset Graph', icon: 'ti-sitemap',          backing: 'live' },
   { id: 'live',        path: '/live',        label: 'Live Ops',    icon: 'ti-activity',         backing: 'live' },

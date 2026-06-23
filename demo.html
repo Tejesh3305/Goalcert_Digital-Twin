@@ -119,7 +119,7 @@ a{color:inherit;text-decoration:none}
 .input:focus,.select:focus{border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-ring)}
 .empty{padding:40px 18px;text-align:center;color:var(--muted);font-size:12.5px;background:var(--surface);border:1px dashed var(--border2);border-radius:var(--radius)}
 .spinner{width:16px;height:16px;border:2px solid var(--border2);border-top-color:var(--brand);border-radius:50%;animation:spin .7s linear infinite;display:inline-block;vertical-align:middle}
-.chat-wrap{display:flex;flex-direction:column;height:560px}
+.chat-wrap{display:flex;flex-direction:column;height:500px}
 .chat-messages{flex:1;overflow-y:auto;padding:4px 2px;display:flex;flex-direction:column;gap:12px}
 .chat-bubble{max-width:82%;padding:11px 14px;border-radius:14px;font-size:12.5px;line-height:1.65}
 .bubble-user{align-self:flex-end;background:var(--gradient);color:#fff;border-bottom-right-radius:4px}
@@ -329,7 +329,7 @@ function renderTopbar(){
     el('div',{class:'topbar-stat'},el('b',{},a.length),' assets'),
     el('div',{class:'topbar-stat',style:crit?{color:'var(--accent-red)'}:null},el('b',{style:crit?{color:'var(--accent-red)'}:null},crit),' critical'),
     el('div',{class:'status-dot',title:'All systems nominal'}),
-    el('div',{class:'acct'},el('span',{class:'av'},'TA'),'Tejesh',icon('ti-chevron-down')));
+    el('div',{class:'acct'},el('span',{class:'av'},'U'),'User',icon('ti-chevron-down')));
 }
 function renderSidebar(){
   const crit=runtimeAssets[STATE.twin].filter(x=>x.status==='crit').length;
@@ -831,6 +831,189 @@ VIEWS.agents=(c)=>{
    BOOT
    ============================================================ */
 (function boot(){const r=location.hash.replace('#/','');if(r&&VIEWS[r])STATE.route=r;renderShell();})();
+
+/* ============================================================
+   GUIDED TOUR  —  "Aria", an assistant that walks a new user
+   through every feature of the platform with spotlight tooltips.
+   ============================================================ */
+(function guidedTour(){
+  const TOUR_KEY='gc_tour_done_v1';
+
+  // ---- styles (injected so the demo stays a single file) ----
+  const css=`
+  .gc-tour-mask{position:fixed;inset:0;z-index:99990;background:transparent;cursor:default;}
+  .gc-tour-spot{position:fixed;z-index:99991;border-radius:12px;pointer-events:none;opacity:0;
+    transition:all .32s cubic-bezier(.4,0,.2,1);}
+  .gc-tour-pop{position:fixed;z-index:99995;width:330px;max-width:calc(100vw - 28px);
+    background:#0f1222;color:#eef1ff;border:1px solid #2a2f55;border-radius:16px;
+    box-shadow:0 24px 60px rgba(0,0,0,.5);padding:0;overflow:hidden;
+    font-family:var(--ui,'Inter',system-ui,sans-serif);animation:gcPop .26s cubic-bezier(.34,1.3,.5,1);}
+  @keyframes gcPop{from{opacity:0;transform:translateY(8px) scale(.97)}to{opacity:1;transform:none}}
+  .gc-tour-head{display:flex;align-items:center;gap:11px;padding:15px 16px 12px;
+    background:linear-gradient(120deg,rgba(124,58,237,.22),rgba(37,99,235,.18));border-bottom:1px solid #23284a;}
+  .gc-tour-av{width:38px;height:38px;border-radius:11px;flex:none;display:grid;place-items:center;
+    background:linear-gradient(135deg,#7c3aed,#2563eb);box-shadow:0 4px 14px rgba(124,58,237,.5);
+    color:#fff;font-size:19px;}
+  .gc-tour-who{font-weight:700;font-size:13.5px;letter-spacing:.01em;}
+  .gc-tour-sub{font-size:10.5px;color:#9aa3d6;font-family:var(--mono,monospace);margin-top:1px;}
+  .gc-tour-x{margin-left:auto;cursor:pointer;color:#8b93c4;font-size:17px;line-height:1;padding:4px;border-radius:8px;}
+  .gc-tour-x:hover{background:rgba(255,255,255,.08);color:#fff;}
+  .gc-tour-body{padding:14px 16px 4px;}
+  .gc-tour-title{font-size:15px;font-weight:650;margin-bottom:5px;}
+  .gc-tour-text{font-size:12.8px;line-height:1.55;color:#c7ccec;}
+  .gc-tour-foot{display:flex;align-items:center;gap:8px;padding:12px 16px 15px;}
+  .gc-tour-dots{display:flex;gap:5px;margin-right:auto;}
+  .gc-tour-dot{width:6px;height:6px;border-radius:50%;background:#343a63;transition:.2s;}
+  .gc-tour-dot.on{background:#7c3aed;width:18px;border-radius:4px;}
+  .gc-tour-btn{font-size:12.5px;font-weight:600;padding:8px 14px;border-radius:9px;border:1px solid #2c3160;
+    background:#171b33;color:#cdd3f5;cursor:pointer;transition:.14s;font-family:inherit;}
+  .gc-tour-btn:hover{background:#1e2342;border-color:#3a4080;}
+  .gc-tour-btn.primary{background:linear-gradient(135deg,#7c3aed,#2563eb);border:none;color:#fff;}
+  .gc-tour-btn.primary:hover{filter:brightness(1.08);}
+  .gc-tour-btn.ghost{background:transparent;border:none;color:#8b93c4;padding-left:4px;}
+  .gc-tour-btn.ghost:hover{color:#fff;background:transparent;}
+  .gc-tour-fab{position:fixed;right:22px;bottom:22px;z-index:99980;display:flex;align-items:center;gap:9px;
+    padding:11px 16px 11px 13px;border-radius:30px;cursor:pointer;color:#fff;border:none;
+    background:linear-gradient(135deg,#7c3aed,#2563eb);box-shadow:0 10px 28px rgba(124,58,237,.45);
+    font-family:var(--ui,system-ui,sans-serif);font-weight:600;font-size:13px;transition:.16s;}
+  .gc-tour-fab:hover{transform:translateY(-2px);box-shadow:0 14px 34px rgba(124,58,237,.55);}
+  .gc-tour-fab i{font-size:17px;}
+  @keyframes gcPulse{0%,100%{box-shadow:0 0 0 9999px rgba(8,10,22,.66),0 0 0 0 rgba(124,58,237,.55)}
+    50%{box-shadow:0 0 0 9999px rgba(8,10,22,.66),0 0 0 7px rgba(124,58,237,0)}}
+  .gc-tour-spot.lit{animation:gcPulse 2.1s ease-out infinite;border:2px solid rgba(124,58,237,.9);}
+  `;
+  const st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
+
+  // ---- the script Aria follows ----
+  const STEPS=[
+    {title:'Welcome to Goalcert',
+     text:"Hi, I'm <b>Aria</b> — your guide. In about a minute I'll show you how this digital-twin platform turns a flat 2-D plan into a living, interactive 3-D building. Ready?",
+     center:true},
+    {sel:'.tw-select',side:'bottom',title:'Switch between twins',
+     text:"Each twin is a different facility — a <b>data center</b>, <b>hospital</b>, <b>factory</b>, or <b>smart office</b>. Pick one here and the whole workspace re-scopes to it."},
+    {sel:'.sidebar',side:'right',title:'Your workspace',
+     text:"Navigate the platform from here: the live <b>Dashboard</b>, <b>Build a Twin</b> from a plan, your <b>Twins</b> library, and the <b>AI Agents</b> working behind the scenes."},
+    {route:'dashboard',sel:'.hero3d',side:'left',title:'Your living 3-D twin',
+     text:"This is the reconstructed building, rendered in real time. <b>Drag to orbit</b>, <b>scroll to zoom</b>, and <b>click any equipment</b> to inspect its live telemetry. Healthy assets glow green; problems turn amber or red."},
+    {route:'dashboard',sel:'.grid-4',side:'bottom',title:'Operations at a glance',
+     text:"The headline KPIs — a rolled-up <b>risk score</b>, asset count, <b>active findings</b>, and uptime — so you know the building's health in one look."},
+    {route:'dashboard',sel:'.graph-svg',side:'right',title:'The knowledge graph',
+     text:"Under the 3-D is an <b>ontology</b>: every asset and how it connects (what feeds what, what's in which room). This is what lets the platform reason about cause and effect."},
+    {route:'dashboard',sel:'.event-list',side:'left',title:'Live findings',
+     text:"As telemetry streams in, rule-based <b>findings</b> appear here, colour-coded by severity — and the affected equipment lights up on the 3-D model."},
+    {route:'dashboard',sel:'.sensor-grid',side:'top',title:'Real-time telemetry',
+     text:"Live sensor readings update continuously. This is the heartbeat that drives the findings, the 3-D status colours, and the agents."},
+    {route:'build',sel:'.chat-wrap',side:'right',title:'Build a twin from a plan',
+     text:"Here's the magic. <b>Chat with the AI builder</b>, tell it what kind of facility you have, then <b>drop a 2-D floor plan</b> (PNG, PDF, even a sample). It vectorises the plan, detects rooms and equipment, validates against the ontology, and reconstructs it in 3-D."},
+    {route:'build',sel:'.chat-quick',side:'bottom',title:'Start the conversation',
+     text:"Pick what to model to kick things off — the assistant then asks for your floors and plan, and builds the roamable twin you saw on the dashboard."},
+    {route:'twins',sel:'.twin-card',side:'right',title:'Your twins library',
+     text:"Every twin you build lands here with its asset count and health. <b>Open any card</b> to jump straight into its live 3-D view."},
+    {route:'agents',sel:'.agent-row',side:'right',title:'AI agents do the work',
+     text:"Autonomous agents operate over the live graph — the <b>Twin Builder</b>, <b>Diagnosis</b>, <b>Recommender</b>, and <b>Predictive</b> agents. Toggle any on or off here."},
+    {title:"You're all set!",
+     text:"That's the whole loop: <b>drop a plan → get a living building → let the agents watch it</b>. Explore freely, switch twins, click around the 3-D. Tap the <b>✦ Tour</b> button anytime to replay this.",
+     center:true}
+  ];
+
+  let idx=0, mask=null, spot=null, pop=null, curTarget=null;
+
+  function ensureEls(){
+    if(mask) return;
+    mask=document.createElement('div');mask.className='gc-tour-mask';
+    spot=document.createElement('div');spot.className='gc-tour-spot';
+    pop=document.createElement('div');pop.className='gc-tour-pop';
+    document.body.append(mask,spot,pop);
+    window.addEventListener('resize',reposition);
+    window.addEventListener('scroll',reposition,true);
+    document.addEventListener('keydown',onKey);
+  }
+  function onKey(e){if(!pop)return;if(e.key==='Escape')endTour();else if(e.key==='ArrowRight')next();else if(e.key==='ArrowLeft')prev();}
+
+  function clamp(v,min,max){return Math.max(min,Math.min(max,v));}
+
+  function place(s,t){
+    const vw=innerWidth,vh=innerHeight;
+    // popover content
+    pop.innerHTML='';
+    const head=document.createElement('div');head.className='gc-tour-head';
+    head.innerHTML=`<div class="gc-tour-av"><i class="ti ti-sparkles"></i></div>
+      <div><div class="gc-tour-who">Aria · Platform Guide</div><div class="gc-tour-sub">step ${idx+1} of ${STEPS.length}</div></div>`;
+    const x=document.createElement('div');x.className='gc-tour-x';x.innerHTML='<i class="ti ti-x"></i>';x.onclick=endTour;head.append(x);
+    const body=document.createElement('div');body.className='gc-tour-body';
+    body.innerHTML=`<div class="gc-tour-title">${s.title}</div><div class="gc-tour-text">${s.text}</div>`;
+    const foot=document.createElement('div');foot.className='gc-tour-foot';
+    const dots=document.createElement('div');dots.className='gc-tour-dots';
+    STEPS.forEach((_,i)=>{const d=document.createElement('div');d.className='gc-tour-dot'+(i===idx?' on':'');dots.append(d);});
+    foot.append(dots);
+    if(idx>0){const b=document.createElement('button');b.className='gc-tour-btn';b.textContent='Back';b.onclick=prev;foot.append(b);}
+    const nb=document.createElement('button');nb.className='gc-tour-btn primary';
+    nb.textContent=idx===STEPS.length-1?'Finish':'Next';nb.onclick=next;foot.append(nb);
+    pop.append(head,body,foot);
+
+    const pw=pop.offsetWidth,ph=pop.offsetHeight;
+
+    if(!t || s.center){
+      spot.style.opacity='0';spot.className='gc-tour-spot';
+      pop.style.left=clamp((vw-pw)/2,12,vw-pw-12)+'px';
+      pop.style.top=clamp((vh-ph)/2,12,vh-ph-12)+'px';
+      return;
+    }
+    const r=t.getBoundingClientRect();const pad=8;
+    spot.style.opacity='1';spot.className='gc-tour-spot lit';
+    spot.style.left=(r.left-pad)+'px';spot.style.top=(r.top-pad)+'px';
+    spot.style.width=(r.width+pad*2)+'px';spot.style.height=(r.height+pad*2)+'px';
+
+    // choose a side with room
+    const gap=16;let side=s.side||'right';
+    const fits={right:r.right+gap+pw<vw,left:r.left-gap-pw>0,bottom:r.bottom+gap+ph<vh,top:r.top-gap-ph>0};
+    if(!fits[side]) side=['right','left','bottom','top'].find(k=>fits[k])||'center';
+    let left,top;
+    if(side==='right'){left=r.right+gap;top=r.top+r.height/2-ph/2;}
+    else if(side==='left'){left=r.left-gap-pw;top=r.top+r.height/2-ph/2;}
+    else if(side==='bottom'){top=r.bottom+gap;left=r.left+r.width/2-pw/2;}
+    else if(side==='top'){top=r.top-gap-ph;left=r.left+r.width/2-pw/2;}
+    else {left=(vw-pw)/2;top=(vh-ph)/2;}
+    pop.style.left=clamp(left,12,vw-pw-12)+'px';
+    pop.style.top=clamp(top,12,vh-ph-12)+'px';
+  }
+
+  function reposition(){if(pop&&idx>=0)place(STEPS[idx],curTarget);}
+
+  function showStep(i){
+    idx=i;const s=STEPS[i];ensureEls();
+    const needGo=s.route&&STATE.route!==s.route;
+    if(needGo)go(s.route);
+    const after=()=>{
+      const t=s.sel?document.querySelector(s.sel):null;curTarget=t;
+      if(t){t.scrollIntoView({block:'center',inline:'center',behavior:'smooth'});setTimeout(()=>{curTarget=document.querySelector(s.sel);place(s,curTarget);},340);}
+      else place(s,null);
+    };
+    setTimeout(after,needGo?520:30);
+  }
+  function next(){if(idx<STEPS.length-1)showStep(idx+1);else endTour();}
+  function prev(){if(idx>0)showStep(idx-1);}
+
+  function startTour(){idx=0;showStep(0);}
+  function endTour(){
+    localStorage.setItem(TOUR_KEY,'1');
+    [mask,spot,pop].forEach(n=>n&&n.remove());mask=spot=pop=curTarget=null;
+    window.removeEventListener('resize',reposition);
+    window.removeEventListener('scroll',reposition,true);
+    document.removeEventListener('keydown',onKey);
+  }
+
+  // ---- launcher (always available) ----
+  const fab=document.createElement('button');fab.className='gc-tour-fab';
+  fab.innerHTML='<i class="ti ti-sparkles"></i> Tour';
+  fab.title='Replay the guided tour';
+  fab.onclick=startTour;document.body.appendChild(fab);
+
+  // auto-start once for a first-time visitor
+  if(!localStorage.getItem(TOUR_KEY)){setTimeout(startTour,900);}
+
+  window.startGoalcertTour=startTour; // handy for replays from the console
+})();
 </script>
 </body>
 </html>

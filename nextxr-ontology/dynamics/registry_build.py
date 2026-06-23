@@ -21,6 +21,9 @@ from dynamics.models.power_extra import PrimeMoverModel, AggregatorModel
 from dynamics.models.water import StorageVesselModel
 from dynamics.models.sensing import BinaryEventSourceModel, DerivedObserverModel
 from dynamics.models.transport import DiscreteTransportModel
+from dynamics.models.hospital import (RefrigeratedUnitModel, GasManifoldModel,
+                                      ImagingDeviceModel)
+from dynamics.models.datacenter import ComputeRackModel
 
 
 def build_dynamics_registry() -> DynamicsRegistry:
@@ -46,6 +49,11 @@ def build_dynamics_registry() -> DynamicsRegistry:
     r.register(DerivedObserverModel())        # DerivedObserver (env sensors)
     # transport
     r.register(DiscreteTransportModel())      # DiscreteTransport (elevator/escalator)
+    # domain-specific (hospital + datacenter)
+    r.register(RefrigeratedUnitModel())       # RefrigeratedUnit (cold-chain fridge)
+    r.register(GasManifoldModel())            # GasManifold (medical gas)
+    r.register(ImagingDeviceModel())          # ImagingDevice (MRI/CT)
+    r.register(ComputeRackModel())            # ComputeRack (data-centre rack)
     # universal fallback
     r.register(DefaultEquipmentModel())       # DefaultEquipment
     return r

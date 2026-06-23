@@ -66,9 +66,13 @@ class ZoneThermalModel(DynamicsModel):
         # --- internal gains from contained equipment + people + lights ---
         q_equip = 0.0
         for st in ctx.contained:
-            # any contained model that publishes activePower dumps ~that as heat
-            q_equip += st.signals.get(CFP + "activePower", 0.0) * 1000.0  # kW->W
-            q_equip += st.signals.get(CFP + "heatOutputW", 0.0)
+            # heat dumped into the zone: prefer the explicit heatOutputW the
+            # equipment publishes; otherwise treat ~all its electrical power as
+            # heat (kW->W). Never both (that would double-count).
+            heat = st.signals.get(CFP + "heatOutputW")
+            if heat is None:
+                heat = st.signals.get(CFP + "activePower", 0.0) * 1000.0
+            q_equip += heat
         q_people = occ * ctx.fnum("wattsPerPerson", 100.0)
         q_lights = area * ctx.fnum("lightingWperM2", 8.0)
         Q_internal = q_equip + q_people + q_lights

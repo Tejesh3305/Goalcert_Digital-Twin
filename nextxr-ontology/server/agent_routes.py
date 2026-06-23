@@ -211,6 +211,15 @@ def twin_upload(req: dict):
     if not url and not data:
         raise HTTPException(400, "Provide 'url' or 'data' (base64 data-URI).")
 
+    # Tag the file kind from its extension so the Plan Parser can branch:
+    #   image  → PNG/JPG/etc. (and PDFs, which the client rasterises to PNG)
+    #   bim    → .ifc / .dxf  (true-BIM fast-follow path)
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if ext in ("ifc", "dxf"):
+        ftype = "bim"
+    else:
+        ftype = "image"
+
     if data and not url:
         # Convert raw base64 to a data URI the OpenAI vision API accepts.
         if not data.startswith("data:"):
@@ -220,7 +229,7 @@ def twin_upload(req: dict):
             url = data
 
     files = list(cur.get("uploaded_files") or [])
-    files.append({"url": url, "type": "image", "filename": filename})
+    files.append({"url": url, "type": ftype, "filename": filename})
     cur["uploaded_files"] = files
     twin_app.checkpointer.save(session_id, "twin_build", cur, None)
     return {"session_id": session_id, "uploaded_count": len(files)}
@@ -239,6 +248,51 @@ def twin_request_scene(req: SessionRef):
     out = twin_app.invoke(cur, thread_id=req.session_id,
                           start_at="scene_generator")
     return {"session_id": req.session_id, "state": _public(out)}
+
+
+@router.get("/twin/scene/{tenant}")
+def twin_scene_by_tenant(tenant: str):
+    """Rebuild a renderable `nxr-scene/1` for any committed twin straight from
+    its graph geometry — no live session needed (powers the Dashboard hero and
+    re-loading a twin's 3-D view)."""
+    from agents import bim_support as bs
+
+    # Fast path: a cached scene from the build (includes furniture + entityIds).
+    cached = bs.load_scene_cache(tenant)
+    if cached and cached.get("nodes"):
+        return {"tenant": tenant, "scene_result": cached}
+
+    try:
+        from graph.query import GraphQuery
+        q = GraphQuery()
+        locations = q.list_by_label(tenant, "Location", limit=400)
+        assets = q.list_by_label(tenant, "PhysicalAsset", limit=400)
+    except Exception:
+        locations, assets = [], []
+
+    bm = bs.graph_entities_to_bim_model(locations, assets)
+    if not bm:
+        # Non-BIM twin (or geometry missing): synthesize from the asset list.
+        if not assets:
+            return {"tenant": tenant, "scene_result": {
+                "format": "nxr-scene/1", "status": "empty", "nodes": [],
+                "message": "No assets to visualize for this twin."}}
+        hints = [{"label": a.get("displayName", "Equipment"), "count": 1} for a in assets]
+        bm = bs.synthesize_bim_model("office", 1, equipment_hints=hints)
+        by_name = {a.get("displayName"): a.get("id") for a in assets}
+        id_map = {eq["id"]: by_name.get(eq["label"]) for eq in bm.get("equipment", [])}
+    else:
+        id_map = {}
+        for r in bm.get("rooms", []):
+            id_map[r["id"]] = r["id"]
+        for eq in bm.get("equipment", []):
+            id_map[eq["id"]] = eq["id"]
+
+    scene = bs.bim_model_to_scene(bm, id_map=id_map)
+    scene["status"] = "ok"
+    scene["twin_id"] = tenant
+    bs.save_scene_cache(tenant, scene)
+    return {"tenant": tenant, "scene_result": scene}
 
 
 # ── Bundle Author flow ─────────────────────────────────────────────

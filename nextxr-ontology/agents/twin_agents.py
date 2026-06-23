@@ -490,45 +490,91 @@ def concierge_agent(state: dict) -> dict:
 
 
 # ==========================================================================
-# V · Vision Agent   (multimodal — image/CAD analysis)
+# V · Plan Parser   (multimodal — turns a 2-D plan into a bim_model)
 # ==========================================================================
-def vision_agent(state: dict) -> dict:
-    """Reads uploaded images and extracts structured facility findings (asset
-    counts, layout observations, equipment types). Feeds the Schema Mapper.
+PLAN_PARSER_SYSTEM = (
+    "You are an architectural plan parser for a digital-twin platform. From a "
+    "2-D floor-plan image, reconstruct the building geometry as JSON.\n\n"
+    "Coordinates are in METRES, origin at the building's top-left corner, x to "
+    "the right, y downwards in the plan. Estimate real dimensions (a typical "
+    "room is 3-10 m across; a floor is 3-4.5 m tall). Return EXACTLY this shape:\n"
+    '{"building":{"name":str,"widthM":num,"lengthM":num,"floors":int},'
+    '"levels":[{"index":int,"elevationM":num,"heightM":num}],'
+    '"rooms":[{"id":str,"level":int,"name":str,"function":str,'
+    '"bbox":{"x":num,"y":num,"w":num,"l":num},"areaM2":num}],'
+    '"walls":[{"level":int,"start":[x,y],"end":[x,y],"heightM":num,"thicknessM":num}],'
+    '"openings":[{"type":"door"|"window","level":int,"at":[x,y],"widthM":num}],'
+    '"equipment":[{"id":str,"label":str,"assetType":str,"room":str,"x":num,"y":num,"level":int}]}\n'
+    "assetType is a short kind hint. Use it for BOTH building equipment AND "
+    "furniture/fit-out so the room can be furnished realistically. Equipment: "
+    "rack, crac, ups, ahu, vav, network, pdu, transformer, switchgear, generator, "
+    "chiller, boiler, cooling tower, pump, water tank, valve, meter, battery, "
+    "solar, ev charger, door, elevator, escalator, camera, sensor, light, "
+    "extinguisher, fire panel, sprinkler, mri, ct scanner, xray, medical gas, "
+    "nurse call, fridge, hospital bed, patient monitor, operating table, robot, "
+    "conveyor, cnc, welder, press, forklift. Furniture: desk, chair, sofa, table, "
+    "coffee table, bed, stretcher, wheelchair, iv stand, plant, bookshelf, "
+    "cabinet, locker, whiteboard, tv, printer, water cooler, reception. "
+    "Identify every room and every visible equipment AND furniture symbol. Use "
+    "ONE level (index 0) unless the plan clearly shows multiple. Output only the JSON."
+)
+
+
+def plan_parser(state: dict) -> dict:
+    """Reconstruct an uploaded 2-D plan into a format-agnostic `bim_model`
+    (building outline, levels, rooms with geometry, walls, equipment). Degrades
+    to a synthesized building when no LLM/vision is available or the parse is
+    unusable, so the flow always yields a renderable twin. Also emits coarse
+    `vision_findings` (label + count) to enrich the Domain Classifier.
+
     If no files are uploaded, the graph skips this node entirely."""
+    from agents import bim_support as bs
+
     gw = get_gateway()
     files = state.get("uploaded_files") or []
-    domain = state.get("domain") or ""
-
     if not files:
-        return {"vision_findings": []}
+        return {"vision_findings": [], "bim_model": None}
 
-    image_urls = [f["url"] for f in files if f.get("url")]
+    convo = _convo_text(state)
+    facility = bs.infer_facility(convo + " " + (state.get("user_intent") or ""))
+    floors = bs.infer_floors(convo, default=1)
+
+    image_urls = [f["url"] for f in files
+                  if f.get("type") in (None, "image") and f.get("url")]
+    bim_files = [f for f in files if f.get("type") == "bim"]
+
+    # IFC fast-follow — optional dependency, stub-safe when absent.
+    if bim_files and not image_urls:
+        try:
+            from agents.ifc_parser import parse_ifc  # optional
+            bm = parse_ifc(bim_files[0])
+            if bm:
+                bm = bs.normalize_bim_model(bm, facility, floors)
+                return {"bim_model": bm, "vision_findings": bs.findings_from_bim(bm)}
+        except Exception:
+            pass
+        bm = bs.synthesize_bim_model(facility, floors)
+        return {"bim_model": bm, "vision_findings": bs.findings_from_bim(bm)}
+
     if not image_urls:
-        return {"vision_findings": []}
-
-    def _stub() -> dict:
-        return {"findings": [
-            {"label": f"{(domain or 'Facility').title()} Unit",
-             "count": 1, "location": "Zone 1", "confidence": 0.8,
-             "type": "asset"},
-        ]}
+        bm = bs.synthesize_bim_model(facility, floors)
+        return {"bim_model": bm, "vision_findings": bs.findings_from_bim(bm)}
 
     result = gw.complete_json_vision(
         tenant_id=state["tenant_id"], session_id=state["session_id"],
-        system=("You analyze facility images for a digital-twin platform. "
-                "Extract structured findings: asset counts, equipment types, "
-                "layout observations. Return JSON "
-                "{\"findings\": [{\"label\": str, \"count\": int, "
-                "\"location\": str|null, \"confidence\": float, "
-                "\"type\": \"asset\"|\"layout\"|\"measurement\"}]}."),
-        user_text=f"Domain: {domain}. Analyze these facility images and "
-                  f"extract all visible assets, equipment, and layout details.",
+        system=PLAN_PARSER_SYSTEM,
+        user_text=(f"Facility hint: {facility}. Floors hint: {floors}. "
+                   f"Parse this floor plan into the bim_model JSON exactly."),
         image_urls=image_urls,
-        stub=_stub(),
+        stub={"_synth": True},
+        max_tokens=3500,
     )
-    findings = result.get("findings") or _stub()["findings"]
-    return {"vision_findings": findings}
+    bm = bs.normalize_bim_model(result, facility, floors)
+    return {"bim_model": bm, "vision_findings": bs.findings_from_bim(bm)}
+
+
+# Backwards-compatible alias: the graph wiring imports `vision_agent`.
+vision_agent = plan_parser
 
 
 # ==========================================================================
@@ -543,6 +589,31 @@ def schema_mapper(state: dict) -> dict:
     bundles = state.get("loaded_bundles") or []
     vision = state.get("vision_findings") or []
     convo = _convo_text(state)
+
+    # BIM path: a parsed (or synthesized) building drives the drafts directly —
+    # Building → Floor → Room → equipment, carrying geometry. This IS the twin,
+    # so it replaces the generic bundle templates.
+    bim_model = state.get("bim_model")
+    if bim_model and bim_model.get("rooms"):
+        from agents import bim_support as bs
+        source_plan = None
+        for f in (state.get("uploaded_files") or []):
+            if f.get("filename"):
+                source_plan = f["filename"]
+                break
+        # Apply-to-plan auto-wiring: for hospital/datacenter plans, re-type the
+        # assets to their dedicated classes, inject the infrastructure spine, wire
+        # the functional coupling, and pre-set fault-demo params — so the twin
+        # actually runs coupled physics and shows real status.
+        facility = bim_model.get("facility") or bs.infer_facility(
+            convo + " " + (state.get("user_intent") or ""))
+        if facility in ("hospital", "datacenter"):
+            bs.enrich_domain(bim_model, facility)
+        twin_name = state.get("twin_name") or bim_model.get("building", {}).get("name")
+        entities, rels = bs.bim_model_to_drafts(bim_model, twin_name, source_plan)
+        return {"draft_entities": entities, "draft_relationships": rels,
+                "twin_name": twin_name,
+                "mapping_source": "bim", "next_action": "validate"}
 
     # If the Composer already drafted from templates and there's no vision
     # input requiring richer mapping, pass through.
@@ -614,42 +685,62 @@ def schema_mapper(state: dict) -> dict:
 
 
 # ==========================================================================
-# 6 · Scene Generator   (stub — needs 3D engine infrastructure)
+# 6 · Scene Generator   (real — committed building graph → nxr-scene/1)
 # ==========================================================================
 def scene_generator(state: dict) -> dict:
-    """Turns a committed graph into a procedural 3D scene descriptor.
-    STUB: queries graph topology and returns an entity list with placeholder
-    positions. Real glTF generation requires a 3D engine (future work)."""
-    from graph.query import GraphQuery
+    """Turn the committed building into a renderable `nxr-scene/1` scene graph:
+    extruded floor slabs, walls, room pads, and equipment props placed at their
+    coordinates. Every node carries the graph `entityId` so the viewer can paint
+    live status onto it.
+
+    Primary source is the parsed `bim_model` (rich geometry) joined to the
+    committed entity ids via each draft's `key`. When no plan was used, it
+    synthesizes a plausible building from the committed assets so non-BIM twins
+    still render something."""
+    from agents import bim_support as bs
 
     tenant_id = state.get("tenant_id") or ""
     twin_id = state.get("twin_id")
     if not twin_id:
-        return {"scene_result": {"status": "skipped",
+        return {"scene_result": {"format": "nxr-scene/1", "status": "skipped",
+                                 "nodes": [],
                                  "message": "No committed twin to visualize."},
                 "next_action": "done"}
 
-    try:
-        q = GraphQuery()
-        assets = q.list_by_label(tenant_id, "PhysicalAsset", limit=50)
-        locations = q.list_by_label(tenant_id, "Location", limit=50)
-    except Exception:
-        assets, locations = [], []
+    # Map bim element key → committed graph node id (set during validate/commit).
+    drafts = state.get("draft_entities") or []
+    id_map = {d.get("key"): d.get("_draft_id")
+              for d in drafts if d.get("key") and d.get("_draft_id")}
 
-    topology = []
-    for e in assets + locations:
-        topology.append({
-            "id": e.get("id"), "type": e.get("canonicalType", ""),
-            "name": e.get("displayName", ""), "label": "PhysicalAsset"
-            if e in assets else "Location",
-        })
+    bim_model = state.get("bim_model")
 
-    return {"scene_result": {
-        "format": "gltf", "status": "stub",
-        "node_count": len(topology),
-        "message": "Scene generation requires 3D engine. Topology extracted.",
-        "topology": topology,
-    }, "next_action": "done"}
+    if not (bim_model and bim_model.get("rooms")):
+        # Fallback: synthesize from the committed graph (labels → equipment),
+        # then match ids back by display name.
+        try:
+            from graph.query import GraphQuery
+            q = GraphQuery()
+            assets = q.list_by_label(tenant_id, "PhysicalAsset", limit=80)
+        except Exception:
+            assets = []
+        facility = bs.infer_facility(
+            _convo_text(state) + " " + (state.get("domain") or ""))
+        hints = [{"label": a.get("displayName", "Equipment"), "count": 1}
+                 for a in assets] or None
+        bim_model = bs.synthesize_bim_model(facility, 1, equipment_hints=hints)
+        # best-effort id match by display name
+        by_name = {a.get("displayName"): a.get("id") for a in assets}
+        for eq in bim_model.get("equipment", []):
+            if eq.get("label") in by_name:
+                id_map[eq["id"]] = by_name[eq["label"]]
+
+    scene = bs.bim_model_to_scene(bim_model, id_map=id_map)
+    scene["status"] = "ok"
+    scene["twin_id"] = twin_id
+    # Cache the full scene (structure + assets + furniture) so the twin re-renders
+    # identically per-tenant later (Dashboard hero, reloads) without a session.
+    bs.save_scene_cache(twin_id, scene)
+    return {"scene_result": scene, "next_action": "done"}
 
 
 # ==========================================================================

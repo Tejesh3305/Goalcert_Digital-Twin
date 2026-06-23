@@ -105,6 +105,8 @@ export const api = {
   // Twin-building: scene generation
   twinAgentScene: (session_id) =>
     request('/agents/twin/scene', { method: 'POST', body: JSON.stringify({ session_id }) }),
+  // BIM: rebuild a twin's 3-D scene straight from its graph (no session needed)
+  twinSceneByTenant: (tenant) => request(`/agents/twin/scene/${encodeURIComponent(tenant)}`),
 
   // Bundle Author (author a new vertical, human-gated publish)
   bundleStart: (body) => request('/agents/bundle/start', { method: 'POST', body: JSON.stringify(body || {}) }),

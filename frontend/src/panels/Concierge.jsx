@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { PanelHeader, Card } from '../components/ui/Card'
 import { useToast } from '../context/ToastContext'
 import { useTwin } from '../context/TwinContext'
+import { readPlanFile, ACCEPT } from '../lib/planUpload'
+import BimViewer from '../components/BimViewer'
 import api from '../api/client'
 
 /**
@@ -28,9 +30,26 @@ export default function Concierge() {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [planName, setPlanName] = useState(null)
+  const [builtTenant, setBuiltTenant] = useState(null)
+  const fileRef = useRef(null)
   const endRef = useRef(null)
 
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
+
+  const attachPlan = async (file) => {
+    if (!file || !session) return
+    setBusy(true)
+    try {
+      const { dataUrl, filename } = await readPlanFile(file)
+      await api.twinAgentUploadData(session, dataUrl, filename)
+      setPlanName(filename)
+      setMessages((m) => [...m, { role: 'ai', text: `Plan attached (${filename}). I'll reconstruct it in 3-D when we build — tell me what to model, or open BIM Studio.` }])
+      toast.ok('Plan attached', filename)
+    } catch (e) {
+      toast.err('Could not attach plan', e.message)
+    } finally { setBusy(false) }
+  }
 
   const start = async () => {
     setBusy(true)
@@ -59,6 +78,7 @@ export default function Concierge() {
         toast.ok('Twin committed', `${s.twin_name || s.twin_id} is live`)
         await refreshTwins()
         setActiveTenant(s.twin_id)
+        setBuiltTenant(s.twin_id)
       }
     } catch (e) {
       toast.err('Agent error', e.message)
@@ -78,7 +98,7 @@ export default function Concierge() {
           ? <button className="btn btn-primary" onClick={start} disabled={busy}>
               <i className="ti ti-sparkles" /> Start
             </button>
-          : <button className="btn" onClick={() => { setSession(null); setState(null); setMessages([]) }}>
+          : <button className="btn" onClick={() => { setSession(null); setState(null); setMessages([]); setPlanName(null); setBuiltTenant(null) }}>
               <i className="ti ti-refresh" /> New session
             </button>}
       </PanelHeader>
@@ -103,8 +123,16 @@ export default function Concierge() {
                 {busy && <div className="chat-bubble bubble-ai"><span className="spinner" /> thinking…</div>}
                 <div ref={endRef} />
               </div>
-              <div className="chat-input-row">
-                <input className="input" value={input} placeholder="Describe your facility…"
+              <div className="chat-input-row"
+                   onDragOver={(e) => e.preventDefault()}
+                   onDrop={(e) => { e.preventDefault(); attachPlan(e.dataTransfer.files?.[0]) }}>
+                <button className="btn" title="Attach a 2-D plan" onClick={() => fileRef.current?.click()} disabled={busy}>
+                  <i className={`ti ${planName ? 'ti-file-check' : 'ti-paperclip'}`}
+                     style={planName ? { color: 'var(--accent-green)' } : undefined} />
+                </button>
+                <input ref={fileRef} type="file" accept={ACCEPT} style={{ display: 'none' }}
+                       onChange={(e) => attachPlan(e.target.files?.[0])} />
+                <input className="input" value={input} placeholder={planName ? 'Plan attached — say what to model…' : 'Describe your facility… (or drop a plan)'}
                        disabled={busy}
                        onChange={(e) => setInput(e.target.value)}
                        onKeyDown={(e) => e.key === 'Enter' && send()} />
@@ -147,6 +175,14 @@ export default function Concierge() {
           )}
         </Card>
       </div>
+
+      {builtTenant && (
+        <Card title="Your live 3-D twin" className="section-gap"
+              action={<span className="pill pill-blue" style={{ fontSize: 10 }}>BIM</span>}
+              style={{ padding: 0, overflow: 'hidden' }}>
+          <BimViewer tenant={builtTenant} />
+        </Card>
+      )}
     </div>
   )
 }

@@ -37,8 +37,25 @@ CFP_FILES = [
     "packs/cfp/cfp-shapes.ttl",
 ]
 
+# Layer 4 — BIM geometry pack (extends CFP downward; adds plan-to-3D geometry).
+BIM_FILES = [
+    "packs/bim/bim-classes.ttl",
+    "packs/bim/bim-shapes.ttl",
+]
+
+# Layer 4 — vertical domain packs (clinical / data-centre specialised assets +
+# their dedicated physics bindings). Common services stay in CFP.
+DOMAIN_FILES = [
+    "packs/hospital/hospital-classes.ttl",
+    "packs/hospital/hospital-shapes.ttl",
+    "packs/hospital/hospital-bindings.ttl",
+    "packs/datacenter/datacenter-classes.ttl",
+    "packs/datacenter/datacenter-shapes.ttl",
+    "packs/datacenter/datacenter-bindings.ttl",
+]
+
 # Layer 4 — domain packs.
-PACK_FILES = CFP_FILES + [
+PACK_FILES = CFP_FILES + BIM_FILES + DOMAIN_FILES + [
     "packs/hvac/hvac-classes.ttl",
     "packs/hvac/hvac-shapes.ttl",
 ]
