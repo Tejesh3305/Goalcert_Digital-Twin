@@ -60,7 +60,12 @@ cfp:Zone
       {"behavior_id":"cfp.zone_co2_high","kind":"threshold","watches":"https://ontology.nextxr.io/v3/cfp#airQualityIndex","bound":1000,"direction":"above","severity":"warning","message":"Zone CO2 high"}
     ]""" .
 
-cfp:Room  nxr:dynamicsArchetype "SpaceThermal" .
+cfp:Room
+    nxr:dynamicsArchetype "SpaceThermal" ;
+    nxr:archetypeParams """{"areaM2": 20, "ceilingHeightM": 2.8, "thermalMassFactor": 4.0, "lightingWperM2": 6.0, "wattsPerPerson": 90}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"cfp.room_overtemp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/cfp#temperature","setpoint_from_graph":true,"default_setpoint":30,"offset":3.0,"duration_minutes":5,"direction":"above","severity":"warning","message":"Room temperature above setpoint (cooling shortfall)"}
+    ]""" .
 cfp:Floor nxr:dynamicsArchetype "SpaceThermal" .
 
 #################################################################

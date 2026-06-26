@@ -105,9 +105,10 @@ class AirHandlerModel(DynamicsModel):
         chw_temp = flows.first_signal(chw_sources, SIG_CHWS,
                                       default=ctx.fnum("chwSetpoint", 7.0))
 
-        # fan: modulate speed toward meeting the zone (simple proportional control)
+        # thermostat: only cool when the zone is above setpoint (no overcooling).
         err = t_return - setpoint
-        speed = _clip(0.3 + 0.5 * err, 0.2, 1.0)           # fraction of rated
+        cooling = err > 0.3
+        speed = _clip(0.35 + 0.45 * err, 0.35, 1.0) if cooling else 0.12
         rated_flow = ctx.fnum("ratedAirflowLps", 2000.0)   # L/s
         flow = rated_flow * speed                          # affinity: Q ∝ N
         rated_fan_kw = ctx.fnum("ratedFanKW", 15.0)
@@ -115,8 +116,11 @@ class AirHandlerModel(DynamicsModel):
 
         # coil capacity: how cold can supply get given chw temp + coil effectiveness
         eps = ctx.fnum("coilEffectiveness", 0.7)
-        t_supply_min = t_return - eps * (t_return - chw_temp)
-        t_supply = max(t_supply_min, setpoint - ctx.fnum("maxSupplyDelta", 10.0))
+        if cooling:
+            t_supply_min = t_return - eps * (t_return - chw_temp)
+            t_supply = max(t_supply_min, setpoint - ctx.fnum("maxSupplyDelta", 10.0))
+        else:
+            t_supply = t_return - 0.5                       # idle: negligible cooling
         # first-order lag toward target supply
         prev = state.internal.get("supply", t_supply)
         tau = ctx.fnum("supplyTauSec", 60.0)

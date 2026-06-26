@@ -3,7 +3,7 @@ import { PanelHeader, Card } from '../components/ui/Card'
 import { useToast } from '../context/ToastContext'
 import { useTwin } from '../context/TwinContext'
 import { readPlanFile, ACCEPT } from '../lib/planUpload'
-import BimViewer from '../components/BimViewer'
+import DemoTwin from '../components/DemoTwin'
 import api from '../api/client'
 
 /**
@@ -177,10 +177,10 @@ export default function Concierge() {
       </div>
 
       {builtTenant && (
-        <Card title="Your live 3-D twin" className="section-gap"
-              action={<span className="pill pill-blue" style={{ fontSize: 10 }}>BIM</span>}
+        <Card title="Your 3-D twin" className="section-gap"
+              action={<span className="pill pill-blue" style={{ fontSize: 10 }}>DEMO SCENE</span>}
               style={{ padding: 0, overflow: 'hidden' }}>
-          <BimViewer tenant={builtTenant} />
+          <DemoTwin domain={state?.domain} name={state?.twin_name} />
         </Card>
       )}
     </div>

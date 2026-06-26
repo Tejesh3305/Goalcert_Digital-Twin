@@ -494,29 +494,32 @@ def concierge_agent(state: dict) -> dict:
 # ==========================================================================
 PLAN_PARSER_SYSTEM = (
     "You are an architectural plan parser for a digital-twin platform. From a "
-    "2-D floor-plan image, reconstruct the building geometry as JSON.\n\n"
-    "Coordinates are in METRES, origin at the building's top-left corner, x to "
-    "the right, y downwards in the plan. Estimate real dimensions (a typical "
-    "room is 3-10 m across; a floor is 3-4.5 m tall). Return EXACTLY this shape:\n"
-    '{"building":{"name":str,"widthM":num,"lengthM":num,"floors":int},'
+    "2-D floor-plan image, reconstruct the building geometry FAITHFULLY as JSON — "
+    "match the plan's actual room arrangement, proportions, and outline.\n\n"
+    "Coordinates are in METRES, origin at the building's top-left corner, x to the "
+    "right, y downwards in the plan. IMPORTANT: many plans PRINT each room's size "
+    "next to its label (e.g. 'WARD 16.88X7.26' means 16.88 m wide x 7.26 m deep, "
+    "'TOIL. 2.40X1.20' means 2.4 x 1.2 m) — READ those numbers and use them as the "
+    "room's bbox w/l. Lay rooms out so they tile the building without overlapping. "
+    "Read EVERY labelled room (there may be 40+). Infer building.facility from the "
+    "drawing (hospital, datacenter, residential, office, factory). Return EXACTLY "
+    "this shape:\n"
+    '{"building":{"name":str,"facility":str,"widthM":num,"lengthM":num,"floors":int},'
     '"levels":[{"index":int,"elevationM":num,"heightM":num}],'
-    '"rooms":[{"id":str,"level":int,"name":str,"function":str,'
-    '"bbox":{"x":num,"y":num,"w":num,"l":num},"areaM2":num}],'
+    '"rooms":[{"id":str,"level":int,"name":str,"type":str,'
+    '"bbox":{"x":num,"y":num,"w":num,"l":num},'
+    '"footprint":[[x,y],...],"areaM2":num}],'
     '"walls":[{"level":int,"start":[x,y],"end":[x,y],"heightM":num,"thicknessM":num}],'
     '"openings":[{"type":"door"|"window","level":int,"at":[x,y],"widthM":num}],'
     '"equipment":[{"id":str,"label":str,"assetType":str,"room":str,"x":num,"y":num,"level":int}]}\n'
-    "assetType is a short kind hint. Use it for BOTH building equipment AND "
-    "furniture/fit-out so the room can be furnished realistically. Equipment: "
-    "rack, crac, ups, ahu, vav, network, pdu, transformer, switchgear, generator, "
-    "chiller, boiler, cooling tower, pump, water tank, valve, meter, battery, "
-    "solar, ev charger, door, elevator, escalator, camera, sensor, light, "
-    "extinguisher, fire panel, sprinkler, mri, ct scanner, xray, medical gas, "
-    "nurse call, fridge, hospital bed, patient monitor, operating table, robot, "
-    "conveyor, cnc, welder, press, forklift. Furniture: desk, chair, sofa, table, "
-    "coffee table, bed, stretcher, wheelchair, iv stand, plant, bookshelf, "
-    "cabinet, locker, whiteboard, tv, printer, water cooler, reception. "
-    "Identify every room and every visible equipment AND furniture symbol. Use "
-    "ONE level (index 0) unless the plan clearly shows multiple. Output only the JSON."
+    "room.type ∈ bedroom, master_bedroom, living, dining, kitchen, bathroom, "
+    "garage, porch, office, balcony, utility, closet, corridor. Give bbox for every "
+    "room; give footprint ONLY for non-rectangular rooms. Put a door/window opening "
+    "wherever the plan shows one (an arc = a door). List FIXED building equipment "
+    "you can see (assetType: split ac, ceiling light, water heater, fridge, stove, "
+    "sink, toilet, shower, water tank, electrical panel, meter); do NOT invent "
+    "loose furniture (the platform furnishes rooms from their type). Use ONE level "
+    "(index 0) unless the plan clearly shows multiple. Output only the JSON."
 )
 
 
@@ -563,13 +566,23 @@ def plan_parser(state: dict) -> dict:
     result = gw.complete_json_vision(
         tenant_id=state["tenant_id"], session_id=state["session_id"],
         system=PLAN_PARSER_SYSTEM,
-        user_text=(f"Facility hint: {facility}. Floors hint: {floors}. "
-                   f"Parse this floor plan into the bim_model JSON exactly."),
+        user_text=(f"Facility hint: {facility}. Floors hint: {floors}. Parse this "
+                   f"floor plan into the bim_model JSON. Capture every labelled "
+                   f"room with its printed dimensions; do not omit rooms."),
         image_urls=image_urls,
         stub={"_synth": True},
-        max_tokens=3500,
+        max_tokens=12000,
     )
     bm = bs.normalize_bim_model(result, facility, floors)
+    if bm.get("synthesized"):
+        # parse failed/empty → we fell back to a generic building. Surface why.
+        bm["parse_note"] = (gw.last_vision_error
+                            or "plan could not be parsed; using a generic layout")
+        try:
+            print(f"[plan_parser] vision fallback ({gw.backend}): {bm['parse_note']}",
+                  file=sys.stderr)
+        except Exception:
+            pass
     return {"bim_model": bm, "vision_findings": bs.findings_from_bim(bm)}
 
 
@@ -607,8 +620,7 @@ def schema_mapper(state: dict) -> dict:
         # actually runs coupled physics and shows real status.
         facility = bim_model.get("facility") or bs.infer_facility(
             convo + " " + (state.get("user_intent") or ""))
-        if facility in ("hospital", "datacenter"):
-            bs.enrich_domain(bim_model, facility)
+        bs.enrich_domain(bim_model, facility)   # furnish + wire functional services
         twin_name = state.get("twin_name") or bim_model.get("building", {}).get("name")
         entities, rels = bs.bim_model_to_drafts(bim_model, twin_name, source_plan)
         return {"draft_entities": entities, "draft_relationships": rels,

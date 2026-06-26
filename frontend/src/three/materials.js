@@ -39,8 +39,26 @@ export function makeMats() {
     mattress: new THREE.MeshStandardMaterial({ color: 0xeef1f6, roughness: 0.85, metalness: 0 }),
     red: new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5, metalness: 0.3 }),
     solar: new THREE.MeshStandardMaterial({ color: 0x14213d, roughness: 0.25, metalness: 0.4, emissive: 0x0a1a3a, emissiveIntensity: 0.25 }),
+    // ── architectural shell + site ──
+    plaster: new THREE.MeshStandardMaterial({ color: 0xeef0f4, roughness: 0.94, metalness: 0, side: THREE.DoubleSide }),
+    floorWood: new THREE.MeshStandardMaterial({ color: 0xb9895a, roughness: 0.55, metalness: 0.04 }),
+    floorTile: new THREE.MeshStandardMaterial({ color: 0xd9dde3, roughness: 0.28, metalness: 0.06 }),
+    floorConcrete: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.9, metalness: 0.02 }),
+    floorStone: new THREE.MeshStandardMaterial({ color: 0xbab6ad, roughness: 0.82, metalness: 0.02 }),
+    windowGlass: new THREE.MeshStandardMaterial({ color: 0x2b3a4f, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.45, envMapIntensity: 1.6 }),
+    roofMat: new THREE.MeshStandardMaterial({ color: 0x5b616b, roughness: 0.85, metalness: 0.05 }),
+    grass: new THREE.MeshStandardMaterial({ color: 0x4f7c3a, roughness: 1, metalness: 0 }),
+    asphalt: new THREE.MeshStandardMaterial({ color: 0x6f7480, roughness: 0.85, metalness: 0.05 }),
+    trunk: new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9 }),
+    porcelain: new THREE.MeshStandardMaterial({ color: 0xf4f6f9, roughness: 0.25, metalness: 0.05 }),
     led: (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 1.8 }),
   }
+}
+
+// Floor material lookup by room type key (from the scene node's `material`).
+export function floorMaterial(M, key) {
+  return { wood: M.floorWood, tile: M.floorTile, concrete: M.floorConcrete,
+           stone: M.floorStone }[key] || M.floorWood
 }
 
 // Severity → colour, matching the app's finding palette.

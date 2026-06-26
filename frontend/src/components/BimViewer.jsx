@@ -9,7 +9,7 @@
  */
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
-import { OrbitControls } from '@react-three/drei'
+import { OrbitControls, ContactShadows } from '@react-three/drei'
 import { EffectComposer, Bloom } from '@react-three/postprocessing'
 import * as THREE from 'three'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
@@ -73,6 +73,7 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
 
   const [visibleLevels, setVisibleLevels] = useState(null) // null = all
   const [selected, setSelected] = useState(null) // scene node
+  const [showRoof, setShowRoof] = useState(false) // dollhouse (roof off) by default
 
   // Live status: poll topology; nudge on new bus events.
   const { events } = useEventStream(tenant, { max: 20 })
@@ -118,40 +119,46 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
 
   return (
     <div className="bim-viewer">
-      <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}
-              camera={{ position: fit.position, fov: 42, near: 0.5, far: 2000 }}
+      <Canvas shadows dpr={[1, 2]}
+              gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.05 }}
+              camera={{ position: fit.position, fov: 40, near: 0.5, far: 3000 }}
               onPointerMissed={() => setSelected(null)}>
-        <color attach="background" args={['#0b0d18']} />
-        <fog attach="fog" args={['#0b0d18', 120, 360]} />
-        <hemisphereLight args={['#cfe0ff', '#1a1d2e', 0.55]} />
-        <ambientLight intensity={0.25} />
-        <directionalLight position={[40, 80, 30]} intensity={1.4} color="#fff3df"
-                          castShadow shadow-mapSize={[2048, 2048]}
-                          shadow-camera-left={-120} shadow-camera-right={120}
-                          shadow-camera-top={120} shadow-camera-bottom={-120} />
+        <color attach="background" args={['#1b1e26']} />
+        <fog attach="fog" args={['#1b1e26', 160, 520]} />
+        <hemisphereLight args={['#dCE8ff', '#3a3326', 0.7]} />
+        <ambientLight intensity={0.28} />
+        <directionalLight position={[60, 110, 50]} intensity={2.4} color="#fff2dc"
+                          castShadow shadow-mapSize={[2048, 2048]} shadow-bias={-0.0004}
+                          shadow-camera-left={-140} shadow-camera-right={140}
+                          shadow-camera-top={140} shadow-camera-bottom={-140} shadow-camera-far={400} />
         <RoomEnv />
         <Suspense fallback={null}>
           <Scene scene={scene} statusMap={statusMap} visibleLevels={visSet}
-                 selectedId={selected?.entityId}
+                 selectedId={selected?.entityId} showRoof={showRoof}
                  onPick={(node) => setSelected(node)} />
         </Suspense>
+        <ContactShadows position={[0, 0.02, 0]} opacity={0.5} scale={Math.max(60, (scene.bbox?.max?.[0] || 30) * 4)}
+                        blur={2.4} far={40} resolution={1024} color="#000000" />
         <OrbitControls target={fit.target} maxPolarAngle={Math.PI / 2.05}
-                       enableDamping minDistance={6} maxDistance={600} makeDefault />
+                       enableDamping minDistance={4} maxDistance={900} makeDefault />
         <EffectComposer disableNormalPass>
-          <Bloom intensity={0.7} luminanceThreshold={0.65} luminanceSmoothing={0.2} mipmapBlur />
+          <Bloom intensity={0.5} luminanceThreshold={0.72} luminanceSmoothing={0.25} mipmapBlur />
         </EffectComposer>
       </Canvas>
 
-      {/* HUD: floor isolation */}
-      {multi && (
-        <div className="bim-hud">
-          <div className={`chip ${!visibleLevels ? 'active' : ''}`} onClick={() => setVisibleLevels(null)}>All floors</div>
-          {levels.map((l) => (
-            <div key={l.index} className={`chip ${visSet?.has(l.index) ? 'active' : ''}`}
-                 onClick={() => toggleLevel(l.index)}>L{l.index}</div>
-          ))}
+      {/* HUD: roof toggle + floor isolation */}
+      <div className="bim-hud">
+        <div className={`chip ${showRoof ? '' : 'active'}`} onClick={() => setShowRoof((v) => !v)}>
+          <i className={`ti ${showRoof ? 'ti-home' : 'ti-home-2'}`} /> {showRoof ? 'Roof on' : 'Dollhouse'}
         </div>
-      )}
+        {multi && (
+          <div className={`chip ${!visibleLevels ? 'active' : ''}`} onClick={() => setVisibleLevels(null)}>All floors</div>
+        )}
+        {multi && levels.map((l) => (
+          <div key={l.index} className={`chip ${visSet?.has(l.index) ? 'active' : ''}`}
+               onClick={() => toggleLevel(l.index)}>L{l.index}</div>
+        ))}
+      </div>
 
       {/* Legend */}
       <div className="bim-legend">

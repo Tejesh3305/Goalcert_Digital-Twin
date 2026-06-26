@@ -44,7 +44,7 @@ class DynamicsEngine:
     """Drives generative entity models for one tenant, coupled via the graph."""
 
     def __init__(self, tenant_id: str, registry: DynamicsRegistry, query, *,
-                 speed: float = 60.0, seed: int = 1234,
+                 speed: float = 60.0, seed: int = 1234, start_hour: float = 13.0,
                  bundle_dynamics: Optional[dict] = None):
         self.tenant_id = tenant_id
         self.registry = registry
@@ -52,8 +52,8 @@ class DynamicsEngine:
         self.speed = float(speed)            # sim seconds per real second
         self.seed = seed
         self.bundle_dynamics = bundle_dynamics or {}   # {canonical_type: {param: val}}
-        # runtime
-        self.t = 0.0                         # sim seconds elapsed
+        # runtime — start at a warm hour so diurnal-driven faults show promptly
+        self.t = float(start_hour) * 3600.0  # sim seconds elapsed
         self._states: dict[str, EntityState] = {}
         self._nodes: dict[str, dict] = {}    # id -> {canonicalType, props}
         self._inbound: dict[str, dict[str, list[str]]] = {}  # id -> {predicate: [src ids]} (upstream)

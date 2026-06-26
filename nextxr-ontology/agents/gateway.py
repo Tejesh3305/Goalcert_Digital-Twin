@@ -32,7 +32,53 @@ except Exception:
     pass
 
 DEFAULT_MODEL = os.getenv("NXR_LLM_MODEL", "gpt-4o-mini")
+# Vision model for plan parsing. Prefer a strong model: if an Anthropic key is
+# present we use Claude (excellent at dense architectural drawings); otherwise
+# OpenAI gpt-4o. Override with NXR_VISION_MODEL.
+DEFAULT_VISION_MODEL = os.getenv("NXR_VISION_MODEL", "")
+ANTHROPIC_VISION_DEFAULT = "claude-sonnet-4-6"
+OPENAI_VISION_DEFAULT = "gpt-4o"
 MAX_CALLS_PER_SESSION = int(os.getenv("NXR_LLM_MAX_CALLS", "100"))
+
+
+def _salvage_json(text: str) -> Optional[dict]:
+    """Best-effort: parse a JSON object from a model reply that may be wrapped in
+    prose or ```json fences, or lightly truncated."""
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+    s = text.strip()
+    if "```" in s:                       # strip code fences
+        s = s.split("```", 2)[1] if s.count("```") >= 2 else s
+        s = s.lstrip("json").lstrip("JSON").strip()
+    a, b = s.find("{"), s.rfind("}")
+    if a >= 0 and b > a:
+        frag = s[a:b + 1]
+        try:
+            return json.loads(frag)
+        except Exception:
+            # truncated: trim to the last complete top-level array/brace and close.
+            for cut in (frag.rfind("}]"), frag.rfind("]"), frag.rfind("}")):
+                if cut > 0:
+                    try:
+                        return json.loads(frag[:cut + 1].rstrip(", \n") +
+                                          ("]" if frag[:cut + 1].count("[") > frag[:cut + 1].count("]") else "") +
+                                          "}" * max(0, frag[:cut + 1].count("{") - frag[:cut + 1].count("}")))
+                    except Exception:
+                        continue
+    return None
+
+
+def _split_data_url(url: str):
+    """('image/png', '<base64>') from a data URL, else (None, None)."""
+    if isinstance(url, str) and url.startswith("data:") and "," in url:
+        head, data = url.split(",", 1)
+        media = head[5:].split(";")[0] or "image/png"
+        return media, data
+    return None, None
 
 
 @dataclass
@@ -48,10 +94,24 @@ class LLMGateway:
 
     def __init__(self):
         self._client = None
+        self._anthropic = None
         self._backend = "stub"
+        self.last_vision_error = None
+        self.last_vision_backend = None
         self._lock = threading.Lock()
         self._session_calls: dict[str, int] = {}
         self._init_client()
+        self._init_anthropic()
+
+    def _init_anthropic(self):
+        key = os.getenv("ANTHROPIC_API_KEY")
+        if not key:
+            return
+        try:
+            import anthropic
+            self._anthropic = anthropic.Anthropic(api_key=key)
+        except Exception:
+            self._anthropic = None
 
     def _init_client(self):
         key = os.getenv("OPENAI_API_KEY")
@@ -140,28 +200,68 @@ class LLMGateway:
     def complete_json_vision(self, *, tenant_id: str, session_id: str,
                              system: str, user_text: str, image_urls: list[str],
                              stub: dict, temperature: float = 0.1,
-                             max_tokens: int = 1200,
+                             max_tokens: int = 8000,
                              model: Optional[str] = None) -> dict:
-        """Structured JSON vision completion. `stub` is the fallback dict.
-        Always returns a dict — on any failure, the stub is returned."""
-        if self._backend != "openai" or not self._check_and_count(session_id):
+        """Structured JSON vision completion for plan parsing. Prefers Claude
+        (strong on dense architectural drawings) when ANTHROPIC_API_KEY is set,
+        else OpenAI gpt-4o with HIGH-detail images so small room labels are read.
+        Salvages lightly-truncated JSON. Returns the stub only on hard failure,
+        recording why on self.last_vision_error so the cause is visible."""
+        self.last_vision_error = None
+        if not self._check_and_count(session_id):
+            self.last_vision_error = "session call cap reached"
             return dict(stub)
-        try:
-            content: list[dict] = [{"type": "text", "text": user_text}]
-            for url in image_urls[:5]:
-                content.append({"type": "image_url", "image_url": {"url": url}})
-            resp = self._client.chat.completions.create(
-                model=model or "gpt-4o",
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": content}],
-            )
-            parsed = json.loads(resp.choices[0].message.content or "{}")
-            return parsed if isinstance(parsed, dict) else dict(stub)
-        except Exception:
-            return dict(stub)
+
+        # --- Claude path (preferred when available) ---
+        if self._anthropic is not None and (not DEFAULT_VISION_MODEL
+                                            or DEFAULT_VISION_MODEL.startswith("claude")):
+            try:
+                blocks = [{"type": "text", "text": user_text}]
+                for url in image_urls[:4]:
+                    media, b64 = _split_data_url(url)
+                    if b64:
+                        blocks.append({"type": "image", "source": {
+                            "type": "base64", "media_type": media, "data": b64}})
+                    elif isinstance(url, str) and url.startswith("http"):
+                        blocks.append({"type": "image", "source": {"type": "url", "url": url}})
+                resp = self._anthropic.messages.create(
+                    model=DEFAULT_VISION_MODEL or ANTHROPIC_VISION_DEFAULT,
+                    max_tokens=max(max_tokens, 8000), temperature=temperature,
+                    system=system + "\nReturn ONLY the JSON object, no prose.",
+                    messages=[{"role": "user", "content": blocks}])
+                text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+                parsed = _salvage_json(text)
+                if isinstance(parsed, dict):
+                    self.last_vision_backend = "anthropic"
+                    return parsed
+                self.last_vision_error = "anthropic returned unparseable JSON"
+            except Exception as e:
+                self.last_vision_error = f"anthropic error: {e}"
+
+        # --- OpenAI gpt-4o path (HIGH detail + salvage) ---
+        if self._backend == "openai":
+            try:
+                content: list[dict] = [{"type": "text", "text": user_text}]
+                for url in image_urls[:4]:
+                    content.append({"type": "image_url",
+                                    "image_url": {"url": url, "detail": "high"}})
+                resp = self._client.chat.completions.create(
+                    model=model or DEFAULT_VISION_MODEL or OPENAI_VISION_DEFAULT,
+                    temperature=temperature,
+                    max_tokens=max(max_tokens, 4096),
+                    response_format={"type": "json_object"},
+                    messages=[{"role": "system", "content": system},
+                              {"role": "user", "content": content}])
+                parsed = _salvage_json(resp.choices[0].message.content or "{}")
+                if isinstance(parsed, dict):
+                    self.last_vision_backend = "openai"
+                    return parsed
+                self.last_vision_error = "openai returned unparseable/truncated JSON"
+            except Exception as e:
+                self.last_vision_error = f"openai error: {e}"
+        elif not self.last_vision_error:
+            self.last_vision_error = "no vision backend configured"
+        return dict(stub)
 
     # ---- structured JSON completion --------------------------------------
     def complete_json(self, *, tenant_id: str, session_id: str, system: str,

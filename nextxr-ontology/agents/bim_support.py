@@ -200,6 +200,24 @@ _ITEM_RULES: list[tuple[str, str | None, str, bool]] = [
     ("monitor", None, "monitor", True),
     ("table", None, "table", True),
     ("bed", None, "bed", True),
+    # — residential fit-out (decor) —
+    ("nightstand", None, "nightstand", True), ("bedside", None, "nightstand", True),
+    ("rug", None, "rug", True), ("carpet", None, "rug", True),
+    ("kitchen", None, "kitchen", True), ("counter", None, "kitchen", True),
+    ("cooktop", None, "stove", True), ("hob", None, "stove", True),
+    ("stove", None, "stove", True), ("oven", None, "stove", True), ("range", None, "stove", True),
+    ("toilet", None, "toilet", True), ("wc", None, "toilet", True),
+    ("washbasin", None, "sink", True), ("basin", None, "sink", True),
+    ("vanity", None, "sink", True), ("sink", None, "sink", True),
+    ("bathtub", None, "bathtub", True), ("tub", None, "bathtub", True),
+    ("shower", None, "shower", True),
+    ("car", None, "car", True), ("vehicle", None, "car", True), ("garage", None, "car", True),
+    # — functional fixtures (assets; enrich overrides the class, prop key used here) —
+    ("split ac", "AirHandlingUnit", "splitac", False), ("splitac", "AirHandlingUnit", "splitac", False),
+    ("air con", "AirHandlingUnit", "splitac", False), ("aircon", "AirHandlingUnit", "splitac", False),
+    ("ceiling light", "FacilityEquipment", "ceilinglight", False),
+    ("ceilinglight", "FacilityEquipment", "ceilinglight", False),
+    ("water heat", "Boiler", "boiler", False), ("geyser", "Boiler", "boiler", False),
     # — generic sensor (avoid the cfp:Sensor classes) —
     ("sensor", "FacilityEquipment", "sensor", False),
 ]
@@ -230,9 +248,91 @@ def infer_facility(text: str = "") -> str:
         return "hospital"
     if "factory" in t or "plant" in t or "manufactur" in t or "warehouse" in t or "production" in t:
         return "factory"
+    if any(k in t for k in ("house", "home", "villa", "bungalow", "apartment",
+                            "residential", "residence", "flat", "bedroom", "duplex")):
+        return "residential"
     if "office" in t or "workplace" in t or "corporate" in t:
         return "office"
-    return "office"
+    return "residential"   # most uploaded plans are homes; default accordingly
+
+
+# ── room-type taxonomy (drives furnishing, floor material, lighting) ──────
+_ROOM_TYPE_RULES = [
+    ("master", "master_bedroom"), ("ensuite", "bathroom"), ("en-suite", "bathroom"),
+    ("bedroom", "bedroom"), ("bed ", "bedroom"), ("guest", "bedroom"),
+    ("living", "living"), ("lounge", "living"), ("family", "living"), ("hall", "living"),
+    ("dining", "dining"), ("kitchen", "kitchen"), ("pantry", "kitchen"),
+    ("bath", "bathroom"), ("toilet", "bathroom"), ("wc", "bathroom"), ("powder", "bathroom"),
+    ("garage", "garage"), ("carport", "garage"),
+    ("porch", "porch"), ("entry", "porch"), ("foyer", "porch"), ("veranda", "porch"),
+    ("balcony", "balcony"), ("terrace", "balcony"), ("patio", "balcony"),
+    ("office", "office"), ("study", "office"), ("den", "office"),
+    ("laundry", "utility"), ("utility", "utility"), ("mud", "utility"), ("plant", "utility"),
+    ("closet", "closet"), ("wardrobe", "closet"), ("store", "closet"), ("storage", "closet"),
+    ("stair", "corridor"), ("corridor", "corridor"), ("hallway", "corridor"),
+    ("passage", "corridor"), ("landing", "corridor"),
+]
+
+
+def classify_room(name: str = "", function: str = "") -> str:
+    """Map a room label/function to a canonical room type for furnishing."""
+    text = f"{name} {function}".lower()
+    for kw, typ in _ROOM_TYPE_RULES:
+        if kw in text:
+            return typ
+    return (function or "living").lower()
+
+
+# Per-room-type furniture layout: (prop, fx, fy, rotDeg) — fx/fy are fractions
+# of the room bbox (0..1). Pure decor (rendered, never committed as assets).
+_FURNISH = {
+    "bedroom": [("bed", 0.5, 0.32, 0), ("nightstand", 0.27, 0.16, 0),
+                ("nightstand", 0.73, 0.16, 0), ("cabinet", 0.87, 0.7, 90),
+                ("rug", 0.5, 0.55, 0)],
+    "master_bedroom": [("bed", 0.5, 0.3, 0), ("nightstand", 0.24, 0.15, 0),
+                       ("nightstand", 0.76, 0.15, 0), ("cabinet", 0.88, 0.62, 90),
+                       ("sofa", 0.2, 0.82, 90), ("rug", 0.5, 0.5, 0)],
+    "living": [("sofa", 0.5, 0.22, 0), ("coffeetable", 0.5, 0.45, 0),
+               ("tv", 0.5, 0.92, 180), ("cabinet", 0.12, 0.9, 0),
+               ("plant", 0.88, 0.12, 0), ("rug", 0.5, 0.45, 0)],
+    "dining": [("table", 0.5, 0.5, 0), ("chair", 0.33, 0.5, 90), ("chair", 0.67, 0.5, 270),
+               ("chair", 0.5, 0.33, 180), ("chair", 0.5, 0.67, 0), ("plant", 0.13, 0.13, 0)],
+    "kitchen": [("kitchen", 0.5, 0.88, 0), ("stove", 0.28, 0.88, 0),
+                ("fridge", 0.86, 0.83, 0), ("sink", 0.66, 0.88, 0)],
+    "bathroom": [("toilet", 0.2, 0.82, 0), ("sink", 0.5, 0.86, 0), ("shower", 0.83, 0.78, 0)],
+    "garage": [("car", 0.5, 0.5, 0)],
+    "office": [("desk", 0.5, 0.3, 0), ("chair", 0.5, 0.47, 180),
+               ("bookshelf", 0.86, 0.6, 90), ("plant", 0.13, 0.13, 0)],
+    "porch": [("plant", 0.2, 0.5, 0), ("plant", 0.8, 0.5, 0)],
+    "balcony": [("plant", 0.25, 0.5, 0), ("plant", 0.75, 0.5, 0), ("chair", 0.5, 0.5, 0)],
+    "utility": [("cabinet", 0.5, 0.86, 0)],
+    "closet": [("cabinet", 0.5, 0.86, 90)],
+    "corridor": [],
+}
+
+
+def auto_furnish(bm: dict) -> dict:
+    """Furnish each room by its type with the right pieces (bed in bedrooms, sofa
+    + TV in living, counter + stove + fridge in kitchen, car in garage, …). All
+    are decor (rendered, not committed). Mutates and returns bm."""
+    eqs = bm.setdefault("equipment", [])
+    n = 0
+    for room in bm.get("rooms", []):
+        typ = classify_room(room.get("name", ""), room.get("function", ""))
+        room["type"] = typ
+        bb = room.get("bbox") or {}
+        bx, by = bb.get("x", 0), bb.get("y", 0)
+        bw, bl = bb.get("w", 4), bb.get("l", 4)
+        for prop, fx, fy, rot in _FURNISH.get(typ, []):
+            eqs.append({
+                "id": f"fn{n}", "label": prop.replace("_", " ").title(),
+                "assetType": prop, "decorItem": True,
+                "room": room["id"], "level": room.get("level", 0),
+                "x": round(bx + fx * bw, 2), "y": round(by + fy * bl, 2),
+                "rotationDeg": rot,
+            })
+            n += 1
+    return bm
 
 
 def infer_floors(text: str = "", default: int = 1) -> int:
@@ -266,6 +366,10 @@ def normalize_bim_model(raw: dict, facility: str = "office", floors: int = 1) ->
         return synthesize_bim_model(facility, floors)
     rooms_in = raw.get("rooms") or []
     b = raw.get("building") or {}
+    # trust the building type the vision model read from the drawing
+    parsed_fac = str(b.get("facility") or "").lower().strip()
+    if parsed_fac in ("hospital", "datacenter", "residential", "office", "factory"):
+        facility = parsed_fac
     if not rooms_in:
         return synthesize_bim_model(facility, floors)
 
@@ -285,11 +389,19 @@ def normalize_bim_model(raw: dict, facility: str = "office", floors: int = 1) ->
             continue
         lvl = int(r.get("level", 0) or 0)
         maxx, maxy, maxlvl = max(maxx, x + w), max(maxy, y + l), max(maxlvl, lvl)
+        # preserve a real (non-rectangular) polygon when the LLM gives one
+        poly = None
+        if isinstance(fp, list) and len(fp) >= 3:
+            try:
+                poly = [[_f(p[0]), _f(p[1])] for p in fp]
+            except (TypeError, IndexError):
+                poly = None
+        name = r.get("name") or f"Room {i+1}"
         rooms.append({
-            "id": str(r.get("id") or f"r{i}"), "level": lvl,
-            "name": r.get("name") or f"Room {i+1}",
-            "function": r.get("function") or "room",
-            "footprint": [[x, y], [x + w, y], [x + w, y + l], [x, y + l]],
+            "id": str(r.get("id") or f"r{i}"), "level": lvl, "name": name,
+            "type": (r.get("type") or classify_room(name, r.get("function", ""))),
+            "function": r.get("function") or r.get("type") or "room",
+            "footprint": poly or [[x, y], [x + w, y], [x + w, y + l], [x, y + l]],
             "bbox": {"x": x, "y": y, "w": w, "l": l},
             "areaM2": round(w * l, 1),
         })
@@ -342,11 +454,20 @@ def normalize_bim_model(raw: dict, facility: str = "office", floors: int = 1) ->
             "rotationDeg": _f(eq.get("rotationDeg")),
         })
 
+    openings = []
+    for o in (raw.get("openings") or []):
+        at = o.get("at")
+        if isinstance(at, list) and len(at) == 2:
+            openings.append({"type": o.get("type", "window"),
+                             "level": int(o.get("level", 0) or 0),
+                             "at": [_f(at[0]), _f(at[1])],
+                             "widthM": _f(o.get("widthM")) or 1.0})
+
     return {
         "building": {"name": b.get("name") or f"{facility.title()} Building",
                      "widthM": round(W, 2), "lengthM": round(L, 2), "floors": n_floors},
         "levels": levels, "rooms": rooms, "walls": walls,
-        "openings": raw.get("openings") or [], "equipment": equipment,
+        "openings": openings, "equipment": equipment,
         "facility": facility, "synthesized": False,
     }
 
@@ -449,6 +570,7 @@ _FACILITY_DIMS = {
     "office": (40.0, 30.0, 3.6),
     "hospital": (44.0, 32.0, 4.0),
     "factory": (50.0, 38.0, 7.0),
+    "residential": (16.0, 11.0, 3.0),
 }
 _DEFAULT_DIMS = (40.0, 30.0, 3.8)
 
@@ -457,6 +579,8 @@ _ROOM_FUNCTIONS = {
     "office": ["open office", "meeting room", "server closet", "reception", "break room"],
     "hospital": ["ward", "imaging", "pharmacy", "nurse station", "theatre"],
     "factory": ["production", "assembly", "warehouse", "qc lab", "utilities"],
+    "residential": ["living room", "master bedroom", "bedroom", "kitchen",
+                    "dining", "bathroom", "garage"],
 }
 
 # Per-floor equipment recipe: (assetType, label) entries.
@@ -473,6 +597,7 @@ _FACILITY_EQUIP = {
     "factory": [("robot", "Robot Arm")] * 2 + [("conveyor", "Conveyor"),
                 ("cnc", "CNC Machine"), ("welder", "Welder"), ("forklift", "Forklift"),
                 ("compressor", "Compressor"), ("meter", "Energy Meter")],
+    "residential": [],   # furniture via auto_furnish, fixtures via enrich_domain
 }
 
 # Fit-out / furniture per facility (rendered as decor, never committed as assets).
@@ -566,7 +691,8 @@ def synthesize_bim_model(facility: str = "office", floors: int = 1,
 
         # fit-out / furniture (rendered, not committed) — two pieces per room,
         # tucked toward the corners so they don't overlap the equipment.
-        if not equipment_hints:
+        # (residential is furnished by room TYPE via auto_furnish in enrich_domain.)
+        if not equipment_hints and facility != "residential":
             fpool = _FACILITY_FURNITURE.get(facility, _FACILITY_FURNITURE["office"])
             fi = 0
             for ri, room in enumerate(rooms):
@@ -721,8 +847,78 @@ def _is_decor(eq) -> bool:
     return classify_item(eq.get("label", ""), eq.get("assetType", ""))[2]
 
 
+def _enrich_building(bm: dict, facility: str) -> dict:
+    """Generic building functional layer (homes/offices): furnish each room by
+    type, then wire a real services spine — utility → distribution panel → a
+    split-AC + ceiling light per conditioned room (AC suppliesAirTo its room) +
+    a water heater. The dynamics engine then runs each room as a thermal zone
+    that the AC cools and lights/occupancy heat; the binding-layer room monitor
+    raises a finding (red in 3-D) if a room runs hot. One AC is pre-degraded so
+    a room visibly drifts warm — a live, mapped-to-real fault."""
+    auto_furnish(bm)
+    rooms = bm.get("rooms", [])
+    b = bm.get("building", {})
+    L = float(b.get("lengthM") or 11.0)
+    spine, links, n = [], list(bm.get("_links", [])), [0]
+
+    def add(ct, prop, room=None, x=0.0, y=0.0, lvl=0, params=None):
+        sid = f"sp_{prop}{n[0]}"; n[0] += 1
+        spine.append({"id": sid, "label": _PROP_LABEL.get(prop, prop.title()),
+                      "assetType": prop, "canonicalType": ct, "room": room,
+                      "level": lvl, "x": round(x, 2), "y": round(y, 2),
+                      "params": params or {}})
+        return sid
+
+    def link(s, p, t):
+        if s and t and s != t:
+            links.append({"source": s, "predicate": p, "target": t})
+
+    util = add(CFP + "UtilityFeed", "switchgear", x=1.0, y=L - 1.0)
+    panel = add(CFP + "PowerPanel", "switchgear", x=2.6, y=L - 1.0)
+    link(util, "nxr:feeds", panel)
+
+    conditioned = {"bedroom", "master_bedroom", "living", "dining", "kitchen",
+                   "office", "bathroom"}
+    fault_done = False
+    for r in rooms:
+        typ = classify_room(r.get("name", ""), r.get("function", ""))
+        r["type"] = typ
+        if typ in ("corridor", "closet"):
+            continue
+        bb = r.get("bbox") or {}
+        bx, by, bw, bl = bb.get("x", 0), bb.get("y", 0), bb.get("w", 4), bb.get("l", 4)
+        r["setpoint"] = 22.0 if typ in ("bedroom", "master_bedroom") else 24.0
+        if typ in conditioned:
+            acp = {"setpoint": r["setpoint"], "ratedAirflowLps": 450, "ratedFanKW": 0.5,
+                   "coilEffectiveness": 0.72}
+            if not fault_done and typ in ("bedroom", "master_bedroom"):
+                acp.update({"conditionIndex": 0.25, "coilEffectiveness": 0.15,
+                            "ratedAirflowLps": 150}); fault_done = True
+            ac = add(CFP + "AirHandlingUnit", "splitac", room=r["id"],
+                     x=bx + bw * 0.5, y=by + 0.4, lvl=r.get("level", 0), params=acp)
+            link(panel, "nxr:feeds", ac)
+            link(ac, "cfp:suppliesAirTo", r["id"])
+        lt = add(CFP + "FacilityEquipment", "ceilinglight", room=r["id"],
+                 x=bx + bw * 0.5, y=by + bl * 0.5, lvl=r.get("level", 0),
+                 params={"baseLoadKW": 0.06})
+        link(panel, "nxr:feeds", lt)
+
+    wh = add(CFP + "FacilityEquipment", "boiler", x=4.4, y=L - 1.0,
+             params={"baseLoadKW": 3.0})
+    link(panel, "nxr:feeds", wh)
+
+    bm.setdefault("equipment", []).extend(spine)
+    seen, ded = set(), []
+    for lk in links:
+        k = (lk["source"], lk["predicate"], lk["target"])
+        if k not in seen:
+            seen.add(k); ded.append(lk)
+    bm["_links"] = ded
+    return bm
+
+
 def enrich_domain(bm: dict, facility: str) -> dict:
-    """APPLY-TO-PLAN AUTO-WIRING (hospital / datacenter only).
+    """APPLY-TO-PLAN AUTO-WIRING.
 
     Turn a parsed/synthesized bim_model into a fully interrelated, runnable twin:
       1. re-type the plan's assets to the dedicated domain classes (CFP stays the
@@ -738,10 +934,12 @@ def enrich_domain(bm: dict, facility: str) -> dict:
       5. pre-set a few conditionIndex / event-rate params so the baked-in fault
          chains develop and the 3-D status indicators visibly change.
 
-    Mutates and returns bm. A no-op for non hospital/datacenter facilities."""
+    Mutates and returns bm. Routes homes/offices to the generic building path."""
     facility = (facility or "").lower()
+    if facility in ("residential", "office", "home", ""):
+        return _enrich_building(bm, facility or "residential")
     if facility not in ("hospital", "datacenter"):
-        return bm
+        return _enrich_building(bm, facility)   # any other building still gets services
     is_dc = facility == "datacenter"
 
     eqs = [e for e in bm.get("equipment", []) if not _is_decor(e)]
@@ -793,9 +991,10 @@ def enrich_domain(bm: dict, facility: str) -> dict:
     def first_of(*kinds):
         return next((e["id"] for e in eqs if _kind(e) in kinds), None)
 
-    # datacenter: a scheduled mains outage so the UPS visibly goes on battery
+    # datacenter: a scheduled mains outage (sim time-of-day ~13:20, ~20 min into a
+    # run that starts at 13:00) so the UPS visibly goes on battery.
     util = add_spine("sp_util", CFP + "UtilityFeed", "switchgear",
-                     {"outageAtMinute": 20, "outageMinutes": 30} if is_dc else {})
+                     {"outageAtMinute": 800, "outageMinutes": 40} if is_dc else {})
     xfmr = add_spine("sp_xfmr", CFP + "Transformer", "transformer",
                      {"ratedCapacity": 2000 if is_dc else 1500})
     ups = first_of("ups") or add_spine("sp_ups", CFP + "UPS", "ups",
@@ -925,7 +1124,21 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
             "status": None,
         })
 
-    # Walls
+    _EPS = 0.6
+    def _exterior(s, en):
+        return ((abs(s[0]) < _EPS and abs(en[0]) < _EPS) or
+                (abs(s[0] - W) < _EPS and abs(en[0] - W) < _EPS) or
+                (abs(s[1]) < _EPS and abs(en[1]) < _EPS) or
+                (abs(s[1] - L) < _EPS and abs(en[1] - L) < _EPS))
+
+    _FLOOR_MAT = {"bedroom": "wood", "master_bedroom": "wood", "living": "wood",
+                  "dining": "wood", "office": "wood", "closet": "wood",
+                  "kitchen": "tile", "bathroom": "tile", "utility": "tile",
+                  "corridor": "tile", "garage": "concrete", "porch": "stone",
+                  "balcony": "stone"}
+
+    # Walls — exterior full height; interior partitions lowered so the furnished
+    # rooms read from a top-angled "dollhouse" camera.
     for i, w in enumerate(bm.get("walls", [])):
         s, en = w.get("start"), w.get("end")
         if not s or not en:
@@ -936,11 +1149,13 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
             continue
         idx = w.get("level", 0)
         e = elev_of.get(idx, 0)
-        h = w.get("heightM", 3.5)
+        full_h = w.get("heightM", 3.0)
         t = w.get("thicknessM", 0.2)
+        ext = _exterior(s, en)
+        h = full_h if ext else round(full_h * 0.5, 2)
         nodes.append({
             "id": f"wall-{idx}-{i}", "entityId": None, "kind": "wall",
-            "type": CFP + "Floor", "label": "wall", "level": idx,
+            "type": CFP + "Floor", "label": "wall", "level": idx, "exterior": ext,
             "transform": {"pos": [cx((s[0] + en[0]) / 2), round(e + h / 2, 3),
                                   cz((s[1] + en[1]) / 2)],
                           "rotY": round(math.atan2(dy, dx), 4), "scale": [1, 1, 1]},
@@ -948,7 +1163,7 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
             "status": None,
         })
 
-    # Room floor pads (clickable + colourable surfaces)
+    # Room floor pads — per-type material; real polygon when the parse gave one.
     for room in bm.get("rooms", []):
         bb = room.get("bbox") or {}
         x, y = bb.get("x", 0), bb.get("y", 0)
@@ -956,27 +1171,39 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
         idx = room.get("level", 0)
         e = elev_of.get(idx, 0)
         eid = id_map.get(room["id"])
-        nodes.append({
+        rtyp = room.get("type") or classify_room(room.get("name", ""), room.get("function", ""))
+        fp = room.get("footprint")
+        poly = ([[cx(_f(p[0])), cz(_f(p[1]))] for p in fp]
+                if isinstance(fp, list) and len(fp) >= 3 else None)
+        node = {
             "id": f"room-{room['id']}", "entityId": eid, "kind": "room",
             "type": CFP + "Room", "label": room.get("name") or room["id"],
-            "level": idx,
-            "transform": {"pos": [cx(x + w / 2), round(e + 0.05, 3), cz(y + l / 2)],
+            "level": idx, "roomType": rtyp, "material": _FLOOR_MAT.get(rtyp, "wood"),
+            "transform": {"pos": [cx(x + w / 2), round(e + 0.04, 3), cz(y + l / 2)],
                           "rotY": 0, "scale": [1, 1, 1]},
-            "geometry": {"kind": "box", "size": [round(w * 0.96, 3), 0.08, round(l * 0.96, 3)]},
             "status": _status(eid),
-        })
+        }
+        if poly:
+            node["geometry"] = {"kind": "floorpoly", "footprint": poly,
+                                "thickness": 0.08, "y": round(e + 0.04, 3)}
+        else:
+            node["geometry"] = {"kind": "box", "size": [round(w * 0.98, 3), 0.08, round(l * 0.98, 3)]}
+        nodes.append(node)
 
-    # Equipment + furniture props (both rendered; decor carries no entityId)
+    # Equipment + furniture props (ceiling fixtures lifted to the ceiling)
+    _CEILING = {"ceilinglight", "splitac", "sprinkler", "smoke"}
     for eq in bm.get("equipment", []):
         ct, prop, decor = classify_item(eq.get("label", ""), eq.get("assetType", ""))
         idx = eq.get("level", 0)
         e = elev_of.get(idx, 0)
+        lvl_h = next((l.get("heightM", 3.0) for l in levels if l.get("index") == idx), 3.0)
         eid = None if decor else id_map.get(eq["id"])
+        py = round(e + lvl_h - 0.35, 3) if prop in _CEILING else round(e, 3)
         nodes.append({
             "id": f"eq-{eq['id']}", "entityId": eid,
             "kind": "decor" if decor else "equipment",
             "type": ct or "fit-out", "label": eq.get("label") or eq["id"], "level": idx,
-            "transform": {"pos": [cx(eq.get("x", W / 2)), round(e, 3), cz(eq.get("y", L / 2))],
+            "transform": {"pos": [cx(eq.get("x", W / 2)), py, cz(eq.get("y", L / 2))],
                           "rotY": round(math.radians(eq.get("rotationDeg", 0) or 0), 4),
                           "scale": [1, 1, 1]},
             "geometry": {"kind": "prop", "prop": prop},
@@ -984,7 +1211,70 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
             "status": _status(eid),
         })
 
-    top = max((l.get("elevationM", 0) + l.get("heightM", 3.5) for l in levels), default=3.5)
+    # Openings — windows + doors placed on the walls.
+    for i, o in enumerate(bm.get("openings", [])):
+        at = o.get("at")
+        if not (isinstance(at, list) and len(at) == 2):
+            continue
+        idx = o.get("level", 0)
+        e = elev_of.get(idx, 0)
+        wd = _f(o.get("widthM"), 1.0) or 1.0
+        is_door = o.get("type") == "door"
+        nodes.append({
+            "id": f"open-{idx}-{i}", "entityId": None,
+            "kind": "door" if is_door else "window", "type": CFP + "Floor",
+            "label": o.get("type", "window"), "level": idx,
+            "transform": {"pos": [cx(_f(at[0])), round(e + (1.05 if is_door else 1.5), 2),
+                                  cz(_f(at[1]))], "rotY": 0, "scale": [1, 1, 1]},
+            "geometry": {"kind": "box", "size": [round(wd, 2), 2.1 if is_door else 1.2, 0.14]},
+            "status": None,
+        })
+
+    top = max((l.get("elevationM", 0) + l.get("heightM", 3.0) for l in levels), default=3.0)
+
+    # Roof (one slab per level; the viewer hides it in dollhouse/cutaway mode).
+    for lvl in levels:
+        idx = lvl.get("index", 0)
+        e = lvl.get("elevationM", 0)
+        hh = lvl.get("heightM", 3.0)
+        nodes.append({
+            "id": f"roof-{idx}", "entityId": None, "kind": "roof", "type": CFP + "Floor",
+            "label": "roof", "level": idx,
+            "transform": {"pos": [0, round(e + hh + 0.18, 3), 0], "rotY": 0, "scale": [1, 1, 1]},
+            "geometry": {"kind": "box", "size": [round(W + 0.8, 2), 0.45, round(L + 0.8, 2)]},
+            "status": None,
+        })
+
+    # Ground + landscaping (grass plot, driveway, greenery) — like the references.
+    nodes.append({
+        "id": "ground", "entityId": None, "kind": "ground", "type": "site",
+        "label": "ground", "level": 0,
+        "transform": {"pos": [0, -0.06, 0], "rotY": 0, "scale": [1, 1, 1]},
+        "geometry": {"kind": "box", "size": [round(W * 2.2, 2), 0.12, round(L * 2.2, 2)]},
+        "status": None,
+    })
+    nodes.append({
+        "id": "driveway", "entityId": None, "kind": "driveway", "type": "site",
+        "label": "driveway", "level": 0,
+        "transform": {"pos": [round(-W * 0.18, 2), 0.02, round(L * 0.5 + W * 0.16, 2)],
+                      "rotY": 0, "scale": [1, 1, 1]},
+        "geometry": {"kind": "box", "size": [round(W * 0.4, 2), 0.06, round(W * 0.34, 2)]},
+        "status": None,
+    })
+    import random as _rnd
+    _rng = _rnd.Random(7)
+    per = max(6, int((W + L) / 5))
+    for k in range(per):
+        ang = (k / per) * 2 * math.pi
+        gx = math.cos(ang) * W * 0.62 * (0.92 + 0.12 * _rng.random())
+        gz = math.sin(ang) * L * 0.62 * (0.92 + 0.12 * _rng.random())
+        nodes.append({
+            "id": f"green-{k}", "entityId": None,
+            "kind": "tree" if k % 3 == 0 else "shrub", "type": "site",
+            "label": "greenery", "level": 0,
+            "transform": {"pos": [round(gx, 2), 0, round(gz, 2)], "rotY": 0, "scale": [1, 1, 1]},
+            "geometry": {"kind": "green"}, "status": None,
+        })
     return {
         "format": "nxr-scene/1", "units": "m",
         "bbox": {"min": [-W / 2, 0, -L / 2], "max": [W / 2, top, L / 2]},

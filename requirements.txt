@@ -11,6 +11,12 @@ fastapi>=0.100
 uvicorn>=0.20
 pydantic>=2.0
 
+# LLM gateway (optional, keyless-safe). openai powers gpt-4o vision plan-parsing;
+# anthropic enables the preferred Claude vision path when ANTHROPIC_API_KEY is set.
+openai>=1.30
+anthropic>=0.40
+python-dotenv>=1.0
+
 # Change Log + Graph Writer + Behavior Registry + findings loop (Track 3):
 # stdlib only (sqlite3, hashlib, json, math) — no new dependencies.
 # Optional Tier-B upgrade: scikit-learn (IsolationForest) slots behind the

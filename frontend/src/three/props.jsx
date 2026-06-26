@@ -349,6 +349,52 @@ function pEscalator(M) {
   for (const sx of [-1.6, 1.6]) { const rail = box(0.2, 0.3, 8.5, M.glass, sx, 3.4, 0); rail.rotation.x = -0.5; g.add(rail) } return g
 }
 
+/* ───────────────────────── RESIDENTIAL FIXTURES + FURNITURE ──────────────── */
+function pSplitAC(M) {
+  const g = grp(); g.add(box(3.4, 1, 0.8, M.white, 0, 0, 0))
+  g.add(box(3.0, 0.14, 0.06, M.dark, 0, -0.34, 0.41))
+  const l = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.1, 0.04), M.led(0x22d3ee)); l.position.set(1.2, 0.2, 0.41); l.userData.blink = true; g.add(l); return g
+}
+function pCeilingLight(M) {
+  const g = grp(); g.add(box(2.6, 0.16, 2.6, M.white, 0, 0, 0)); g.add(box(2.3, 0.06, 2.3, M.warm, 0, -0.1, 0)); return g
+}
+function pNightstand(M) { const g = grp(); g.add(box(1.3, 1.4, 1.3, M.wood, 0, 0.7, 0)); g.add(box(1.0, 0.08, 0.06, M.woodDark, 0, 0.95, 0.66)); return g }
+function pRug(M) { const g = grp(); const m = new THREE.MeshStandardMaterial({ color: 0x8a93b5, roughness: 0.98 }); g.add(box(4.5, 0.06, 3.2, m, 0, 0.03, 0)); return g }
+function pKitchen(M) {
+  const g = grp(); g.add(box(7, 2.4, 2, M.white, 0, 1.2, 0)); g.add(box(7.2, 0.22, 2.2, M.dark, 0, 2.5, 0))
+  g.add(box(7, 1.4, 0.9, M.wood, 0, 4.4, -0.5))
+  for (let i = -2; i <= 2; i++) g.add(box(0.05, 1.2, 0.9, M.woodDark, i * 1.4, 4.4, -0.04))
+  g.add(box(1.4, 0.06, 1.2, M.metal, 2, 2.62, 0)); return g
+}
+function pStove(M) {
+  const g = grp(); g.add(box(2.4, 2.4, 2, M.steel, 0, 1.2, 0)); g.add(box(2.2, 0.1, 1.8, M.dark, 0, 2.46, 0))
+  for (const [x, z] of [[-0.5, -0.4], [0.5, -0.4], [-0.5, 0.4], [0.5, 0.4]]) { const b = cyl(0.32, 0.32, 0.06, M.rubber, x, 2.5, z); g.add(b) }
+  g.add(box(2.0, 1.2, 0.05, M.glass, 0, 1.1, 1.01)); return g
+}
+function pSink(M) {
+  const g = grp(); g.add(box(2.2, 1.9, 1.2, M.white, 0, 0.95, 0)); g.add(box(1.6, 0.16, 0.9, M.porcelain, 0, 1.95, 0))
+  g.add(box(1.2, 0.12, 0.6, M.dark, 0, 1.9, 0)); const f = cyl(0.07, 0.07, 0.9, M.chrome, 0, 2.3, -0.35); g.add(f); return g
+}
+function pToilet(M) {
+  const g = grp(); g.add(cyl(0.85, 0.7, 1.1, M.porcelain, 0, 0.6, 0.1, 18)); g.add(box(1.4, 0.25, 1.3, M.porcelain, 0, 1.2, 0.1))
+  g.add(box(1.5, 1.6, 0.6, M.porcelain, 0, 1.6, -0.7)); return g
+}
+function pShower(M) {
+  const g = grp(); g.add(box(3, 0.2, 3, M.porcelain, 0, 0.1, 0))
+  g.add(box(0.1, 6, 3, M.glass, 1.5, 3, 0)); g.add(box(3, 6, 0.1, M.glass, 0, 3, -1.5))
+  const head = cyl(0.4, 0.4, 0.15, M.chrome, 1.0, 5.5, -1.2); g.add(head); return g
+}
+function pBathtub(M) {
+  const g = grp(); g.add(box(5, 1.8, 2.6, M.porcelain, 0, 0.9, 0)); g.add(box(4.4, 1.0, 2.0, new THREE.MeshStandardMaterial({ color: 0xdfe6ee, roughness: 0.2 }), 0, 1.3, 0))
+  const f = cyl(0.07, 0.07, 0.8, M.chrome, -2.2, 1.6, 0); g.add(f); return g
+}
+function pCar(M) {
+  const g = grp(); const body = new THREE.MeshStandardMaterial({ color: 0xcfd3da, roughness: 0.35, metalness: 0.6, envMapIntensity: 1.2 })
+  g.add(box(4.6, 1.5, 9, body, 0, 1.4, 0)); g.add(box(4.0, 1.4, 4.6, M.glass, 0, 2.55, -0.4))
+  for (const [x, z] of [[-2.0, -2.8], [2.0, -2.8], [-2.0, 2.8], [2.0, 2.8]]) { const w = cyl(0.95, 0.95, 0.5, M.rubber, x, 0.9, z); w.rotation.z = Math.PI / 2; g.add(w) }
+  g.add(box(0.5, 0.4, 0.2, M.led(0xffe9b0), 0, 1.5, 4.5)); return g
+}
+
 const PROP_FOR = {
   // data center / IT
   rack: pRack, smallrack: pSmallRack, network: pNetwork, pdu: pPDU,
@@ -379,6 +425,10 @@ const PROP_FOR = {
   coffeetable: pCoffeeTable, bookshelf: pBookshelf, cabinet: pCabinet, plant: pPlant,
   watercooler: pWaterCooler, reception: pReception, locker: pLocker,
   whiteboard: pWhiteboard, tv: pTV, monitor: (M) => pMonitor(M), printer: pPrinter,
+  // residential fixtures + furniture
+  splitac: pSplitAC, ceilinglight: pCeilingLight, nightstand: pNightstand, rug: pRug,
+  kitchen: pKitchen, stove: pStove, sink: pSink, toilet: pToilet, shower: pShower,
+  bathtub: pBathtub, car: pCar,
   box: pBox,
 }
 
@@ -386,4 +436,19 @@ const PROP_FOR = {
 export function buildProp(key, M) {
   const fn = PROP_FOR[key] || pBox
   return fn(M)
+}
+
+/** Build a tree/shrub for site greenery (scene 'green' geometry). */
+export function buildGreen(M, kind = 'shrub') {
+  const g = new THREE.Group()
+  if (kind === 'tree') {
+    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 2.2, 8), M.trunk)
+    trunk.position.y = 1.1; trunk.castShadow = true; g.add(trunk)
+    const crown = new THREE.Mesh(new THREE.SphereGeometry(1.5, 12, 10), M.foliage)
+    crown.position.y = 3.0; crown.castShadow = true; g.add(crown)
+  } else {
+    const b = new THREE.Mesh(new THREE.SphereGeometry(0.7, 10, 8), M.foliage)
+    b.scale.set(1, 0.8, 1); b.position.y = 0.5; b.castShadow = true; g.add(b)
+  }
+  return g
 }
