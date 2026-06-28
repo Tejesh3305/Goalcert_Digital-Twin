@@ -11,7 +11,7 @@ export default defineConfig({
     proxy: {
       // SSE stream — disable buffering so events push through immediately.
       '/api/v1/bus/stream': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
         selfHandleResponse: false,
         configure: (proxy) => {
@@ -22,7 +22,7 @@ export default defineConfig({
       },
       // All other API calls.
       '/api': {
-        target: 'http://localhost:8000',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

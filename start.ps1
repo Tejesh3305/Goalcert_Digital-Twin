@@ -94,15 +94,48 @@ if ($Build -or -not (Test-Path (Join-Path $frontend "dist\index.html"))) {
 }
 
 # ── 3. Free port 8000 (kill stale servers — the recurring gotcha) ───
+#
+# A plain "kill the LISTEN owner" isn't enough: a server started with multiple
+# workers (uvicorn --workers / multiprocessing) leaves the listening socket
+# inherited by a *child* worker. When the parent dies, the socket lingers owned
+# by a now-dead/phantom PID while the orphaned child still holds it — so killing
+# the listed owner does nothing and :8000 stays occupied. We therefore (a) tree-
+# kill live owners and (b) hunt down orphaned `--multiprocessing-fork` workers,
+# retrying until the LISTEN socket is gone.
 Write-Step "Ensuring port 8000 is free"
-$pids = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
+
+function Get-Port8000Listeners {
+    Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty OwningProcess -Unique
-if ($pids) {
+}
+
+$freed = $false
+for ($attempt = 1; $attempt -le 5; $attempt++) {
+    $pids = Get-Port8000Listeners
+    if (-not $pids) { $freed = $true; break }
+
     foreach ($procId in $pids) {
-        try { Stop-Process -Id $procId -Force -ErrorAction SilentlyContinue; Write-Ok "killed stale server (PID $procId)" } catch {}
+        if (Get-Process -Id $procId -ErrorAction SilentlyContinue) {
+            # Live owner: /T tree-kills its worker children too.
+            taskkill /F /T /PID $procId *> $null
+            Write-Ok "killed stale server (PID $procId)"
+        } else {
+            # Phantom owner (dead PID still on the socket). The real holder is an
+            # orphaned multiprocessing worker — find and kill those.
+            Write-Warn "port 8000 held by a dead PID ($procId) — clearing orphaned workers"
+            Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
+                Where-Object { $_.CommandLine -match 'multiprocessing-fork|multiprocessing\.spawn' } |
+                ForEach-Object {
+                    taskkill /F /PID $_.ProcessId *> $null
+                    Write-Ok "killed orphaned worker (PID $($_.ProcessId))"
+                }
+        }
     }
     Start-Sleep -Seconds 1
-} else { Write-Ok "port 8000 already free" }
+}
+
+if ($freed) { Write-Ok "port 8000 is free" }
+else { Write-Warn "port 8000 still occupied after 5 attempts — close the process manually, then re-run" }
 
 # ── 4. Optional Vite dev server ─────────────────────────────────────
 if ($Dev) {
