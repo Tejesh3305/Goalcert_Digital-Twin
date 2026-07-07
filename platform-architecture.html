@@ -1,0 +1,702 @@
+<title>Platform Architecture — Feature Separation & Integration Plan</title>
+<style>
+  :root {
+    --bg: #F5F7FA; --surface: #FFFFFF; --surface-2: #EDF0F6; --surface-3: #E4E9F1;
+    --border: #DBE1EC; --border-2: #C9D2E0;
+    --ink: #0F141C; --ink-2: #464F60; --ink-3: #7A8494;
+    --twin: #0E9E97; --twin-soft: #0e9e9718;
+    --agent: #7A5CF0; --agent-soft: #7a5cf016;
+    --scenario: #D07C1E; --scenario-soft: #d07c1e16;
+    --gen: #D6457E; --gen-soft: #d6457e16;
+    --hub: #4A66E0; --hub-soft: #4a66e016;
+    --ok: #1E9E63; --move: #C2410C;
+    --shadow: 0 1px 2px rgba(15,20,28,.04), 0 8px 24px rgba(15,20,28,.06);
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --maxw: 1120px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0A0D13; --surface: #11151E; --surface-2: #161B26; --surface-3: #1C2230;
+      --border: #232A39; --border-2: #2E3648;
+      --ink: #E8ECF3; --ink-2: #A4AEBE; --ink-3: #6C7686;
+      --twin: #2BC3BB; --twin-soft: #2bc3bb1a;
+      --agent: #9B85FF; --agent-soft: #9b85ff16;
+      --scenario: #E9A martinique; --scenario: #E7A544; --scenario-soft: #e7a54416;
+      --gen: #F0699E; --gen-soft: #f0699e16;
+      --hub: #7C93FF; --hub-soft: #7c93ff16;
+      --ok: #35C07E; --move: #F1935C;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #F5F7FA; --surface: #FFFFFF; --surface-2: #EDF0F6; --surface-3: #E4E9F1;
+    --border: #DBE1EC; --border-2: #C9D2E0;
+    --ink: #0F141C; --ink-2: #464F60; --ink-3: #7A8494;
+    --twin: #0E9E97; --agent: #7A5CF0; --scenario: #D07C1E; --gen: #D6457E; --hub: #4A66E0;
+    --ok: #1E9E63; --move: #C2410C;
+    --shadow: 0 1px 2px rgba(15,20,28,.04), 0 8px 24px rgba(15,20,28,.06);
+  }
+  :root[data-theme="dark"] {
+    --bg: #0A0D13; --surface: #11151E; --surface-2: #161B26; --surface-3: #1C2230;
+    --border: #232A39; --border-2: #2E3648;
+    --ink: #E8ECF3; --ink-2: #A4AEBE; --ink-3: #6C7686;
+    --twin: #2BC3BB; --agent: #9B85FF; --scenario: #E7A544; --gen: #F0699E; --hub: #7C93FF;
+    --ok: #35C07E; --move: #F1935C;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .doc {
+    background: var(--bg); color: var(--ink); font-family: var(--sans);
+    line-height: 1.62; font-size: 15px; letter-spacing: -0.003em;
+    -webkit-font-smoothing: antialiased; min-height: 100vh;
+  }
+  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
+  h1, h2, h3 { text-wrap: balance; letter-spacing: -0.02em; line-height: 1.15; margin: 0; }
+  p { margin: 0 0 0.9em; color: var(--ink-2); max-width: 68ch; }
+  a { color: var(--hub); }
+  .mono { font-family: var(--mono); }
+
+  /* ── sticky legend ─────────────────────────────────────────── */
+  .legend {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+  }
+  .legend-inner {
+    max-width: var(--maxw); margin: 0 auto; padding: 10px 24px;
+    display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
+  }
+  .legend .brand { font-weight: 700; font-size: 13px; letter-spacing: -0.01em; margin-right: auto; display: flex; align-items: center; gap: 8px; }
+  .legend .brand .dot { width: 9px; height: 9px; border-radius: 3px; background: linear-gradient(135deg, var(--twin), var(--hub)); }
+  .key { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-family: var(--mono); color: var(--ink-2); white-space: nowrap; }
+  .key .sw { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* ── hero ──────────────────────────────────────────────────── */
+  header.hero { padding: 64px 0 34px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; text-transform: uppercase; letter-spacing: 0.16em; color: var(--ink-3); margin-bottom: 18px; }
+  h1 { font-size: clamp(2rem, 4.4vw, 3.05rem); font-weight: 800; }
+  .lede { font-size: clamp(1.02rem, 1.8vw, 1.22rem); color: var(--ink-2); max-width: 62ch; margin-top: 18px; line-height: 1.55; }
+  .meta-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 26px; }
+  .tag { font-family: var(--mono); font-size: 11.5px; padding: 5px 11px; border: 1px solid var(--border-2); border-radius: 999px; color: var(--ink-2); background: var(--surface); }
+
+  section { padding: 30px 0; }
+  .sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  .sec-num { font-family: var(--mono); font-size: 13px; color: var(--ink-3); font-weight: 600; }
+  h2 { font-size: clamp(1.35rem, 2.5vw, 1.7rem); font-weight: 750; }
+  .sec-sub { color: var(--ink-2); margin: 4px 0 26px; max-width: 70ch; }
+
+  /* ── situation before/after ───────────────────────────────── */
+  .situation { display: grid; grid-template-columns: 1fr auto 1fr; gap: 20px; align-items: stretch; }
+  @media (max-width: 720px) { .situation { grid-template-columns: 1fr; } .situation .arrow { transform: rotate(90deg); justify-self: center; } }
+  .box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 20px; box-shadow: var(--shadow); }
+  .box h4 { margin: 0 0 12px; font-size: 12px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); }
+  .box.mono-list ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 7px; }
+  .box.mono-list li { font-size: 13.5px; color: var(--ink-2); display: flex; gap: 9px; align-items: flex-start; }
+  .box.mono-list li b { color: var(--ink); font-weight: 650; }
+  .arrow { align-self: center; color: var(--ink-3); font-size: 24px; display: flex; align-items: center; justify-content: center; }
+  .callout { margin-top: 22px; border-left: 3px solid var(--hub); background: var(--hub-soft); padding: 14px 18px; border-radius: 0 12px 12px 0; }
+  .callout p { margin: 0; color: var(--ink); font-size: 14.5px; }
+  .callout b { color: var(--hub); }
+
+  /* ── platform panels ──────────────────────────────────────── */
+  .platforms { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
+  @media (max-width: 860px) { .platforms { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 0; overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+  .panel.span2 { grid-column: 1 / -1; }
+  .panel-top { padding: 20px 22px 16px; border-top: 3px solid var(--pc); background: linear-gradient(180deg, var(--pc-soft), transparent); }
+  .panel .role { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--pc); font-weight: 600; }
+  .panel h3 { font-size: 1.28rem; font-weight: 780; margin: 7px 0 8px; }
+  .panel .tagline { color: var(--ink-2); font-size: 13.5px; margin: 0; max-width: none; }
+  .panel-body { padding: 6px 22px 22px; display: flex; flex-direction: column; gap: 16px; }
+  .fgroup > .fg-label { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ink-3); margin: 0 0 8px; }
+  .fgroup ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .fgroup li { font-size: 13.5px; color: var(--ink-2); line-height: 1.5; padding-left: 18px; position: relative; }
+  .fgroup li::before { content: ""; position: absolute; left: 0; top: 7px; width: 7px; height: 7px; border-radius: 2px; background: var(--pc); opacity: .85; }
+  .fgroup li b { color: var(--ink); font-weight: 650; }
+  .panel-foot { margin-top: auto; padding: 12px 22px; border-top: 1px dashed var(--border); display: flex; flex-wrap: wrap; gap: 6px; background: var(--surface-2); }
+  .chip { font-family: var(--mono); font-size: 10.5px; padding: 3px 8px; border-radius: 6px; background: var(--pc-soft); color: var(--pc); border: 1px solid color-mix(in srgb, var(--pc) 28%, transparent); }
+
+  .p-twin { --pc: var(--twin); --pc-soft: var(--twin-soft); }
+  .p-agent { --pc: var(--agent); --pc-soft: var(--agent-soft); }
+  .p-scenario { --pc: var(--scenario); --pc-soft: var(--scenario-soft); }
+  .p-gen { --pc: var(--gen); --pc-soft: var(--gen-soft); }
+  .p-hub { --pc: var(--hub); --pc-soft: var(--hub-soft); }
+
+  /* ── matrix table ─────────────────────────────────────────── */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 720px; font-size: 13.5px; }
+  thead th { text-align: left; font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600; padding: 13px 16px; border-bottom: 1px solid var(--border-2); background: var(--surface-2); position: sticky; top: 0; }
+  tbody td { padding: 12px 16px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--ink-2); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface-2); }
+  td .feat { color: var(--ink); font-weight: 620; display: block; margin-bottom: 2px; }
+  td .feat-note { font-size: 12px; color: var(--ink-3); }
+  .owner { display: inline-flex; align-items: center; gap: 7px; font-family: var(--mono); font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+  .owner .sw { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+  .o-twin { color: var(--twin); } .o-twin .sw { background: var(--twin); }
+  .o-agent { color: var(--agent); } .o-agent .sw { background: var(--agent); }
+  .o-scenario { color: var(--scenario); } .o-scenario .sw { background: var(--scenario); }
+  .o-gen { color: var(--gen); } .o-gen .sw { background: var(--gen); }
+  .o-hub { color: var(--hub); } .o-hub .sw { background: var(--hub); }
+  .status { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 6px; white-space: nowrap; display: inline-block; }
+  .st-exists { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+  .st-move { color: var(--move); background: color-mix(in srgb, var(--move) 12%, transparent); }
+  .st-new { color: var(--hub); background: var(--hub-soft); }
+
+  /* ── phases ───────────────────────────────────────────────── */
+  .phases { display: flex; flex-direction: column; gap: 2px; }
+  .phase { display: grid; grid-template-columns: 132px 1fr; gap: 22px; padding: 20px 0; border-top: 1px solid var(--border); }
+  .phase:first-child { border-top: none; }
+  @media (max-width: 620px) { .phase { grid-template-columns: 1fr; gap: 8px; } }
+  .phase-id { font-family: var(--mono); font-size: 12px; color: var(--ink-3); }
+  .phase-id .n { display: block; font-size: 2rem; font-weight: 800; color: var(--ink); letter-spacing: -0.03em; line-height: 1; margin-bottom: 4px; font-family: var(--sans); }
+  .phase h4 { margin: 0 0 6px; font-size: 1.05rem; font-weight: 700; }
+  .phase p { margin: 0 0 8px; font-size: 13.8px; }
+  .phase .movers { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .mv { font-family: var(--mono); font-size: 10.5px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border-2); color: var(--ink-2); }
+
+  /* ── hub composition ──────────────────────────────────────── */
+  .combos { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-top: 8px; }
+  @media (max-width: 720px) { .combos { grid-template-columns: 1fr; } }
+  .combo { border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; background: var(--surface); box-shadow: var(--shadow); }
+  .combo .cchips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .combo .cc { font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 4px 9px; border-radius: 999px; }
+  .cc-twin { color: var(--twin); background: var(--twin-soft); border: 1px solid color-mix(in srgb, var(--twin) 30%, transparent); }
+  .cc-agent { color: var(--agent); background: var(--agent-soft); border: 1px solid color-mix(in srgb, var(--agent) 30%, transparent); }
+  .cc-scenario { color: var(--scenario); background: var(--scenario-soft); border: 1px solid color-mix(in srgb, var(--scenario) 30%, transparent); }
+  .cc-gen { color: var(--gen); background: var(--gen-soft); border: 1px solid color-mix(in srgb, var(--gen) 30%, transparent); }
+  .combo .cwhat { font-size: 13px; color: var(--ink-2); margin: 0; }
+  .combo .cwhat b { color: var(--ink); }
+
+  .hub-ideas { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin-top: 26px; }
+  @media (max-width: 720px) { .hub-ideas { grid-template-columns: 1fr; } }
+  .idea { border: 1px solid var(--border); border-left: 3px solid var(--hub); border-radius: 0 12px 12px 0; padding: 15px 18px; background: var(--surface); }
+  .idea h4 { margin: 0 0 6px; font-size: 0.98rem; font-weight: 700; }
+  .idea p { margin: 0; font-size: 13px; }
+
+  footer { padding: 40px 0 60px; border-top: 1px solid var(--border); margin-top: 20px; color: var(--ink-3); font-size: 12.5px; }
+  footer .mono { color: var(--ink-2); }
+
+  @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+  :focus-visible { outline: 2px solid var(--hub); outline-offset: 2px; border-radius: 4px; }
+</style>
+
+<div class="doc">
+
+  <nav class="legend" aria-label="Platform legend">
+    <div class="legend-inner">
+      <span class="brand"><span class="dot"></span> Platform Architecture</span>
+      <span class="key"><span class="sw" style="background:var(--twin)"></span> Digital Twin</span>
+      <span class="key"><span class="sw" style="background:var(--agent)"></span> Agentic AI</span>
+      <span class="key"><span class="sw" style="background:var(--scenario)"></span> Scenario Engine</span>
+      <span class="key"><span class="sw" style="background:var(--gen)"></span> 3D &amp; BIM Generation</span>
+      <span class="key"><span class="sw" style="background:var(--hub)"></span> Integration Hub</span>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="wrap">
+      <div class="eyebrow">Feature Separation &amp; Integration Plan</div>
+      <h1>One demo, four platforms, and the hub that composes them.</h1>
+      <p class="lede">The current product is a single integrated demo that bundles the Digital Twin, the Agentic AI, and the Scenario Engine together — plus new generation features with no home yet. This document separates every feature into the platform that should own it, lays out how to migrate each one, and defines the hub that serves any combination of them as independent, composable services.</p>
+      <div class="meta-row">
+        <span class="tag">5 platforms</span>
+        <span class="tag">Composable microservices</span>
+        <span class="tag">Strangler-fig migration</span>
+        <span class="tag">Entitlement-gated hub</span>
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="sec-num">01</span><h2>Where we are, and where this goes</h2></div>
+      <p class="sec-sub">Today everything runs inside one demo application for robustness. That was the right call to ship — but it means the Digital Twin, the Agentic AI reasoning, and the Scenario Engine are entangled in one codebase, and the new 2D→3D and BIM work has no dedicated home. The target is five independent services behind one hub.</p>
+
+      <div class="situation">
+        <div class="box mono-list">
+          <h4>Today · one bundled demo</h4>
+          <ul>
+            <li><b>Twin engine</b> runs in-process alongside everything else</li>
+            <li><b>~30 AI agents</b> live inline in the demo, not in a platform</li>
+            <li><b>Scenarios &amp; training</b> are a hard-coded library in the app</li>
+            <li><b>2D→3D &amp; BIM</b> generation bolted directly onto the demo</li>
+            <li>One UI, one process — pick-and-choose isn't possible</li>
+          </ul>
+        </div>
+        <div class="arrow" aria-hidden="true">→</div>
+        <div class="box mono-list">
+          <h4>Target · five composable services</h4>
+          <ul>
+            <li><b>Digital Twin</b> — the live, physics-grounded asset model</li>
+            <li><b>Agentic AI</b> — every reasoning agent &amp; workflow</li>
+            <li><b>Scenario Engine</b> — author, run &amp; score what-ifs + training</li>
+            <li><b>3D &amp; BIM Generation</b> — image→3D, drawing→3D, IFC→layers</li>
+            <li><b>Integration Hub</b> — one entry point, composed per customer</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="callout">
+        <p><b>The good news:</b> this isn't a rewrite. The Digital Twin platform already exposes a full service API and even carries an integration layer that calls the Agentic AI and Scenario Engine. The migration is mostly <b>de-inlining</b> — lifting each capability out of the bundled demo and back onto services that are already partly built.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="sec-num">02</span><h2>Each feature, mapped to its platform</h2></div>
+      <p class="sec-sub">Every capability in the product today, grouped under the platform that should own it. The rule of thumb: the Digital Twin owns <em>truth about the asset</em>, the Agentic AI owns <em>reasoning</em>, the Scenario Engine owns <em>what-if &amp; training</em>, and Generation owns <em>turning inputs into 3D</em>.</p>
+
+      <div class="platforms">
+
+        <article class="panel p-twin">
+          <div class="panel-top">
+            <div class="role">Digital Twin Platform</div>
+            <h3>The live, physics-grounded model of the asset and its world</h3>
+            <p class="tagline">Owns the twin, its telemetry, its health, its predictions, and the knowledge graph &amp; BIM that describe it. Everything else asks the twin what's true.</p>
+          </div>
+          <div class="panel-body">
+            <div class="fgroup">
+              <p class="fg-label">Twin core</p>
+              <ul>
+                <li><b>Twin lifecycle</b> — create, seed, list, start/stop, delete; per-domain templates</li>
+                <li><b>Domain physics models</b> — Wire EDM, Gas Turbine, Fleet / Tram Network, and a generic model that twins any fed-in network or fleet spec</li>
+                <li><b>Live telemetry</b> — multi-signal streaming per domain on a real-time ticker</li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Intelligence in the twin (deterministic, not LLM)</p>
+              <ul>
+                <li><b>Behaviour rules engine</b> — 3-tier (physics-residual → statistical → hard-limit) producing findings</li>
+                <li><b>Health model</b> — per-component &amp; subsystem health index and status</li>
+                <li><b>Prediction engine</b> — trajectory projection, remaining-useful-life / time-to-limit, detection timeline</li>
+                <li><b>What-if projection</b> — non-destructive fault injection &amp; forecast at the physics level</li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Spatial &amp; semantic truth</p>
+              <ul>
+                <li><b>Diagnostics surface</b> — sensors, subsystems, incidents</li>
+                <li><b>Fleet network view</b> — live vehicle positions, per-route status, blocked-route propagation</li>
+                <li><b>Ontology &amp; knowledge graph</b> — classes, SHACL shapes, domain packs, schema/query/write, changelog, topology</li>
+                <li><b>BIM twin</b> — building elements, discipline mapping, storey structure, fault-to-element (X-ray) overlay</li>
+                <li><b>Event bus</b> — real-time findings/telemetry stream, the backbone other services subscribe to</li>
+              </ul>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <span class="chip">telemetry</span><span class="chip">findings</span><span class="chip">RUL / predict</span><span class="chip">ontology graph</span><span class="chip">BIM semantics</span><span class="chip">event bus</span>
+          </div>
+        </article>
+
+        <article class="panel p-agent">
+          <div class="panel-top">
+            <div class="role">Agentic AI Platform</div>
+            <h3>The reasoning layer — every LLM agent and workflow</h3>
+            <p class="tagline">Owns all language-model reasoning. It reads the twin's state through the twin's API, thinks, and returns diagnoses, plans, narratives and answers. It never simulates physics itself.</p>
+          </div>
+          <div class="panel-body">
+            <div class="fgroup">
+              <p class="fg-label">Diagnostic &amp; analytic agents</p>
+              <ul>
+                <li><b>Diagnosis agent</b> — root cause from findings + telemetry</li>
+                <li><b>Analysis agent</b> — present state and forecast, in narrative</li>
+                <li><b>Cascade / failure-chain analysis</b> — how one fault propagates</li>
+                <li><b>Predictive alerts</b> — early-warning narration from the forecast</li>
+                <li><b>Grounded snapshot narration</b> — diagnose &amp; forecast from a state snapshot</li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Action &amp; operations agents</p>
+              <ul>
+                <li><b>Work-order generation</b> — structured, ordered repair steps</li>
+                <li><b>Maintenance procedure builder</b> — steps with safety &amp; dependencies</li>
+                <li><b>Parts procurement agent</b> — parts list from a work order</li>
+                <li><b>Incident report generation</b></li>
+                <li><b>Asset / component status Q&amp;A</b></li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Conversational &amp; build agents</p>
+              <ul>
+                <li><b>Co-pilot narration</b> — auto-observations on live telemetry</li>
+                <li><b>Dashboard chat &amp; troubleshoot chat</b> — live status Q&amp;A</li>
+                <li><b>Vision → twin spec</b> + <b>build-a-twin conversational agent</b></li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Platform capabilities</p>
+              <ul>
+                <li><b>Workflow engine</b> — node graph (AI action, decision, code, integration, trigger, web-search, escalation), executor, templates</li>
+                <li><b>Agent memory</b> — conversation history &amp; context</li>
+                <li><b>Local fallback mode</b> — zero-token deterministic generators for resilience &amp; cost control</li>
+              </ul>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <span class="chip">diagnosis</span><span class="chip">work orders</span><span class="chip">cascade</span><span class="chip">procurement</span><span class="chip">chat + memory</span><span class="chip">workflow graph</span>
+          </div>
+        </article>
+
+        <article class="panel p-scenario">
+          <div class="panel-top">
+            <div class="role">Scenario Engine</div>
+            <h3>Author, run, and score what-if and training scenarios</h3>
+            <p class="tagline">Owns scenarios and training end-to-end. It orchestrates a run — driving the Digital Twin's projection and, where relevant, the Agentic AI — then measures the outcome against KPIs.</p>
+          </div>
+          <div class="panel-body">
+            <div class="fgroup">
+              <p class="fg-label">Scenario authoring &amp; catalogue</p>
+              <ul>
+                <li><b>Scenario library</b> — curated what-ifs per domain</li>
+                <li><b>Scenario authoring</b> — natural language → runnable spec</li>
+                <li><b>External-situation presets</b> — heatwave, event surge, signalling outage, storm, and more</li>
+                <li><b>Fault catalogue</b> — the injectable faults per domain</li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Run &amp; scoring</p>
+              <ul>
+                <li><b>Run orchestration</b> — drives the twin's projection, collects the outcome</li>
+                <li><b>World / environment model</b> — events, resolution, catalogue</li>
+                <li><b>KPIs, results &amp; certification</b> — objective scoring of a run</li>
+                <li><b>Live run streaming</b> — run manager + websocket updates</li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Training &amp; guided repair</p>
+              <ul>
+                <li><b>Interactive training simulator</b> — perform / skip steps, consequences, safety &amp; order penalties, score &amp; grade</li>
+                <li><b>AI Maintenance Director</b> — cinematic autonomous-repair run visualisation</li>
+              </ul>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <span class="chip">scenario library</span><span class="chip">authoring</span><span class="chip">run + KPIs</span><span class="chip">training sim</span><span class="chip">certification</span>
+          </div>
+        </article>
+
+        <article class="panel p-gen">
+          <div class="panel-top">
+            <div class="role">3D &amp; BIM Generation</div>
+            <h3>Turn images, drawings and IFC into 3D</h3>
+            <p class="tagline">A standalone generation service — its own dedicated space to perfect quality. It produces geometry; the Digital Twin consumes it (attach a model, or map a building's layers).</p>
+          </div>
+          <div class="panel-body">
+            <div class="fgroup">
+              <p class="fg-label">Image → 3D (TRELLIS)</p>
+              <ul>
+                <li><b>Preprocessing quality gate</b> — isolate / segment / enhance / normalise / frame the subject</li>
+                <li><b>Sampler quality presets</b> — draft / standard / ultra, exposing the model's real levers</li>
+                <li><b>Multi-image conditioning</b> — 2–4 views of one object for higher fidelity</li>
+                <li><b>Mesh post-processing</b> — validate / stats / repair; provider abstraction; production GPU worker</li>
+              </ul>
+            </div>
+            <div class="fgroup">
+              <p class="fg-label">Drawing &amp; building conversion</p>
+              <ul>
+                <li><b>Drawing / floor-plan → 3D scene</b> — furnished, navigable</li>
+                <li><b>IFC → discipline-layer models</b> — architecture / structure / plumbing / HVAC / electrical / fire, as separable layers</li>
+                <li><b>Geometry-prior retrieval</b> — catalogue consistency for known assets</li>
+                <li><b>19-stage generation pipeline</b> — one spine, object &amp; drawing routes</li>
+              </ul>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <span class="chip">image→3D</span><span class="chip">multi-view</span><span class="chip">drawing→3D</span><span class="chip">IFC→layers</span><span class="chip">GPU worker</span>
+          </div>
+        </article>
+
+        <article class="panel p-hub span2">
+          <div class="panel-top">
+            <div class="role">Integration Hub</div>
+            <h3>The single entry point that composes the four platforms per customer</h3>
+            <p class="tagline">Not a fifth silo — the connective tissue. It authenticates once, decides which platforms a customer has enabled, and assembles exactly that API and UI. Choose Digital Twin alone and you get only the twin; add Agentic AI and the agent panels appear.</p>
+          </div>
+          <div class="panel-body">
+            <div class="fgroup" style="--pc:var(--hub)">
+              <p class="fg-label">Entry &amp; access</p>
+              <ul>
+                <li><b>API gateway</b> — one entry, routes each request to the owning platform</li>
+                <li><b>Auth, tenancy &amp; SSO</b> — handled once, for every platform behind it</li>
+                <li><b>Aggregated health &amp; unified API catalogue</b></li>
+              </ul>
+            </div>
+            <div class="fgroup" style="--pc:var(--hub)">
+              <p class="fg-label">Composition &amp; commerce</p>
+              <ul>
+                <li><b>Capability manifest + entitlements</b> — each platform advertises what it offers; each customer has an enabled-module set</li>
+                <li><b>Composed API &amp; UI</b> — surfaces built from the intersection of what's available and what's licensed</li>
+                <li><b>Per-module licensing &amp; metering</b></li>
+              </ul>
+            </div>
+            <div class="fgroup" style="--pc:var(--hub)">
+              <p class="fg-label">Orchestration &amp; delivery</p>
+              <ul>
+                <li><b>Cross-platform event loop</b> — finding → agent → scenario → twin overlay, wired end-to-end</li>
+                <li><b>Unified shell / micro-frontends</b> — one dashboard, module panels loaded by entitlement</li>
+                <li><b>Deployment &amp; scaling</b> — one container per platform, independently scalable</li>
+              </ul>
+            </div>
+          </div>
+          <div class="panel-foot">
+            <span class="chip">gateway</span><span class="chip">auth + tenancy</span><span class="chip">entitlements</span><span class="chip">composed UI</span><span class="chip">event orchestration</span><span class="chip">metering</span>
+          </div>
+        </article>
+
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="sec-num">03</span><h2>The master separation matrix</h2></div>
+      <p class="sec-sub">Every feature, its owning platform, where it lives today, and the action to move it. <span class="status st-exists">exists</span> the owner already has it · <span class="status st-move">migrate</span> lift it out of the demo · <span class="status st-new">build</span> a new surface on the owner.</p>
+
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr><th>Feature</th><th>Owning platform</th><th>Where it lives today</th><th>Action</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="feat">Twin lifecycle &amp; templates</span><span class="feat-note">create · seed · start/stop · delete</span></td>
+              <td><span class="owner o-twin"><span class="sw"></span>Digital Twin</span></td>
+              <td>In-process engine in the demo</td>
+              <td><span class="status st-exists">exists</span> point demo at the twin's service API</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Domain physics — EDM, Turbine, Fleet/Tram</span><span class="feat-note">incl. generic "any network" model</span></td>
+              <td><span class="owner o-twin"><span class="sw"></span>Digital Twin</span></td>
+              <td>Already in the twin platform, run via the demo</td>
+              <td><span class="status st-exists">exists</span> stop running it in-process</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Behaviour rules, health &amp; prediction</span><span class="feat-note">3-tier findings · RUL · what-if projection</span></td>
+              <td><span class="owner o-twin"><span class="sw"></span>Digital Twin</span></td>
+              <td>Twin platform (bypassed by the demo)</td>
+              <td><span class="status st-exists">exists</span> call the service</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Fleet network map — live vehicles</span><span class="feat-note">positions · route status · blockages</span></td>
+              <td><span class="owner o-twin"><span class="sw"></span>Digital Twin</span></td>
+              <td>Demo's twin engine only</td>
+              <td><span class="status st-new">build</span> add network endpoint to the twin service</td>
+            </tr>
+            <tr>
+              <td><span class="feat">BIM — discipline-layer building twin</span><span class="feat-note">elements · storeys · X-ray overlay</span></td>
+              <td><span class="owner o-twin"><span class="sw"></span>Digital Twin</span></td>
+              <td>New code in the demo</td>
+              <td><span class="status st-move">migrate</span> semantics/mapping into the twin's BIM module</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Ontology graph, schema, event bus</span></td>
+              <td><span class="owner o-twin"><span class="sw"></span>Digital Twin</span></td>
+              <td>Twin platform</td>
+              <td><span class="status st-exists">exists</span> expose through the hub</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Diagnosis, analysis &amp; cascade agents</span></td>
+              <td><span class="owner o-agent"><span class="sw"></span>Agentic AI</span></td>
+              <td>Inline in the demo's agent module</td>
+              <td><span class="status st-move">migrate</span> port to agent definitions on the platform</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Work orders, procedures &amp; procurement</span></td>
+              <td><span class="owner o-agent"><span class="sw"></span>Agentic AI</span></td>
+              <td>Inline in the demo</td>
+              <td><span class="status st-move">migrate</span> host as workflows with memory</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Narration, alerts &amp; incident reports</span></td>
+              <td><span class="owner o-agent"><span class="sw"></span>Agentic AI</span></td>
+              <td>Inline in the demo</td>
+              <td><span class="status st-move">migrate</span> port; keep the prompts verbatim</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Co-pilot, dashboard &amp; troubleshoot chat</span><span class="feat-note">+ agent memory, fallback mode</span></td>
+              <td><span class="owner o-agent"><span class="sw"></span>Agentic AI</span></td>
+              <td>Inline in the demo</td>
+              <td><span class="status st-move">migrate</span> onto the platform's chat + memory</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Vision → twin spec + build-a-twin chat</span></td>
+              <td><span class="owner o-agent"><span class="sw"></span>Agentic AI</span></td>
+              <td>Inline in the demo</td>
+              <td><span class="status st-move">migrate</span> agent that calls Generation + Twin</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Workflow / node-graph engine</span><span class="feat-note">executor · templates · integrations</span></td>
+              <td><span class="owner o-agent"><span class="sw"></span>Agentic AI</span></td>
+              <td>Agentic AI platform</td>
+              <td><span class="status st-exists">exists</span> host the ported agents here</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Scenario library &amp; presets</span></td>
+              <td><span class="owner o-scenario"><span class="sw"></span>Scenario Engine</span></td>
+              <td>Hard-coded library in the demo</td>
+              <td><span class="status st-move">migrate</span> to scenario definitions</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Scenario authoring &amp; fault catalogue</span></td>
+              <td><span class="owner o-scenario"><span class="sw"></span>Scenario Engine</span></td>
+              <td>Inline (agent-authored) in the demo</td>
+              <td><span class="status st-move">migrate</span> authoring into the engine</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Run orchestration, KPIs &amp; certification</span></td>
+              <td><span class="owner o-scenario"><span class="sw"></span>Scenario Engine</span></td>
+              <td>Scenario Engine (drives the twin)</td>
+              <td><span class="status st-exists">exists</span> route runs through it</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Training simulator &amp; AI Maintenance Director</span></td>
+              <td><span class="owner o-scenario"><span class="sw"></span>Scenario Engine</span></td>
+              <td>Demo UI + inline grading</td>
+              <td><span class="status st-move">migrate</span> grading to runs + KPIs; keep UI in the shell</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Image → 3D (TRELLIS) pipeline</span><span class="feat-note">preprocess · presets · multi-view · post-process</span></td>
+              <td><span class="owner o-gen"><span class="sw"></span>3D &amp; BIM Generation</span></td>
+              <td>New code in the demo + a GPU worker</td>
+              <td><span class="status st-move">migrate</span> consolidate into the generation service</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Drawing → 3D &amp; IFC → layer conversion</span></td>
+              <td><span class="owner o-gen"><span class="sw"></span>3D &amp; BIM Generation</span></td>
+              <td>Standalone pipeline + demo BIM code</td>
+              <td><span class="status st-move">migrate</span> conversion here; semantics to the Twin</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Build-a-twin: generate → preview → attach</span></td>
+              <td><span class="owner o-gen"><span class="sw"></span>3D &amp; BIM Generation</span></td>
+              <td>Split across the demo</td>
+              <td><span class="status st-move">migrate</span> generation here, attach via the Twin</td>
+            </tr>
+            <tr>
+              <td><span class="feat">Entry point, auth, entitlements &amp; composed UI</span></td>
+              <td><span class="owner o-hub"><span class="sw"></span>Integration Hub</span></td>
+              <td>The demo is the de-facto entry point today</td>
+              <td><span class="status st-new">build</span> evolve the demo shell into the hub</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="sec-num">04</span><h2>Migration plan</h2></div>
+      <p class="sec-sub">A strangler-fig sequence: at every step the demo keeps working by calling the real service when it's up and falling back to the current inline code when it isn't. Nothing breaks mid-migration; inline code is deleted only once the service path is proven.</p>
+
+      <div class="phases">
+        <div class="phase">
+          <div class="phase-id"><span class="n">0</span>Contract freeze</div>
+          <div>
+            <h4>Freeze the API contracts</h4>
+            <p>The demo's current API is the de-facto spec. Freeze it as the contract each platform must satisfy, and add a per-platform client to the shell with a "use remote service" flag. This is the switch every later phase flips.</p>
+            <div class="movers"><span class="mv">twin contract</span><span class="mv">agent contract</span><span class="mv">scenario contract</span><span class="mv">generation contract</span></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-id"><span class="n">1</span>Digital Twin</div>
+          <div>
+            <h4>Point the shell at the Digital Twin service</h4>
+            <p>Stop running twin physics in-process; call the platform instead. Add the two missing surfaces the demo introduced: the <b>fleet network map</b> endpoint and the <b>BIM discipline-layer</b> split. Lowest-risk first move — the fleet physics already lives in the platform.</p>
+            <div class="movers"><span class="mv">route twin calls to service</span><span class="mv">+ network endpoint</span><span class="mv">+ BIM layers</span></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-id"><span class="n">2</span>Agentic AI</div>
+          <div>
+            <h4>Lift the agents onto the platform</h4>
+            <p>Port each inline agent into an agent definition / workflow, pulling twin context through the twin's API. Keep the prompts verbatim — they're good — but host them on the platform's executor with its memory. Highest-value move: the agents are the most wrongly-placed capability.</p>
+            <div class="movers"><span class="mv">diagnosis</span><span class="mv">work order</span><span class="mv">cascade</span><span class="mv">procurement</span><span class="mv">chats + memory</span></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-id"><span class="n">3</span>Scenario Engine</div>
+          <div>
+            <h4>Move scenarios &amp; training onto the engine</h4>
+            <p>Migrate the scenario library and authoring into scenario definitions; move training/grading into runs + KPIs. The physics projection stays in the Twin — the Scenario Engine orchestrates the run and scores the outcome.</p>
+            <div class="movers"><span class="mv">scenario library</span><span class="mv">authoring</span><span class="mv">training runs</span><span class="mv">KPIs</span></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-id"><span class="n">4</span>Generation</div>
+          <div>
+            <h4>Consolidate 3D &amp; BIM into the generation service</h4>
+            <p>Merge the image→3D pipeline, drawing→3D, and IFC conversion into one dedicated service and deploy the production GPU worker. Its output feeds the Twin (attach a model, map a building). This is where 3D quality gets perfected in isolation.</p>
+            <div class="movers"><span class="mv">image→3D</span><span class="mv">GPU worker</span><span class="mv">drawing→3D</span><span class="mv">IFC→layers</span></div>
+          </div>
+        </div>
+        <div class="phase">
+          <div class="phase-id"><span class="n">5</span>Retire &amp; compose</div>
+          <div>
+            <h4>Delete the inline code; the shell becomes the hub</h4>
+            <p>Once every service path is verified, remove the in-process twin, the inline agents, and the hard-coded scenarios from the demo. What remains is a thin composition layer — the Integration Hub — plus the entitlement manifest that gates it.</p>
+            <div class="movers"><span class="mv">delete inline engine</span><span class="mv">delete inline agents</span><span class="mv">stand up the hub</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <div class="sec-head"><span class="sec-num">05</span><h2>The hub, composed</h2></div>
+      <p class="sec-sub">The hub's job is "pick what you want, get exactly that." A capability manifest and per-customer entitlements decide which platforms are active, and the hub assembles that API and UI. A few representative bundles:</p>
+
+      <div class="combos">
+        <div class="combo">
+          <div class="cchips"><span class="cc cc-twin">Digital Twin</span></div>
+          <p class="cwhat"><b>Monitoring only.</b> Live telemetry, findings, health and prediction dashboards. No agents, no scenarios — just the twin and its numbers.</p>
+        </div>
+        <div class="combo">
+          <div class="cchips"><span class="cc cc-twin">Digital Twin</span><span class="cc cc-agent">Agentic AI</span></div>
+          <p class="cwhat"><b>Monitoring + co-pilot.</b> The twin, plus diagnosis, work orders, narration and chat panels appear alongside it. The classic "explain and act on what I'm seeing" product.</p>
+        </div>
+        <div class="combo">
+          <div class="cchips"><span class="cc cc-twin">Digital Twin</span><span class="cc cc-scenario">Scenario Engine</span></div>
+          <p class="cwhat"><b>Monitoring + what-if / training.</b> Run scenarios and certify operators against the twin's physics, with KPIs and scoring — no LLM agents required.</p>
+        </div>
+        <div class="combo">
+          <div class="cchips"><span class="cc cc-twin">Digital Twin</span><span class="cc cc-agent">Agentic AI</span><span class="cc cc-scenario">Scenario Engine</span><span class="cc cc-gen">Generation</span></div>
+          <p class="cwhat"><b>Full suite.</b> Build a twin from an image or IFC, monitor it, reason over it, and drill it with scenarios — the closed "finding → agent → scenario → overlay" loop.</p>
+        </div>
+      </div>
+
+      <div class="hub-ideas">
+        <div class="idea">
+          <h4>Capability manifest + entitlements</h4>
+          <p>Each platform publishes what it can do; each customer has an enabled-module set. The hub composes both API and UI from the intersection — one mechanism delivers the entire "choose what you want" requirement.</p>
+        </div>
+        <div class="idea">
+          <h4>Gateway + aggregated catalogue</h4>
+          <p>One entry point routes each request to the owning platform, handles auth and tenancy once, and merges every platform's API spec into a single catalogue.</p>
+        </div>
+        <div class="idea">
+          <h4>Composed shell, not four tabs</h4>
+          <p>Evolve the existing dashboard into the shell; lazy-load each platform's panels by entitlement so the product feels like one surface, not a switchboard.</p>
+        </div>
+        <div class="idea">
+          <h4>Event-driven closed loop</h4>
+          <p>Ride the twin's event bus: a finding triggers an agent, the agent proposes a fix, a scenario validates it, and the result overlays back on the twin — the "Ironman" loop that makes composition feel like one product.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap">
+      <p class="mono">Recommended first move — Phase 1 (Digital Twin) plus the entitlement-manifest skeleton: lowest-risk, and the manifest is the backbone every later phase plugs into.</p>
+      <p>Platform Architecture · Feature Separation &amp; Integration Plan · working document, subject to iteration.</p>
+    </div>
+  </footer>
+
+</div>

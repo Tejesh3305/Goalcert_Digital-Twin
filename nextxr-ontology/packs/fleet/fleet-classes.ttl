@@ -1,0 +1,53 @@
+@prefix fleet: <https://ontology.nextxr.io/v3/fleet#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  TRAM FLEET-NETWORK DOMAIN PACK  —  LAYER 4
+#  Physics + live network map live in nextxr-ontology/fleet/.
+#################################################################
+
+<https://ontology.nextxr.io/v3/fleet> a owl:Ontology ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:label "Tram Fleet Network Pack" ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+fleet:TramNetwork a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Tram Fleet Network" ;
+    skos:definition "A tram fleet network twinned as a single asset with a live spatial map: rolling stock, traction power, track & points, signalling and operations, monitored via 22 network KPIs and per-route status." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+### Observable properties (the live signals) ###
+fleet:otp a sosa:ObservableProperty ; rdfs:label "On-Time Performance" .
+fleet:headwayAdherence a sosa:ObservableProperty ; rdfs:label "Headway Adherence" .
+fleet:networkSpeed a sosa:ObservableProperty ; rdfs:label "Network Speed" .
+fleet:fleetAvailability a sosa:ObservableProperty ; rdfs:label "Fleet Availability" .
+fleet:tramsInService a sosa:ObservableProperty ; rdfs:label "Trams In Service" .
+fleet:passengerLoad a sosa:ObservableProperty ; rdfs:label "Passenger Load" .
+fleet:dwellTime a sosa:ObservableProperty ; rdfs:label "Dwell Time" .
+fleet:tractionPower a sosa:ObservableProperty ; rdfs:label "Traction Power" .
+fleet:regenShare a sosa:ObservableProperty ; rdfs:label "Regen Share" .
+fleet:overheadVoltage a sosa:ObservableProperty ; rdfs:label "Overhead Voltage" ; nxr:expectedUnit unit:V .
+fleet:substationLoad a sosa:ObservableProperty ; rdfs:label "Substation Load" .
+fleet:railTemperature a sosa:ObservableProperty ; rdfs:label "Rail Temperature" ; nxr:expectedUnit unit:DEG_C .
+fleet:switchFaults a sosa:ObservableProperty ; rdfs:label "Switch Faults" .
+fleet:signalFaults a sosa:ObservableProperty ; rdfs:label "Signal Faults" .
+fleet:doorFaults a sosa:ObservableProperty ; rdfs:label "Door Faults" .
+fleet:brakeWear a sosa:ObservableProperty ; rdfs:label "Brake Wear" .
+fleet:pantographWear a sosa:ObservableProperty ; rdfs:label "Pantograph Wear" .
+fleet:tractionMotorTemp a sosa:ObservableProperty ; rdfs:label "Traction Motor Temp" ; nxr:expectedUnit unit:DEG_C .
+fleet:bogieVibration a sosa:ObservableProperty ; rdfs:label "Bogie Vibration" .
+fleet:networkDelay a sosa:ObservableProperty ; rdfs:label "Network Delay" .
+fleet:activeIncidents a sosa:ObservableProperty ; rdfs:label "Active Incidents" .
+fleet:hvacLoad a sosa:ObservableProperty ; rdfs:label "HVAC Load" .
+
+fleet:RouteBlocked a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Route Blocked" ;
+    skos:definition "A route is out of service (e.g. overhead-line damage); vehicles hold and service reroutes." ;
+    nxr:taxonomyCategory "Capability" .

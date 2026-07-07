@@ -75,6 +75,28 @@ export const api = {
   // The behaviour archetype catalog (generative dynamics archetypes + monitoring kinds).
   archetypes: () => request('/schema/archetypes'),
 
+  // ── Machine twins (live physics runtime: turbine / EDM / tram-fleet) ──
+  // Which domains the machine-twin runtime can twin.
+  machineDomains: () => request('/twins/domains'),
+  // Latest frame + health + recent findings.
+  twinRuntimeState: (tenant) => request(`/twins/${encodeURIComponent(tenant)}/state`),
+  // Subsystems + sensors + machine health.
+  twinDiagnostics: (tenant) => request(`/twins/${encodeURIComponent(tenant)}/diagnostics`),
+  // Forward trajectory + RUL.
+  twinPredict: (tenant, horizon_min = 120, points = 120) =>
+    request(`/twins/${encodeURIComponent(tenant)}/predict?${qs({ horizon_min, points })}`),
+  // Non-destructive what-if (fault/control projection).
+  twinProject: (tenant, body) =>
+    request(`/twins/${encodeURIComponent(tenant)}/project`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  // Fleet network map (geometry + live vehicles + per-route status).
+  twinNetwork: (tenant) => request(`/twins/${encodeURIComponent(tenant)}/network`),
+  // Start/stop the live ticker for this twin.
+  twinRunning: (tenant, running = true) =>
+    request(`/twins/${encodeURIComponent(tenant)}/running?${qs({ running })}`, { method: 'POST' }),
+  // Advance one step with a control input / injected fault (live perturbation).
+  twinSimulate: (tenant, body) =>
+    request(`/twins/${encodeURIComponent(tenant)}/simulate`, { method: 'POST', body: JSON.stringify(body || {}) }),
+
   // ── Feed ──
   feedStatus: () => request('/feed/status'),
   // mode: 'scripted' (canned profiles) | 'dynamics' (generative coupled engine).

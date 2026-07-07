@@ -1,0 +1,14 @@
+@prefix edm:  <https://ontology.nextxr.io/v3/edm#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  WIRE-EDM SHACL SHAPES
+#  WireEDM is an nxr:Equipment subclass, already covered by the
+#  platform's nxr:PhysicalAssetShape. Growth point for EDM-specific
+#  constraints.
+#################################################################
+
+edm:WireEDMShape a sh:NodeShape ;
+    sh:targetClass edm:WireEDM ;
+    sh:node nxr:BaseEntityShape .

@@ -1,0 +1,49 @@
+@prefix edm:  <https://ontology.nextxr.io/v3/edm#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  WIRE-EDM DOMAIN PACK  —  LAYER 4 (a machine-twin extension)
+#  Physics lives in nextxr-ontology/edm/.
+#################################################################
+
+<https://ontology.nextxr.io/v3/edm> a owl:Ontology ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:label "Wire EDM Pack" ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+edm:WireEDM a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Wire EDM Machine" ;
+    skos:definition "A wire electrical-discharge-machining tool twinned as a single physical asset: discharge generator, dielectric & flushing, wire transport and guides/axes subsystems." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+### Observable properties (the live signals) ###
+edm:gapVoltage a sosa:ObservableProperty ; rdfs:label "Gap Voltage" ; nxr:expectedUnit unit:V .
+edm:peakCurrent a sosa:ObservableProperty ; rdfs:label "Peak Current" ; nxr:expectedUnit unit:A .
+edm:pulseOnTime a sosa:ObservableProperty ; rdfs:label "Pulse On-Time" .
+edm:pulseOffTime a sosa:ObservableProperty ; rdfs:label "Pulse Off-Time" .
+edm:sparkFrequency a sosa:ObservableProperty ; rdfs:label "Spark Frequency" .
+edm:dischargeEnergy a sosa:ObservableProperty ; rdfs:label "Discharge Energy" .
+edm:wireTension a sosa:ObservableProperty ; rdfs:label "Wire Tension" .
+edm:wireFeedRate a sosa:ObservableProperty ; rdfs:label "Wire Feed Rate" .
+edm:wireWear a sosa:ObservableProperty ; rdfs:label "Wire Wear" .
+edm:cuttingSpeed a sosa:ObservableProperty ; rdfs:label "Cutting Speed" .
+edm:dielectricFlow a sosa:ObservableProperty ; rdfs:label "Dielectric Flow" .
+edm:dielectricPressure a sosa:ObservableProperty ; rdfs:label "Dielectric Pressure" .
+edm:dielectricTemp a sosa:ObservableProperty ; rdfs:label "Dielectric Temperature" ; nxr:expectedUnit unit:DEG_C .
+edm:dielectricConductivity a sosa:ObservableProperty ; rdfs:label "Dielectric Conductivity" .
+edm:shortCircuitRate a sosa:ObservableProperty ; rdfs:label "Short-Circuit Rate" .
+edm:sparkGap a sosa:ObservableProperty ; rdfs:label "Spark Gap" .
+edm:surfaceFinishRa a sosa:ObservableProperty ; rdfs:label "Surface Finish Ra" .
+edm:wireBreakRisk a sosa:ObservableProperty ; rdfs:label "Wire-Break Risk" .
+
+edm:WireBreak a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Wire Break" ;
+    skos:definition "The wire electrode snaps, halting the cut; driven by wear, slack tension and gap instability." ;
+    nxr:taxonomyCategory "Capability" .

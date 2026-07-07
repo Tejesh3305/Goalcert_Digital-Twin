@@ -2,9 +2,11 @@ import { PanelHeader, Card } from '../components/ui/Card'
 import { Empty } from '../components/ui/States'
 import NoTwin from '../components/NoTwin'
 import FeedControls from '../components/FeedControls'
+import MachineTwinLive from '../components/MachineTwinLive'
 import { useEventStream } from '../hooks/useEventStream'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
+import { isMachineDomain } from '../lib/machine'
 import { actionColor, localName, shortId, timeOf } from '../lib/format'
 import api from '../api/client'
 
@@ -12,15 +14,54 @@ import api from '../api/client'
  *  event stream straight off the event bus (every committed mutation). The
  *  right shows live feed sensors + the most recent incident from the graph. */
 export default function LiveOps() {
-  const { activeTenant } = useTwin()
+  const { activeTenant, activeTwin } = useTwin()
+  const machine = isMachineDomain(activeTwin?.domain)
   const { events, connected } = useEventStream(activeTenant, { max: 60 })
-  const { data: feed } = usePolling(() => api.feedStatus(), 1500, [])
+  const { data: feed } = usePolling(() => api.feedStatus(), 1500, [], { skip: machine })
   const { data: incData } = usePolling(
     () => api.listEntities(activeTenant, 'Incident', 5), 3000,
-    [activeTenant], { skip: !activeTenant },
+    [activeTenant], { skip: !activeTenant || machine },
   )
 
   if (!activeTenant) return <NoTwin />
+
+  // ── Machine-domain twins (turbine / EDM / tram fleet): live physics runtime.
+  if (machine) {
+    return (
+      <div className="panel">
+        <PanelHeader
+          title="Live Operational Layer"
+          subtitle={<>{activeTwin.name} · live physics twin · {connected
+            ? <span style={{ color: 'var(--ok)' }}>● bus connected</span>
+            : <span className="muted">○ connecting…</span>}</>}
+        />
+        <MachineTwinLive tenant={activeTenant} domain={activeTwin.domain} />
+        <Card title={<><i className="ti ti-bolt" /> Live Mutation Stream</>} style={{ marginTop: 16 }}>
+          {events.length === 0
+            ? <Empty label="No events yet — findings appear here as the twin runs." icon="ti-wave-sine" />
+            : (
+              <div className="event-list" style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {events.map((ev, i) => (
+                  <div key={`${ev.event_id}-${i}`} className="event-item">
+                    <div className="event-icon" style={{ background: `${actionColor(ev.action)}22`, color: actionColor(ev.action) }}>
+                      <i className={`ti ${{ create: 'ti-plus', update: 'ti-pencil', delete: 'ti-trash' }[ev.action] || 'ti-point'}`} />
+                    </div>
+                    <div className="event-body">
+                      <div className="event-title">
+                        <span style={{ color: actionColor(ev.action), textTransform: 'uppercase', fontSize: 10, fontWeight: 700 }}>{ev.action}</span>
+                        {' '}{ev.label || localName(ev.entity_type)}
+                      </div>
+                      <div className="event-meta">{ev.actor} · {shortId(ev.entity_id, 10)}</div>
+                    </div>
+                    <span className="event-time">{timeOf(ev.ts)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+        </Card>
+      </div>
+    )
+  }
 
   const incidents = incData?.nodes || []
   const temp = feed?.latest_value

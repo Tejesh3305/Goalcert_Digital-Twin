@@ -193,6 +193,94 @@ a{color:inherit;text-decoration:none}
 .insp-btn{width:100%;justify-content:center;background:rgba(124,58,237,.16);border:1px solid rgba(124,58,237,.4);color:#e7eaff}.insp-btn:hover{background:rgba(124,58,237,.32)}
 .insp-btn.primary{background:var(--gradient);border-color:transparent}
 .insp-btn.danger{background:rgba(225,29,72,.18);border-color:rgba(225,29,72,.45);color:#fecdd3}.insp-btn.danger:hover{background:#e11d48;color:#fff}
+
+/* ============================================================
+   RESPONSIVE  — desktop ▸ tablet ▸ phone
+   The layout is class-driven, so breakpoints reshape the shell
+   (sidebar → icon rail → bottom nav), collapse the grids, and
+   adapt the 3-D viewer overlays. The viewer canvas re-fits on
+   window resize (see buildViewer › onResize), so heights below
+   flow through to the 3-D scene automatically.
+   ============================================================ */
+
+/* Long topbar items drop out early so the bar never overflows. */
+@media(max-width:900px){ .topbar-breadcrumb{display:none} }
+@media(max-width:780px){ .topbar-stat{display:none} }
+
+/* ── Tablet / small laptop: sidebar becomes a 64px icon rail ── */
+@media(min-width:641px) and (max-width:1024px){
+  .body{grid-template-columns:64px 1fr}
+  .content{padding:20px 18px}
+  .nav-item{font-size:0;gap:0;justify-content:center;padding:12px 0}
+  .nav-item i{font-size:20px}
+  .nav-badge{position:absolute;top:6px;right:8px;margin-left:0}
+  .sidebar-help{font-size:0;gap:0;justify-content:center;padding:12px 0}
+  .sidebar-help i{font-size:18px}
+  .sidebar-ver{display:none}
+  .hero3d{height:66vh;min-height:460px}
+}
+
+/* ── Phone: sidebar becomes a fixed bottom tab bar ── */
+@media(max-width:640px){
+  .app-root{height:100dvh}
+
+  /* Compact topbar: keep brand mark + twin switcher + status dot. */
+  .topbar{gap:9px;padding:10px 12px;flex-wrap:nowrap}
+  .brand-word,.acct{display:none}
+  .tw-select{flex:1;min-width:0;font-size:12px;padding:7px 10px}
+
+  /* Shell → column; content scrolls, nav pins to the bottom. */
+  .body{display:flex;flex-direction:column;min-height:0}
+  .content{order:1;flex:1;min-height:0;padding:16px 13px calc(74px + env(safe-area-inset-bottom))}
+  .sidebar{order:2;position:fixed;left:0;right:0;bottom:0;flex-direction:row;
+           border-right:none;border-top:1px solid var(--border);z-index:60;
+           padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -2px 14px rgba(22,19,31,.08)}
+  .sidebar-nav{flex:1;display:flex;flex-direction:row;overflow:visible;padding:6px}
+  .sidebar-foot{display:none}
+  .nav-item{flex:1;flex-direction:column;align-items:center;justify-content:center;
+            gap:3px;margin:0;padding:8px 4px;font-size:10px;font-weight:600}
+  .nav-item i{font-size:21px;width:auto}
+  .nav-item.active{background:transparent;color:var(--brand-strong)}
+  .nav-item.active::before{display:none}
+  .nav-badge{position:absolute;top:2px;right:calc(50% - 22px);margin-left:0}
+
+  /* Stack every multi-column grid. */
+  .grid-2,.grid-3,.grid-4{grid-template-columns:1fr}
+  .sensor-grid,.sample-row{grid-template-columns:1fr 1fr}
+  .panel{max-width:100%}
+  .panel-header{flex-direction:column;align-items:stretch;gap:10px}
+  .panel-actions{justify-content:flex-start;flex-wrap:wrap}
+  .panel-title{font-size:19px}
+  .card{padding:15px}
+  .card-value{font-size:24px}
+  .cta-band{padding:20px 18px}
+  .cta-band h3{font-size:16px}
+
+  /* Chat + knowledge-graph sizing. */
+  .chat-wrap{height:62vh;min-height:380px}
+  .chat-bubble{max-width:90%}
+  .graph-svg{height:300px}
+
+  /* Toasts sit above the bottom nav and span the width. */
+  .toast-wrap{left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom))}
+  .toast{min-width:0;max-width:none}
+
+  /* ── 3-D viewer overlays ── */
+  .hero3d{height:56vh;min-height:360px;border-radius:14px}
+  .v-top{top:10px;left:10px;gap:6px;max-width:calc(100% - 120px);flex-wrap:wrap}
+  .v-chip{font-size:10px;padding:5px 9px}
+  .v-tools{right:10px;top:10px;gap:6px}
+  .v-tool{width:34px;height:34px;font-size:16px;border-radius:10px}
+  .v-floors{left:10px;bottom:10px;gap:5px}
+  .v-floor{min-width:78px;padding:6px 9px;font-size:10px}
+  .v-palette{bottom:70px;left:50%;transform:translateX(-50%);max-width:calc(100% - 20px);
+             flex-wrap:nowrap;overflow-x:auto;justify-content:flex-start;padding:6px}
+  .v-pal-item{flex:0 0 auto;width:54px}
+  .v-trash{width:46px;height:46px;bottom:10px;right:10px}
+  .v-tip{display:none}
+  /* Inspector docks as a bottom sheet instead of a right rail. */
+  .inspector{top:auto;bottom:10px;left:8px;right:8px;width:auto;max-height:56%}
+}
 </style>
 </head>
 <body>

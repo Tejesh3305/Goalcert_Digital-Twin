@@ -1,0 +1,18 @@
+@prefix turbine: <https://ontology.nextxr.io/v3/turbine#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  TURBINE SHACL SHAPES
+#
+#  The GasTurbine asset is an nxr:Equipment subclass, so it is
+#  already covered by the platform's nxr:PhysicalAssetShape
+#  (base-entity contract). This shape adds nothing mandatory — it
+#  exists as the pack's growth point for turbine-specific
+#  constraints (e.g. requiring a monitored subsystem) and keeps
+#  the classes/shapes file pair symmetric with the other packs.
+#################################################################
+
+turbine:GasTurbineShape a sh:NodeShape ;
+    sh:targetClass turbine:GasTurbine ;
+    sh:node nxr:BaseEntityShape .

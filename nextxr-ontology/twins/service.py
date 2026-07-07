@@ -50,6 +50,36 @@ TEMPLATES = {
         "primary_signal": "cfp:upsSoC",
         "seeds_feed": True,
     },
+    # ── Machine-twin domains (single-asset / network physics twins) ──
+    # These seed a Site + one machine asset; the live physics + findings run in
+    # the machine-twin runtime (twins/runtime.py), not the HVAC/CFP feed.
+    "turbine-engine": {
+        "label": "Gas Turbine Engine",
+        "description": "A gas-turbine engine twin — EGT, shaft speeds, fuel, "
+                       "vibration, EPR and oil signals with health + RUL.",
+        "primary_signal": "turbine:egt",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": "https://ontology.nextxr.io/v3/turbine#GasTurbine",
+    },
+    "edm-machine": {
+        "label": "Wire EDM Machine",
+        "description": "A wire electrical-discharge-machining twin — discharge, "
+                       "dielectric, wire-transport and axis signals.",
+        "primary_signal": "edm:sparkFrequency",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": "https://ontology.nextxr.io/v3/edm#WireEDM",
+    },
+    "tram-network": {
+        "label": "Tram Fleet Network",
+        "description": "A tram fleet-network twin — live vehicles, per-route "
+                       "status, traction power and service KPIs.",
+        "primary_signal": "fleet:otp",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": "https://ontology.nextxr.io/v3/fleet#TramNetwork",
+    },
     "blank": {
         "label": "Blank Twin",
         "description": "An empty twin with just a root site. Build it by hand "
@@ -208,6 +238,10 @@ class TwinRegistry:
             )
             return None
 
+        tpl = TEMPLATES.get(twin.domain, {})
+        if tpl.get("machine"):
+            return self._seed_machine(twin, writer, actor, tpl["class_iri"])
+
         if twin.domain == "generic-facility":
             return self._seed_generic_facility(twin, writer, actor)
 
@@ -228,6 +262,20 @@ class TwinRegistry:
             relationships=[Rel("hvac:servesSpace", space.node_id)] if space.ok else None,
         )
         return ahu.node_id if ahu.ok else None
+
+    def _seed_machine(self, twin: Twin, writer, actor: str,
+                      class_iri: str) -> Optional[str]:
+        """Seed a machine-domain twin: a root Site + the single machine asset the
+        live physics runtime targets. Returns the machine asset's node id."""
+        writer.create(
+            tenant_id=twin.tenant_id, canonical_type=CORE + "Site",
+            actor=actor, properties={"displayName": f"{twin.name} — Facility"},
+        )
+        machine = writer.create(
+            tenant_id=twin.tenant_id, canonical_type=class_iri, actor=actor,
+            properties={"displayName": twin.name, "status": "running"},
+        )
+        return machine.node_id if machine.ok else None
 
     def _seed_generic_facility(self, twin: Twin, writer, actor: str) -> Optional[str]:
         """Seed a 3-floor generic facility with multi-system assets.

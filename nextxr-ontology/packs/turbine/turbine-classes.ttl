@@ -1,0 +1,44 @@
+@prefix turbine: <https://ontology.nextxr.io/v3/turbine#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  TURBINE DOMAIN PACK  —  LAYER 4 (a machine-twin extension)
+#
+#  Adds the gas-turbine asset class and its observable signals as
+#  a downward extension of the platform mid-level (nxr:Equipment).
+#  Physics lives in nextxr-ontology/turbine/.
+#################################################################
+
+<https://ontology.nextxr.io/v3/turbine> a owl:Ontology ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:label "Gas Turbine Pack" ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+### The machine asset ###
+turbine:GasTurbine a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Gas Turbine Engine" ;
+    skos:definition "A gas-turbine engine twinned as a single physical asset, with compressor, combustor, turbine, bearings and lubrication subsystems monitored via EGT, shaft speeds, fuel, vibration, EPR and oil signals." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+### Observable properties (the live signals) ###
+turbine:egt a sosa:ObservableProperty ; rdfs:label "Exhaust Gas Temperature" ; nxr:expectedUnit unit:DEG_C .
+turbine:n1 a sosa:ObservableProperty ; rdfs:label "Shaft Speed N1" .
+turbine:n2 a sosa:ObservableProperty ; rdfs:label "Shaft Speed N2" .
+turbine:fuelFlow a sosa:ObservableProperty ; rdfs:label "Fuel Flow" .
+turbine:vibration a sosa:ObservableProperty ; rdfs:label "Vibration" .
+turbine:epr a sosa:ObservableProperty ; rdfs:label "Engine Pressure Ratio" .
+turbine:oilTemp a sosa:ObservableProperty ; rdfs:label "Oil Temperature" ; nxr:expectedUnit unit:DEG_C .
+turbine:oilPressure a sosa:ObservableProperty ; rdfs:label "Oil Pressure" ; nxr:expectedUnit unit:PSI .
+
+### A domain failure mode (for future diagnosis linkage) ###
+turbine:CompressorFouling a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Compressor Fouling" ;
+    skos:definition "Deposits on compressor blades reduce pressure ratio and raise EGT/fuel burn." ;
+    nxr:taxonomyCategory "Capability" .

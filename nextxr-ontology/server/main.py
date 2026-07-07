@@ -69,6 +69,7 @@ from server.query_api import router as query_router
 from server.write_api import router as write_router
 from server.schema_routes import router as schema_router
 from server.twins_routes import router as twins_router
+from server.twin_runtime_routes import router as twin_runtime_router
 from server.agent_routes import router as agent_router
 
 # ── App setup ───────────────────────────────────────────────────────
@@ -90,6 +91,9 @@ app.add_middleware(AuthMiddleware)
 app.include_router(query_router)
 app.include_router(write_router)
 app.include_router(schema_router)
+# Runtime routes first: its literal paths (e.g. /twins/domains) and multi-segment
+# /twins/{tenant}/state must match before twins_router's bare /twins/{tenant}.
+app.include_router(twin_runtime_router)
 app.include_router(twins_router)
 app.include_router(agent_router)
 

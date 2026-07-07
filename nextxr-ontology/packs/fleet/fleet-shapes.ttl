@@ -1,0 +1,14 @@
+@prefix fleet: <https://ontology.nextxr.io/v3/fleet#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+
+#################################################################
+#  TRAM FLEET-NETWORK SHACL SHAPES
+#  TramNetwork is an nxr:Equipment subclass, already covered by
+#  the platform's nxr:PhysicalAssetShape. Growth point for
+#  fleet-specific constraints.
+#################################################################
+
+fleet:TramNetworkShape a sh:NodeShape ;
+    sh:targetClass fleet:TramNetwork ;
+    sh:node nxr:BaseEntityShape .
