@@ -3,14 +3,26 @@ import { SeverityPill } from '../components/ui/Modal'
 import NoTwin from '../components/NoTwin'
 import FeedControls from '../components/FeedControls'
 import DemoTwin from '../components/DemoTwin'
+import MachineDashboard from '../components/MachineDashboard'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
+import { isMachineDomain } from '../lib/machine'
 import { timeOf } from '../lib/format'
 import api from '../api/client'
 
-/** Operations overview: live KPIs, active findings, and risk by asset —
- *  all from the real graph for the active twin. */
+/** The twin's home dashboard. Machine-domain twins (turbine / EDM / tram) get the
+ *  unified live machine dashboard; facility twins keep the graph-driven overview. */
 export default function Dashboard() {
+  const { activeTenant, activeTwin } = useTwin()
+
+  if (activeTenant && isMachineDomain(activeTwin?.domain)) {
+    return <MachineDashboard tenant={activeTenant} domain={activeTwin.domain} name={activeTwin.name} />
+  }
+
+  return <FacilityDashboard />
+}
+
+function FacilityDashboard() {
   const { activeTenant, activeTwin } = useTwin()
   const { data: stats } = usePolling(
     () => api.stats(activeTenant), 2500, [activeTenant], { skip: !activeTenant },

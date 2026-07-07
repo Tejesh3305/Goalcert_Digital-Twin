@@ -3,22 +3,13 @@ import Topbar from './components/layout/Topbar'
 import Sidebar from './components/layout/Sidebar'
 
 import Dashboard from './panels/Dashboard'
-import Concierge from './panels/Concierge'
-import BimStudio from './panels/BimStudio'
-import BundleAuthor from './panels/BundleAuthor'
+import BuildTwin from './panels/BuildTwin'
 import Twins from './panels/Twins'
-import Assets from './panels/Assets'
-import LiveOps from './panels/LiveOps'
-import Agents from './panels/Agents'
 import Predict from './panels/Predict'
-import Copilot from './panels/Copilot'
+import Agents from './panels/Agents'
 import Changelog from './panels/Changelog'
-import Compliance from './panels/Compliance'
-import Simulation from './panels/Simulation'
-import TwinHealth from './panels/TwinHealth'
+import BundleAuthor from './panels/BundleAuthor'
 import Marketplace from './panels/Marketplace'
-import PluginScaffolder from './panels/PluginScaffolder'
-import AcceleratorPack from './panels/AcceleratorPack'
 
 export default function App() {
   return (
@@ -29,21 +20,12 @@ export default function App() {
         <div className="content">
           <Routes>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/build" element={<Concierge />} />
-            <Route path="/bim" element={<BimStudio />} />
-            <Route path="/bundle-author" element={<BundleAuthor />} />
+            <Route path="/build" element={<BuildTwin />} />
             <Route path="/twins" element={<Twins />} />
-            <Route path="/assets" element={<Assets />} />
-            <Route path="/live" element={<LiveOps />} />
-            <Route path="/agents" element={<Agents />} />
             <Route path="/predict" element={<Predict />} />
-            <Route path="/copilot" element={<Copilot />} />
+            <Route path="/agents" element={<Agents />} />
             <Route path="/changelog" element={<Changelog />} />
-            <Route path="/compliance" element={<Compliance />} />
-            <Route path="/plugin" element={<PluginScaffolder />} />
-            <Route path="/accelerator" element={<AcceleratorPack />} />
-            <Route path="/simulation" element={<Simulation />} />
-            <Route path="/health" element={<TwinHealth />} />
+            <Route path="/bundle-author" element={<BundleAuthor />} />
             <Route path="/marketplace" element={<Marketplace />} />
             <Route path="*" element={<Dashboard />} />
           </Routes>

@@ -1,167 +1,146 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { PanelHeader } from '../components/ui/Card'
-import { Modal } from '../components/ui/Modal'
 import { Loading, ErrorBox } from '../components/ui/States'
 import { useApi } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
 import { useToast } from '../context/ToastContext'
+import { domainMeta } from '../lib/machine'
 import { dateOf } from '../lib/format'
 import api from '../api/client'
 
-/** Twins panel — list, create, select, and delete digital twins.
- *  Creating a twin seeds real entities through the Graph Writer. */
+/**
+ * Twins — the library. Shows the available domain templates as "open a twin"
+ * cards (the 3 machine domains first, then facilities), plus "My Twins" for
+ * already-created instances. Opening a domain reuses an existing twin of that
+ * kind if present, else seeds a fresh one, then jumps to its dashboard.
+ */
 export default function Twins() {
+  const nav = useNavigate()
+  const toast = useToast()
   const { twins, loading, error, refreshTwins, activeTenant, setActiveTenant } = useTwin()
-  const [showCreate, setShowCreate] = useState(false)
+  const { data: tplData } = useApi(() => api.twinTemplates(), [])
+  const [building, setBuilding] = useState(null)
+
+  const templates = tplData?.templates || []
+  // machine domains first, then facilities/blank
+  const order = ['turbine-engine', 'edm-machine', 'tram-network', 'generic-facility', 'hvac', 'blank']
+  const sorted = [...templates].sort((a, b) => {
+    const ia = order.indexOf(a.key); const ib = order.indexOf(b.key)
+    return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)
+  })
+
+  const openDomain = async (key) => {
+    setBuilding(key)
+    try {
+      const existing = twins.find((t) => t.domain === key)
+      if (existing) {
+        setActiveTenant(existing.tenant_id)
+      } else {
+        const meta = domainMeta(key)
+        const res = await api.createTwin({ name: meta.label, domain: key })
+        await refreshTwins()
+        setActiveTenant(res.twin.tenant_id)
+        toast.ok('Twin created', `${res.twin.name} is live`)
+      }
+      nav('/')
+    } catch (e) {
+      toast.err('Could not open twin', e.message)
+    } finally {
+      setBuilding(null)
+    }
+  }
+
+  const openInstance = (t) => { setActiveTenant(t.tenant_id); nav('/') }
+
+  const remove = async (e, t) => {
+    e.stopPropagation()
+    if (!confirm(`Delete twin "${t.name}"? This removes its graph entities.`)) return
+    try { await api.deleteTwin(t.tenant_id); toast.ok('Twin deleted', t.name); refreshTwins() }
+    catch (err) { toast.err('Delete failed', err.message) }
+  }
 
   return (
     <div className="panel">
-      <PanelHeader
-        title="Digital Twins"
-        subtitle="Each twin is an isolated, ontology-governed model of a real facility."
-      >
-        <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
-          <i className="ti ti-plus" /> Create Twin
+      <PanelHeader title="Twins"
+        subtitle="Open a live digital twin from the library, or build a new one from an image.">
+        <button className="btn btn-primary" onClick={() => nav('/build')}>
+          <i className="ti ti-sparkles" /> Build from image
         </button>
       </PanelHeader>
 
-      {loading && !twins.length && <Loading label="Loading twins…" />}
       {error && <ErrorBox error={error} hint="Is the backend running? (python -m server.main)" />}
 
-      {!loading && !twins.length && !error && (
-        <div className="empty" style={{ marginTop: 20 }}>
-          <i className="ti ti-stack-2" style={{ fontSize: 28, display: 'block', marginBottom: 8 }} />
-          No twins yet. Create your first one to begin.
+      {/* My Twins — already-created instances */}
+      {twins.length > 0 && (
+        <div className="section-gap">
+          <div className="card-label" style={{ marginBottom: 10 }}><i className="ti ti-device-floppy" /> My Twins</div>
+          <div className="grid-3">
+            {twins.map((t) => {
+              const m = domainMeta(t.domain)
+              return (
+                <div key={t.tenant_id} className={`card twin-card ${t.tenant_id === activeTenant ? 'active' : ''}`}
+                  style={{ cursor: 'pointer', position: 'relative' }} onClick={() => openInstance(t)}>
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderRadius: '16px 16px 0 0',
+                    background: `linear-gradient(90deg, ${m.accent}, ${m.accent}88)` }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: 4 }}>
+                    <div className="agent-icon" style={{ background: `${m.accent}18`, color: m.accent }}><i className={`ti ${m.icon}`} /></div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--display)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{m.label}</div>
+                    </div>
+                    {t.tenant_id === activeTenant && <span className="pill pill-green" style={{ fontSize: 9 }}>ACTIVE</span>}
+                    <span title="Delete" onClick={(e) => remove(e, t)} style={{ cursor: 'pointer', color: 'var(--hint)', fontSize: 15 }}><i className="ti ti-trash" /></span>
+                  </div>
+                  <div className="twin-meta">
+                    <span><i className="ti ti-cube" /> {t.summary?.total ?? 0} entities</span>
+                    <span><i className="ti ti-calendar" /> {dateOf(t.created_at)}</span>
+                  </div>
+                  <button className="btn btn-primary" style={{ width: '100%', marginTop: 12 }} onClick={(e) => { e.stopPropagation(); openInstance(t) }}>
+                    <i className="ti ti-bolt" /> Open dashboard
+                  </button>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
-      <div className="grid-3">
-        {twins.map((t) => (
-          <TwinCard
-            key={t.tenant_id}
-            twin={t}
-            active={t.tenant_id === activeTenant}
-            onSelect={() => setActiveTenant(t.tenant_id)}
-            onDeleted={refreshTwins}
-          />
-        ))}
-      </div>
-
-      {showCreate && (
-        <CreateTwinModal
-          onClose={() => setShowCreate(false)}
-          onCreated={(tenant) => { refreshTwins(); setActiveTenant(tenant) }}
-        />
-      )}
-    </div>
-  )
-}
-
-function TwinCard({ twin, active, onSelect, onDeleted }) {
-  const toast = useToast()
-  const [busy, setBusy] = useState(false)
-
-  const remove = async (e) => {
-    e.stopPropagation()
-    if (!confirm(`Delete twin "${twin.name}"? This removes its graph entities.`)) return
-    setBusy(true)
-    try {
-      await api.deleteTwin(twin.tenant_id)
-      toast.ok('Twin deleted', twin.name)
-      onDeleted()
-    } catch (err) {
-      toast.err('Delete failed', err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const total = twin.summary?.total ?? 0
-  return (
-    <div className={`twin-card ${active ? 'active' : ''}`} onClick={onSelect}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-        <div>
-          <div className="twin-name">{twin.name}</div>
-          <div className="twin-domain">{twin.domain}</div>
-        </div>
-        {active && <span className="pill pill-blue">ACTIVE</span>}
-      </div>
-      <div className="twin-desc">{twin.description}</div>
-      <div className="twin-meta">
-        <span><i className="ti ti-cube" /> {total} entities</span>
-        <span><i className="ti ti-calendar" /> {dateOf(twin.created_at)}</span>
-      </div>
-      <div style={{ marginTop: 12, display: 'flex', gap: 6 }}>
-        <button className="btn btn-ghost" onClick={remove} disabled={busy}
-                style={{ color: 'var(--accent-red)' }}>
-          <i className="ti ti-trash" /> Delete
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function CreateTwinModal({ onClose, onCreated }) {
-  const toast = useToast()
-  const { data: tplData } = useApi(() => api.twinTemplates(), [])
-  const [name, setName] = useState('')
-  const [domain, setDomain] = useState('hvac')
-  const [busy, setBusy] = useState(false)
-
-  const templates = tplData?.templates || []
-
-  const submit = async () => {
-    if (!name.trim()) { toast.err('Name required', 'Give your twin a name.'); return }
-    setBusy(true)
-    try {
-      const res = await api.createTwin({ name: name.trim(), domain })
-      toast.ok('Twin created', `${res.twin.name} seeded with ${res.twin.summary?.total ?? 0} entities`)
-      onCreated(res.twin.tenant_id)
-      onClose()
-    } catch (err) {
-      toast.err('Create failed', err.message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Modal title="Create a Digital Twin"
-           subtitle="Seeds a real, ontology-validated facility you can run the live feed against."
-           onClose={onClose}>
-      <div className="field">
-        <label>Twin name</label>
-        <input className="input" autoFocus value={name}
-               placeholder="e.g. Melbourne Plant"
-               onChange={(e) => setName(e.target.value)}
-               onKeyDown={(e) => e.key === 'Enter' && submit()} />
-      </div>
-      <div className="field">
-        <label>Domain template</label>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {templates.map((tpl) => (
-            <label key={tpl.key}
-                   style={{
-                     display: 'flex', gap: 10, padding: 10, cursor: 'pointer',
-                     border: `1px solid ${domain === tpl.key ? 'var(--accent-blue)' : 'var(--border2)'}`,
-                     borderRadius: 8, background: domain === tpl.key ? 'rgba(75,139,245,.06)' : 'transparent',
-                   }}>
-              <input type="radio" name="domain" checked={domain === tpl.key}
-                     onChange={() => setDomain(tpl.key)} style={{ marginTop: 2 }} />
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 12 }}>{tpl.label}</div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{tpl.description}</div>
+      {/* Domain library */}
+      <div className="card-label" style={{ margin: '4px 0 10px' }}><i className="ti ti-stack-2" /> Twin Library</div>
+      {loading && !templates.length ? <Loading label="Loading library…" /> : (
+        <div className="grid-3 section-gap">
+          {sorted.map((tpl) => {
+            const m = domainMeta(tpl.key)
+            const busy = building === tpl.key
+            const hasInstance = twins.some((t) => t.domain === tpl.key)
+            return (
+              <div key={tpl.key} className="card twin-card" style={{ position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderRadius: '16px 16px 0 0',
+                  background: `linear-gradient(90deg, ${m.accent}, ${m.accent}88)` }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: 4 }}>
+                  <div className="agent-icon" style={{ background: `${m.accent}18`, color: m.accent }}><i className={`ti ${m.icon}`} /></div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--display)' }}>{m.label}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{m.tag}</div>
+                  </div>
+                  {m.machine && <span className="pill pill-blue" style={{ marginLeft: 'auto', fontSize: 9 }}>PHYSICS</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 12, minHeight: 44 }}>{m.blurb || tpl.description}</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                  <span className="pill pill-green">● live</span>
+                  {m.signals ? <span className="pill pill-surface">{m.signals} signals</span> : null}
+                  {m.network && <span className="pill pill-surface">network map</span>}
+                </div>
+                <button className="btn btn-primary" style={{ width: '100%', background: m.accent, borderColor: 'transparent', boxShadow: `0 4px 14px ${m.accent}33` }}
+                  disabled={!!building} onClick={() => openDomain(tpl.key)}>
+                  {busy ? <><span className="spinner" /> Opening…</> : <><i className="ti ti-bolt" /> {hasInstance ? 'Open twin' : 'Create & open'}</>}
+                </button>
               </div>
-            </label>
-          ))}
+            )
+          })}
         </div>
-      </div>
-      <div className="modal-actions">
-        <button className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-        <button className="btn btn-primary" onClick={submit} disabled={busy}>
-          {busy ? <><span className="spinner" /> &nbsp;Seeding…</> : <><i className="ti ti-plus" /> Create</>}
-        </button>
-      </div>
-    </Modal>
+      )}
+    </div>
   )
 }

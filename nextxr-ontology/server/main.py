@@ -731,6 +731,12 @@ if (FRONTEND_DIST / "assets").is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"),
               name="assets")
 
+# Built static assets under public/ (e.g. the 3-D GLB models) — served directly
+# so the SPA fallback doesn't return index.html for /models/*.glb.
+if (FRONTEND_DIST / "models").is_dir():
+    app.mount("/models", StaticFiles(directory=FRONTEND_DIST / "models"),
+              name="models")
+
 
 _PLACEHOLDER = """<!doctype html><html><head><meta charset=utf-8>
 <title>NextXR — build the frontend</title>

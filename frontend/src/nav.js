@@ -1,37 +1,28 @@
 /**
- * nav.js — sidebar navigation config + per-route "backing" status.
+ * nav.js — sidebar navigation config.
  *
- * `backing` documents, for YOUR reference and the in-UI demo tag, how real each
- * panel is against the current core:
- *   'live'  — fully wired to the platform backend (real graph data)
- *   'partial' — partly real, partly mocked (a placeholder fills the gap)
- *   'mock'  — UI placeholder only; no core support yet (see PLACEHOLDERS.md)
+ * Trimmed to the core twin workflow. Live Ops, BIM Studio, Simulation and the
+ * standalone Twin Health / Copilot pages were removed — their content now lives
+ * inside the unified Dashboard (3-D scene, telemetry, co-pilot, findings,
+ * maintenance and health, all for the active twin).
+ *
+ * `backing`: 'live' fully wired to the backend · 'partial' partly mocked ·
+ * 'mock' UI placeholder only.
  */
 export const NAV = [
   { section: 'Overview' },
-  { id: 'dashboard',   path: '/',            label: 'Dashboard',   icon: 'ti-layout-dashboard', backing: 'live' },
-  { id: 'concierge',   path: '/build',       label: 'Build a Twin', icon: 'ti-sparkles',        backing: 'live' },
-
-  { section: 'BIM' },
-  { id: 'bim',         path: '/bim',         label: 'BIM Studio',  icon: 'ti-cube',             backing: 'live' },
-  { id: 'twins',       path: '/twins',       label: 'Twins',       icon: 'ti-stack-2',          backing: 'live' },
-  { id: 'assets',      path: '/assets',      label: 'Asset Graph', icon: 'ti-sitemap',          backing: 'live' },
-  { id: 'live',        path: '/live',        label: 'Live Ops',    icon: 'ti-activity',         backing: 'live' },
+  { id: 'twins',       path: '/twins',       label: 'Twins',        icon: 'ti-stack-2',          backing: 'live' },
+  { id: 'dashboard',   path: '/',            label: 'Dashboard',    icon: 'ti-layout-dashboard', backing: 'live' },
+  { id: 'concierge',   path: '/build',       label: 'Build a Twin', icon: 'ti-sparkles',         backing: 'live' },
 
   { section: 'Intelligence' },
-  { id: 'bundle',      path: '/bundle-author', label: 'Bundle Author', icon: 'ti-wand',         backing: 'live' },
-  { id: 'agents',      path: '/agents',      label: 'AI Agents',   icon: 'ti-robot',            backing: 'partial' },
-  { id: 'predict',     path: '/predict',     label: 'Predict',     icon: 'ti-trending-up',      backing: 'mock' },
-  { id: 'copilot',     path: '/copilot',     label: 'Copilot',     icon: 'ti-message-chatbot',  backing: 'mock' },
+  { id: 'predict',     path: '/predict',     label: 'Prediction',   icon: 'ti-chart-histogram',  backing: 'live' },
+  { id: 'agents',      path: '/agents',      label: 'Twin Intelligence', icon: 'ti-robot',       backing: 'partial' },
 
   { section: 'Governance' },
-  { id: 'changelog',   path: '/changelog',   label: 'Change Log',  icon: 'ti-history',          backing: 'live' },
-  { id: 'compliance',  path: '/compliance',  label: 'Compliance',  icon: 'ti-shield-check',     backing: 'mock' },
+  { id: 'changelog',   path: '/changelog',   label: 'Change Log',   icon: 'ti-history',          backing: 'live' },
 
   { section: 'Platform' },
-  { id: 'plugin',      path: '/plugin',      label: 'Plugin SDK',  icon: 'ti-plug',             backing: 'live' },
-  { id: 'accelerator', path: '/accelerator', label: 'Accelerators', icon: 'ti-package',         backing: 'live' },
-  { id: 'simulation',  path: '/simulation',  label: 'Simulation',  icon: 'ti-urgent',           backing: 'partial' },
-  { id: 'health',      path: '/health',      label: 'Twin Health', icon: 'ti-heart-rate-monitor', backing: 'partial' },
-  { id: 'marketplace', path: '/marketplace', label: 'Marketplace', icon: 'ti-layout-grid',      backing: 'mock' },
+  { id: 'bundle',      path: '/bundle-author', label: 'Bundle Author', icon: 'ti-wand',           backing: 'live' },
+  { id: 'marketplace', path: '/marketplace', label: 'Marketplace',  icon: 'ti-layout-grid',      backing: 'mock' },
 ]

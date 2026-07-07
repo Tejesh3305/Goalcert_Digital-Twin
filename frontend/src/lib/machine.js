@@ -22,3 +22,94 @@ export const healthBand = (h) => {
   if (h >= 0.4) return { label: 'Degraded', color: 'var(--accent-amber)' }
   return { label: 'Critical', color: 'var(--accent-red)' }
 }
+
+/** Health 0..1 → hex colour (for rings/sparklines that need a raw colour). */
+export const hColor = (h) =>
+  h == null ? '#9aa1ad' : h > 0.7 ? '#16a34a' : h > 0.4 ? '#d97706' : '#e11d48'
+
+/** Risk = inverse of health, as a 0..100 score with a band. */
+export const riskFromHealth = (h) => {
+  if (h == null) return { score: null, label: '—', color: 'var(--muted)' }
+  const score = Math.round((1 - h) * 100)
+  if (score >= 60) return { score, label: 'HIGH', color: 'var(--accent-red)' }
+  if (score >= 30) return { score, label: 'ELEVATED', color: 'var(--accent-amber)' }
+  return { score, label: 'LOW', color: 'var(--accent-green)' }
+}
+
+/**
+ * Display metadata per domain (icon, accent, tag, blurb, control label). Merged
+ * with the backend template's label/description in the Twins library + dashboard.
+ * Covers the 3 machine domains and the facility templates.
+ */
+export const DOMAIN_META = {
+  'turbine-engine': { label: 'Gas Turbine', tag: 'Aerospace · Power', icon: 'ti-engine',
+    accent: '#e11d48', control: 'Throttle', machine: true, signals: 8,
+    blurb: 'A live gas-turbine twin — EGT, shaft speeds, fuel, vibration, EPR and oil, with subsystem health and RUL.' },
+  'edm-machine': { label: 'Wire EDM', tag: 'Precision Machining', icon: 'ti-square-rotated-forbid-2',
+    accent: '#2563eb', control: 'Intensity', machine: true, signals: 18,
+    blurb: 'A wire electrical-discharge-machining twin — discharge, dielectric, wire-transport and axis signals.' },
+  'tram-network': { label: 'Tram Fleet Network', tag: 'Transit · Mobility', icon: 'ti-train',
+    accent: '#0d9488', control: 'Service level', machine: true, network: true, signals: 22,
+    blurb: 'A tram fleet-network twin — a live map of vehicles, per-route status, traction power and service KPIs.' },
+  hvac: { label: 'HVAC Facility', tag: 'Buildings', icon: 'ti-air-conditioning',
+    accent: '#7c3aed', signals: 1,
+    blurb: 'A site with a server room cooled by an air handler — the live temperature feed and Tier A/B/C rules.' },
+  'generic-facility': { label: 'Generic Facility', tag: 'Buildings', icon: 'ti-building-cog',
+    accent: '#7c3aed', signals: 8,
+    blurb: 'A 3-floor building with HVAC, power, fire, security, water and network systems.' },
+  blank: { label: 'Blank Twin', tag: 'Custom', icon: 'ti-square-plus', accent: '#6b7280',
+    blurb: 'An empty twin with just a root site — build it by hand via Add Asset.' },
+}
+
+export const domainMeta = (key) => ({
+  label: key, tag: 'Domain', icon: 'ti-cube', accent: '#7c3aed', blurb: '',
+  ...(DOMAIN_META[key] || {}),
+})
+
+/** Local name of a signal key ('turbine:egt' → 'egt'). */
+const _loc = (s) => (s || '').split('#').pop().split(':').pop()
+
+/**
+ * Zero-token co-pilot: a deterministic auto-observation from a state snapshot.
+ * Mirrors the collins-demo stub so the dashboard co-pilot works with no backend
+ * LLM call. `st` is the /state payload (health, latest, findings, name).
+ */
+export function stubNarration(st) {
+  if (!st || !st.latest) return null
+  const h = st.health
+  const findings = st.findings || []
+  const name = st.name || 'the machine'
+  if (findings.length) {
+    const crit = findings.find((f) => f.severity === 'critical') || findings[0]
+    return `Watching ${name}: ${findings.length} active finding${findings.length > 1 ? 's' : ''}. ` +
+      `Most pressing — ${crit.message}`
+  }
+  if (h != null && h < 0.7) return `${name} health is ${Math.round(h * 100)}% and trending down — worth a look before it breaches a limit.`
+  return `${name} is running within limits (health ${h == null ? '—' : Math.round(h * 100) + '%'}). No active findings.`
+}
+
+/** Zero-token co-pilot reply to a user question, grounded in the snapshot. */
+export function stubReply(msg, st) {
+  const q = (msg || '').toLowerCase()
+  const h = st?.health
+  const findings = st?.findings || []
+  const name = st?.name || 'the machine'
+  const latest = st?.latest || {}
+  const worst = findings.find((f) => f.severity === 'critical') || findings[0]
+  if (/health|how.*(doing|is it)|status|overall/.test(q)) {
+    return `${name} is at ${h == null ? '—' : Math.round(h * 100) + '%'} health` +
+      (findings.length ? `, with ${findings.length} active finding${findings.length > 1 ? 's' : ''}. ${worst ? 'Top issue: ' + worst.message : ''}`
+        : ' and no active findings — within limits.')
+  }
+  if (/concern|worst|worry|problem|issue|wrong/.test(q)) {
+    return worst ? `The most concerning right now is: ${worst.message}` : `Nothing concerning — ${name} is within limits on every signal.`
+  }
+  if (/check|next|do|action|recommend|fix|maintain/.test(q)) {
+    return worst ? `I'd inspect the subsystem behind "${worst.message.split('—')[0].trim()}". Open the maintenance work order below for the guided procedure.`
+      : `No action needed. Keep monitoring; I'll flag anything that drifts toward a limit.`
+  }
+  // signal lookup: does the question name a signal?
+  const hit = Object.keys(latest).find((s) => q.includes(_loc(s).toLowerCase()))
+  if (hit) return `${_loc(hit)} is currently ${latest[hit]}.`
+  return `I'm observing ${name} live. Ask about its health, the most concerning signal, or what to check next.`
+}
