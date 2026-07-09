@@ -1,0 +1,286 @@
+@prefix hsp:  <https://ontology.nextxr.io/v3/hospital#> .
+@prefix cfp:  <https://ontology.nextxr.io/v3/cfp#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  HOSPITAL TWIN PACK v1.0  —  LAYER 4  (extends the hospital pack)
+#
+#  The existing hospital pack (hospital-classes.ttl) adds the
+#  clinically-distinct ASSETS for the plan→3D / CFP-feed path
+#  (ImagingDevice, MedicalGasManifold, ColdChainFridge, PatientMonitor,
+#  OperatingRoom, ICU, IsolationRoom).
+#
+#  THIS pack adds the campus-scale MACHINE-TWIN vocabulary: the
+#  Hospital campus head node, its departments/spaces, the bed/RTLS,
+#  water/gas/power infrastructure, and the observable properties the
+#  campus physics engine emits — so a live hospital-campus twin runs
+#  in the machine-twin runtime (nextxr-ontology/hospital/).
+#
+#  Reuses (does NOT redefine): hsp:OperatingRoom, hsp:ICU,
+#  hsp:IsolationRoom, hsp:PatientMonitor, hsp:MedicalGasManifold,
+#  hsp:ColdChainFridge and cfp:AirHandlingUnit / cfp:UPS / cfp:Generator.
+#################################################################
+
+<https://ontology.nextxr.io/v3/hospital-twin> a owl:Ontology ;
+    dct:title "NextXR Hospital Campus Twin Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Campus-scale hospital digital twin: departments, beds, medical gas, water safety, power resilience, sterilisation, infection control and patient flow, with dedicated physics and clinical-safety monitoring." ;
+    owl:imports <https://ontology.nextxr.io/v3/hospital> .
+
+
+#################################################################
+#  TWIN HEAD  (twinned as a single supervised asset)
+#################################################################
+hsp:Hospital a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Hospital (Campus)" ;
+    skos:definition "A hospital campus twinned as a single supervised asset with a live operational picture: departments, beds, medical-gas, water, power, sterilisation, infection control and patient flow, monitored via ~24 campus KPIs. The head node the estates/operations desk supervises." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  DEPARTMENTS / SPACES  (places — nxr:Space, label "Location")
+#################################################################
+hsp:Ward a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Ward" ;
+    skos:definition "An inpatient ward: a set of beds with shared nursing and environmental services." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:OperatingTheatre a owl:Class ;
+    rdfs:subClassOf cfp:Room ;
+    rdfs:label "Operating Theatre" ;
+    skos:definition "A surgical theatre held at positive pressure relative to adjoining spaces, with high air-change rates and a dedicated medical-gas supply." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:EmergencyDept a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Emergency Department" ;
+    skos:definition "The emergency department: triage, resuscitation and assessment bays feeding the patient-flow model." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:Pharmacy a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Pharmacy" ;
+    skos:definition "The hospital pharmacy: dispensing plus temperature-controlled medicine and cold-chain storage." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:Laboratory a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Laboratory" ;
+    skos:definition "A diagnostic laboratory (pathology / microbiology) with analyser and cold-storage equipment." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:RadiologyRoom a owl:Class ;
+    rdfs:subClassOf cfp:Room ;
+    rdfs:label "Radiology Room" ;
+    skos:definition "An imaging room housing an MRI/CT/X-ray modality with heavy intermittent power and cooling needs." ;
+    nxr:taxonomyCategory "Location" .
+
+hsp:MedicalGasZone a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Medical Gas Zone" ;
+    skos:definition "A pressure zone of the medical-gas pipeline downstream of an area valve service unit, served by one or more manifolds and monitored for line pressure." ;
+    nxr:taxonomyCategory "Location" .
+
+
+#################################################################
+#  EQUIPMENT  (⊑ nxr:Equipment, label "PhysicalAsset")
+#################################################################
+hsp:Bed a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Bed" ;
+    skos:definition "An inpatient bed with an operational status (occupied / available / cleaning / blocked) tracked on the bed board." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:Autoclave a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Autoclave (Steriliser)" ;
+    skos:definition "A steam steriliser whose cycle lethality is measured as an accumulated F0 value against the 121 °C reference." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:BloodBank a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Blood Bank" ;
+    skos:definition "A refrigerated blood-product store with a tight low-temperature setpoint and an excursion alarm (>6 °C for >15 min quarantines stock)." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:ColdStorage a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Cold Storage" ;
+    skos:definition "A refrigerated medicine/reagent store on the cold chain." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:InfusionPump a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Infusion Pump" ;
+    skos:definition "A bedside infusion pump delivering fluids/medication at a controlled rate." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:Ventilator a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Ventilator" ;
+    skos:definition "A mechanical ventilator supporting a patient's respiration, dependent on medical-gas supply and uninterruptible power." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:RTLSTag a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "RTLS Tag" ;
+    skos:definition "A real-time-location tag on a bed, asset or patient feeding the live location stream." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:PneumaticTube a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Pneumatic Tube Station" ;
+    skos:definition "A pneumatic-tube transport station moving samples/medicines between departments." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+hsp:WaterSystem a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Water System" ;
+    skos:definition "The domestic hot/cold water distribution system, monitored for Legionella-control temperatures and dead-leg risk (HTM 04-01)." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  OBSERVABLE PROPERTIES  (the live campus signals)
+#################################################################
+### Clinical environment ###
+hsp:orPressure          a sosa:ObservableProperty ; rdfs:label "OR Positive Pressure" ; nxr:expectedUnit unit:PA .
+hsp:isoPressure         a sosa:ObservableProperty ; rdfs:label "Isolation Room Pressure" ; nxr:expectedUnit unit:PA .
+hsp:airChanges          a sosa:ObservableProperty ; rdfs:label "Air Changes per Hour" .
+hsp:autoclaveF0         a sosa:ObservableProperty ; rdfs:label "Autoclave F0 Value" ; nxr:expectedUnit unit:MIN .
+
+### Medical gas ###
+hsp:medGasO2Pressure    a sosa:ObservableProperty ; rdfs:label "Medical O2 Pressure" ; nxr:expectedUnit unit:KiloPA .
+hsp:medGasN2OPressure   a sosa:ObservableProperty ; rdfs:label "Medical N2O Pressure" ; nxr:expectedUnit unit:KiloPA .
+hsp:medGasReserve       a sosa:ObservableProperty ; rdfs:label "Medical Gas Reserve" .
+
+### Cold chain ###
+hsp:bloodBankTemp       a sosa:ObservableProperty ; rdfs:label "Blood Bank Temperature" ; nxr:expectedUnit unit:DEG_C .
+
+### Infection control ###
+hsp:infectionRisk       a sosa:ObservableProperty ; rdfs:label "Infection Probability" .
+hsp:quantaConcentration a sosa:ObservableProperty ; rdfs:label "Quanta Concentration" .
+
+### Power resilience ###
+hsp:upsStateOfCharge    a sosa:ObservableProperty ; rdfs:label "UPS State of Charge" .
+hsp:upsRuntime          a sosa:ObservableProperty ; rdfs:label "UPS Runtime Remaining" ; nxr:expectedUnit unit:MIN .
+hsp:generatorReady      a sosa:ObservableProperty ; rdfs:label "Generator Ready" .
+hsp:criticalPowerLoad   a sosa:ObservableProperty ; rdfs:label "Critical Power Load" .
+
+### Water safety (Legionella) ###
+hsp:hotWaterReturnTemp  a sosa:ObservableProperty ; rdfs:label "Hot Water Return Temperature" ; nxr:expectedUnit unit:DEG_C .
+hsp:coldWaterSupplyTemp a sosa:ObservableProperty ; rdfs:label "Cold Water Supply Temperature" ; nxr:expectedUnit unit:DEG_C .
+hsp:legionellaDeadLegs  a sosa:ObservableProperty ; rdfs:label "Legionella Dead-Legs at Risk" .
+
+### Patient flow ###
+hsp:edArrivalRate       a sosa:ObservableProperty ; rdfs:label "ED Arrival Rate" .
+hsp:edWaitTime          a sosa:ObservableProperty ; rdfs:label "ED Wait Time" ; nxr:expectedUnit unit:MIN .
+hsp:patientsInSystem    a sosa:ObservableProperty ; rdfs:label "Patients In System" .
+hsp:bedOccupancy        a sosa:ObservableProperty ; rdfs:label "Bed Occupancy" .
+hsp:orUtilisation       a sosa:ObservableProperty ; rdfs:label "OR Utilisation" .
+
+
+#################################################################
+#  OBJECT PROPERTIES  (the hospital entity-relationship spine)
+#################################################################
+hsp:hasDepartment a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain hsp:Hospital ;
+    rdfs:label "has department" ;
+    skos:definition "The hospital contains this department/space." .
+
+hsp:hasBed a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:range hsp:Bed ;
+    rdfs:label "has bed" ;
+    skos:definition "The ward/ICU contains this bed." .
+
+hsp:servesZone a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:domain hsp:MedicalGasManifold ; rdfs:range hsp:MedicalGasZone ;
+    rdfs:label "serves zone" ;
+    skos:definition "The manifold feeds this medical-gas zone." .
+
+hsp:suppliesGasTo a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:domain hsp:MedicalGasZone ;
+    rdfs:label "supplies gas to" ;
+    skos:definition "The medical-gas zone supplies this space/asset." .
+
+hsp:tracks a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:monitors ;
+    rdfs:domain hsp:RTLSTag ;
+    rdfs:label "tracks" ;
+    skos:definition "The RTLS tag tracks this bed/asset/patient." .
+
+
+#################################################################
+#  DATATYPE PROPERTIES
+#################################################################
+hsp:bedCount a owl:DatatypeProperty ;
+    rdfs:label "bed count" ; rdfs:range xsd:integer ;
+    skos:definition "Number of beds in a ward/ICU." .
+
+hsp:pressureSetpoint a owl:DatatypeProperty ;
+    rdfs:label "pressure setpoint" ; rdfs:range xsd:double ;
+    skos:definition "Design differential pressure setpoint (Pa) for a space (positive for OR, negative for isolation)." .
+
+hsp:gasType a owl:DatatypeProperty ;
+    rdfs:label "gas type" ; rdfs:range xsd:string ;
+    skos:definition "Medical gas carried (O2 / N2O / MedAir / Vacuum)." .
+
+
+#################################################################
+#  FAILURE MODES
+#################################################################
+hsp:ORPressureLoss a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "OR Pressure Loss" ;
+    skos:definition "Operating-theatre positive pressure falls below the safe differential — contamination ingress risk (JCI immediate action)." ;
+    nxr:taxonomyCategory "Capability" .
+
+hsp:MedicalGasLoss a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Medical Gas Low Pressure" ;
+    skos:definition "Medical-gas pipeline pressure falls below the HTM 02-01 low-pressure setpoint — clinical alarm + P0 escalation." ;
+    nxr:taxonomyCategory "Capability" .
+
+hsp:ColdChainExcursion a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Cold-Chain Excursion" ;
+    skos:definition "A refrigerated store exceeds its temperature limit long enough to quarantine stock." ;
+    nxr:taxonomyCategory "Capability" .
+
+hsp:PowerLoss a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Mains Power Loss" ;
+    skos:definition "Loss of normal mains supply; the UPS carries critical load while the standby generator starts (NFPA 110)." ;
+    nxr:taxonomyCategory "Capability" .
+
+hsp:GeneratorFailToStart a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Generator Fail-to-Start" ;
+    skos:definition "The standby generator did not reach rated speed within 10 s of the AMF signal (Code Utility)." ;
+    nxr:taxonomyCategory "Capability" .
+
+hsp:LegionellaRisk a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Legionella Risk" ;
+    skos:definition "Water temperatures outside the HTM 04-01 control band on dead-legs at risk of colonisation." ;
+    nxr:taxonomyCategory "Capability" .
+
+hsp:InfectionOutbreak a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Airborne Infection Risk" ;
+    skos:definition "Elevated airborne infection probability (Wells-Riley) in a shared airspace — ventilation/occupancy control." ;
+    nxr:taxonomyCategory "Capability" .

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import copy
 
-from turbine.physics import SIGNALS, redlines
+from .physics import SIGNALS, redlines
 
 
 def _status(health: float) -> str:
@@ -58,7 +58,7 @@ _GUARDS = [
 def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) -> dict:
     """Project the engine forward and report trajectory + RUL + events."""
     if physics is None:
-        from turbine.physics import TurbinePhysics
+        from .physics import TurbinePhysics
         physics = TurbinePhysics()
 
     st = copy.deepcopy(state)

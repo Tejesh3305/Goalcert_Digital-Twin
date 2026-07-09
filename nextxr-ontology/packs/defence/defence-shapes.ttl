@@ -1,0 +1,55 @@
+@prefix def:  <https://ontology.nextxr.io/v3/defence#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+#  DEFENCE SHACL SHAPES
+#
+#  Every defence class is an nxr:Equipment / nxr:Space / nxr:MobileAsset
+#  subclass, already covered by the platform base shapes. These add the
+#  domain floor plus the ITAR / MIL-STD-882 governance property
+#  constraints (P4-002): a classification marking, a bounded coverage arc
+#  and non-negative flight hours. Value constraints fire only when the
+#  (optional) property is present, so plan-built twins always commit.
+#################################################################
+
+def:MilitaryBaseShape a sh:NodeShape ;
+    sh:targetClass def:MilitaryBase ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path def:classification ; sh:datatype xsd:string ; sh:maxCount 1 ;
+        sh:message "Classification marking is a single string (e.g. UNCLASSIFIED / SECRET)." ] .
+
+def:PerimeterShape a sh:NodeShape ; sh:targetClass def:Perimeter ; sh:node nxr:BaseEntityShape .
+def:SectorShape a sh:NodeShape ; sh:targetClass def:Sector ; sh:node nxr:BaseEntityShape .
+def:BuildingShape a sh:NodeShape ; sh:targetClass def:Building ; sh:node nxr:BaseEntityShape .
+def:HangarShape a sh:NodeShape ; sh:targetClass def:Hangar ; sh:node nxr:BaseEntityShape .
+def:RunwayShape a sh:NodeShape ; sh:targetClass def:Runway ; sh:node nxr:BaseEntityShape .
+def:PortShape a sh:NodeShape ; sh:targetClass def:Port ; sh:node nxr:BaseEntityShape .
+def:CompartmentShape a sh:NodeShape ; sh:targetClass def:Compartment ; sh:node nxr:BaseEntityShape .
+
+def:VesselShape a sh:NodeShape ; sh:targetClass def:Vessel ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path def:classification ; sh:datatype xsd:string ; sh:maxCount 1 ] .
+
+def:AircraftShape a sh:NodeShape ; sh:targetClass def:Aircraft ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path def:flightHours ; sh:datatype xsd:double ; sh:minInclusive 0 ; sh:maxCount 1 ;
+        sh:message "Airframe flight hours is a single non-negative value." ] .
+
+def:GroundVehicleShape a sh:NodeShape ; sh:targetClass def:GroundVehicle ; sh:node nxr:BaseEntityShape .
+def:UAVShape a sh:NodeShape ; sh:targetClass def:UAV ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path def:flightHours ; sh:datatype xsd:double ; sh:minInclusive 0 ; sh:maxCount 1 ] .
+def:SubmarineShape a sh:NodeShape ; sh:targetClass def:Submarine ; sh:node nxr:BaseEntityShape .
+
+def:WeaponSystemShape a sh:NodeShape ; sh:targetClass def:WeaponSystem ; sh:node nxr:BaseEntityShape .
+
+def:RadarShape a sh:NodeShape ; sh:targetClass def:Radar ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path def:coverageArcDeg ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxInclusive 360 ; sh:maxCount 1 ;
+        sh:message "Radar coverage arc is a single value 0–360°." ] .
+
+def:CommunicationNodeShape a sh:NodeShape ; sh:targetClass def:CommunicationNode ; sh:node nxr:BaseEntityShape .
+def:CommandCenterShape a sh:NodeShape ; sh:targetClass def:CommandCenter ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path def:classification ; sh:datatype xsd:string ; sh:maxCount 1 ] .
+def:AmmunitionShape a sh:NodeShape ; sh:targetClass def:Ammunition ; sh:node nxr:BaseEntityShape .
+def:FuelStorageShape a sh:NodeShape ; sh:targetClass def:FuelStorage ; sh:node nxr:BaseEntityShape .
+def:NBCSystemShape a sh:NodeShape ; sh:targetClass def:NBCSystem ; sh:node nxr:BaseEntityShape .
+def:GasTurbineShape a sh:NodeShape ; sh:targetClass def:GasTurbine ; sh:node nxr:BaseEntityShape .

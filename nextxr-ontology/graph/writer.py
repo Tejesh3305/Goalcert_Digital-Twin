@@ -51,6 +51,10 @@ PREFIXES = {
     "cfp": "https://ontology.nextxr.io/v3/cfp#",
     "hvac": "https://ontology.nextxr.io/v3/hvac#",
     "office": "https://ontology.nextxr.io/v3/office#",
+    "rail": "https://ontology.nextxr.io/v3/railway#",
+    "hsp": "https://ontology.nextxr.io/v3/hospital#",
+    "ev": "https://ontology.nextxr.io/v3/ev#",
+    "def": "https://ontology.nextxr.io/v3/defence#",
     "sosa": "http://www.w3.org/ns/sosa/",
 }
 

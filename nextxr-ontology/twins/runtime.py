@@ -36,14 +36,24 @@ def _local(sig: str) -> str:
 
 def load_specs() -> dict:
     """Discover the available machine domains from their SPECs. Missing/broken
-    domains are skipped so one bad module never takes the runtime down."""
+    domains are skipped so one bad module never takes the runtime down.
+
+    A domain module may expose a single `SPEC` (turbine/edm/fleet) or a `SPECS`
+    list of several specs backed by the same package (railway exposes both the
+    metro-network and the rolling-stock twins). Each machine-twin domain is a
+    self-contained pack under `packs/<domain>/` (ontology TTL + physics + behaviours
+    + prediction co-located)."""
     specs: dict[str, dict] = {}
-    for mod in ("turbine", "edm", "fleet"):
+    for mod in ("turbine", "edm", "fleet", "railway", "hospital", "ev", "defence"):
         try:
-            m = __import__(mod)
+            m = __import__(f"packs.{mod}", fromlist=["SPEC", "SPECS"])
+            candidates = list(getattr(m, "SPECS", None) or [])
             spec = getattr(m, "SPEC", None)
-            if spec:
-                specs[spec["key"]] = spec
+            if spec and spec not in candidates:
+                candidates.append(spec)
+            for s in candidates:
+                if s:
+                    specs[s["key"]] = s
         except Exception:
             pass
     return specs

@@ -1,0 +1,73 @@
+@prefix ev:   <https://ontology.nextxr.io/v3/ev#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+#  EV / E-MOBILITY SHACL SHAPES
+#
+#  Every EV class is an nxr:Equipment / nxr:MobileAsset subclass,
+#  already covered by the platform PhysicalAssetShape / MobileAssetShape.
+#  These add the domain floor + value-range constraints on the rated /
+#  SoC / SoH / voltage / temperature attributes (P2-002), firing only
+#  when the (optional) attribute is present.
+#################################################################
+
+ev:ChargingNetworkShape a sh:NodeShape ;
+    sh:targetClass ev:ChargingNetwork ; sh:node nxr:BaseEntityShape .
+
+ev:ChargingStationShape a sh:NodeShape ;
+    sh:targetClass ev:ChargingStation ; sh:node nxr:BaseEntityShape .
+
+ev:ChargerShape a sh:NodeShape ;
+    sh:targetClass ev:Charger ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path ev:ratedPowerKW ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxInclusive 1000 ; sh:maxCount 1 ;
+        sh:message "Charger rated power is a single value in 0–1000 kW." ] .
+
+ev:ConnectorShape a sh:NodeShape ;
+    sh:targetClass ev:Connector ; sh:node nxr:BaseEntityShape .
+
+ev:GridConnectionShape a sh:NodeShape ;
+    sh:targetClass ev:GridConnection ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path ev:nominalVoltage ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxCount 1 ] .
+
+ev:TransformerShape a sh:NodeShape ;
+    sh:targetClass ev:Transformer ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path ev:ratedPowerKW ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxCount 1 ] .
+
+ev:SolarPanelShape a sh:NodeShape ;
+    sh:targetClass ev:SolarPanel ; sh:node nxr:BaseEntityShape .
+
+ev:CoolingSystemShape a sh:NodeShape ;
+    sh:targetClass ev:CoolingSystem ; sh:node nxr:BaseEntityShape .
+
+ev:BatteryPackShape a sh:NodeShape ;
+    sh:targetClass ev:BatteryPack ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path ev:stateOfHealthPct ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxInclusive 100 ; sh:maxCount 1 ;
+        sh:message "State of health is a single percentage 0–100." ] ;
+    sh:property [ sh:path ev:stateOfChargePct ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxInclusive 100 ; sh:maxCount 1 ;
+        sh:message "State of charge is a single percentage 0–100." ] ;
+    sh:property [ sh:path ev:moduleCount ; sh:datatype xsd:integer ;
+        sh:minInclusive 1 ; sh:maxCount 1 ] .
+
+ev:BatteryModuleShape a sh:NodeShape ;
+    sh:targetClass ev:BatteryModule ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path ev:cellCount ; sh:datatype xsd:integer ;
+        sh:minInclusive 1 ; sh:maxCount 1 ] .
+
+ev:BatteryCellShape a sh:NodeShape ;
+    sh:targetClass ev:BatteryCell ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path ev:nominalVoltage ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxInclusive 6 ; sh:maxCount 1 ;
+        sh:message "Cell nominal voltage is a single value 0–6 V." ] .
+
+ev:ElectricVehicleShape a sh:NodeShape ;
+    sh:targetClass ev:ElectricVehicle ; sh:node nxr:BaseEntityShape .
+
+ev:EVFleetShape a sh:NodeShape ;
+    sh:targetClass ev:EVFleet ; sh:node nxr:BaseEntityShape .

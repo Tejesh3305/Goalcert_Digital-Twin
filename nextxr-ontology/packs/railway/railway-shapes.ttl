@@ -1,0 +1,131 @@
+@prefix rail: <https://ontology.nextxr.io/v3/railway#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+#  RAILWAY / METRO SHACL SHAPES
+#
+#  Every railway asset is an nxr:Equipment / nxr:Space /
+#  nxr:MobileAsset subclass, so the platform's PhysicalAssetShape /
+#  SpaceShape / MobileAssetShape already enforce the 10-property
+#  base contract on them via sh:targetClass on the parent.
+#
+#  These per-class shapes ADD the domain floor (explicit target +
+#  BaseEntityShape) plus datatype / value-range restrictions on the
+#  safety-critical attributes. Value-range constraints fire only
+#  when the property is present, so they tighten data quality
+#  without forcing every seed to carry every attribute.
+#################################################################
+
+### Spatial backbone ###
+rail:RailNetworkShape a sh:NodeShape ;
+    sh:targetClass rail:RailNetwork ;
+    sh:node nxr:BaseEntityShape .
+
+rail:LineShape a sh:NodeShape ;
+    sh:targetClass rail:Line ;
+    sh:node nxr:BaseEntityShape .
+
+rail:StationShape a sh:NodeShape ;
+    sh:targetClass rail:Station ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path rail:sequenceIndex ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 0 ;
+        sh:maxCount 1 ;
+        sh:message "A station's line sequence index is a single non-negative integer." ;
+    ] .
+
+rail:PlatformShape a sh:NodeShape ;
+    sh:targetClass rail:Platform ;
+    sh:node nxr:BaseEntityShape .
+
+rail:DepotShape a sh:NodeShape ;
+    sh:targetClass rail:Depot ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path rail:berthCount ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:maxCount 1 ;
+        sh:message "A depot declares at least one stabling/maintenance berth." ;
+    ] .
+
+### Permanent way ###
+rail:TrackShape a sh:NodeShape ;
+    sh:targetClass rail:Track ;
+    sh:node nxr:BaseEntityShape .
+
+rail:ThirdRailShape a sh:NodeShape ;
+    sh:targetClass rail:ThirdRail ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path rail:nominalVoltage ;
+        sh:datatype xsd:double ;
+        sh:minInclusive 500 ;
+        sh:maxInclusive 1000 ;
+        sh:maxCount 1 ;
+        sh:message "Third-rail nominal voltage must be a single value within the safe DC traction band (500–1000 V)." ;
+    ] .
+
+rail:SwitchShape a sh:NodeShape ;
+    sh:targetClass rail:Switch ;
+    sh:node nxr:BaseEntityShape .
+
+### Traction power ###
+rail:TractionSubstationShape a sh:NodeShape ;
+    sh:targetClass rail:TractionSubstation ;
+    sh:node nxr:BaseEntityShape .
+
+### Signalling & control ###
+rail:SignalSystemShape a sh:NodeShape ;
+    sh:targetClass rail:SignalSystem ;
+    sh:node nxr:BaseEntityShape .
+
+rail:TrackCircuitShape a sh:NodeShape ;
+    sh:targetClass rail:TrackCircuit ;
+    sh:node nxr:BaseEntityShape .
+
+rail:AxleCounterShape a sh:NodeShape ;
+    sh:targetClass rail:AxleCounter ;
+    sh:node nxr:BaseEntityShape .
+
+rail:OperationsControlCentreShape a sh:NodeShape ;
+    sh:targetClass rail:OperationsControlCentre ;
+    sh:node nxr:BaseEntityShape .
+
+### Station services ###
+rail:PSDShape a sh:NodeShape ;
+    sh:targetClass rail:PSD ;
+    sh:node nxr:BaseEntityShape .
+
+rail:EscalatorShape a sh:NodeShape ;
+    sh:targetClass rail:Escalator ;
+    sh:node nxr:BaseEntityShape .
+
+rail:ACMVShape a sh:NodeShape ;
+    sh:targetClass rail:ACMV ;
+    sh:node nxr:BaseEntityShape .
+
+### Rolling stock ###
+rail:RollingStockShape a sh:NodeShape ;
+    sh:targetClass rail:RollingStock ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path rail:formationLength ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:maxInclusive 12 ;
+        sh:maxCount 1 ;
+        sh:message "Formation length is a single integer car count (1–12)." ;
+    ] .
+
+rail:BogieShape a sh:NodeShape ;
+    sh:targetClass rail:Bogie ;
+    sh:node nxr:BaseEntityShape .
+
+rail:TractionMotorShape a sh:NodeShape ;
+    sh:targetClass rail:TractionMotor ;
+    sh:node nxr:BaseEntityShape .

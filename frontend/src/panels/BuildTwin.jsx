@@ -15,7 +15,9 @@ import api from '../api/client'
  * GLB, EDM procedural engine, facility scene) and streams a build log, ending in a
  * live twin created through this platform's Graph Writer.
  */
-const BUILD_DOMAINS = ['turbine-engine', 'edm-machine', 'tram-network', 'generic-facility']
+const BUILD_DOMAINS = ['defence-base', 'defence-warship', 'ev-charging-network', 'ev-battery-pack',
+  'hospital-campus', 'railway-metro', 'railway-trainset', 'turbine-engine', 'edm-machine',
+  'tram-network', 'generic-facility']
 
 const BUILD_STEPS = [
   ['Vectorising asset → geometry, subsystems, sensors', 'acc'],

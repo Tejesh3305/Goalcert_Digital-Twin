@@ -1,0 +1,269 @@
+@prefix ev:   <https://ontology.nextxr.io/v3/ev#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  EV / E-MOBILITY DOMAIN PACK v1.0  —  LAYER 4
+#
+#  Electric-vehicle charging + battery vertical: the charging
+#  network (stations, chargers, connectors, grid connection,
+#  transformer, solar, V2G) and the battery domain (packs, modules,
+#  cells) with electric-vehicle and fleet twins. Physics, behaviour
+#  rules and the live views live in nextxr-ontology/ev/
+#  (EVChargingNetworkPhysics + EVBatteryPackPhysics).
+#
+#  Stack: BFO -> SOSA -> platform (nxr) -> EV
+#################################################################
+
+<https://ontology.nextxr.io/v3/ev> a owl:Ontology ;
+    dct:title "NextXR EV / E-Mobility Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Electric-vehicle charging network + battery domain: charging stations, chargers, connectors, grid connection, transformer, solar generation, V2G, battery packs/modules/cells, electric vehicles and fleets, each with dedicated physics and safety monitoring." ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+
+#################################################################
+#  TWIN HEADS  (twinned as a single asset)
+#################################################################
+ev:ChargingNetwork a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Charging Network" ;
+    skos:definition "An EV charging network twinned as a single supervised asset with a live map: charging stations, chargers, grid connection, transformer, solar generation and V2G, monitored via network KPIs and per-station status." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:BatteryPack a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Battery Pack" ;
+    skos:definition "A traction/storage battery pack twinned at cell level: modules of cells with a Thevenin ECM, thermal coupling and degradation model, monitored for imbalance, thermal runaway precursors and state-of-health." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  CHARGING INFRASTRUCTURE  (⊑ nxr:Equipment)
+#################################################################
+ev:ChargingStation a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Charging Station" ;
+    skos:definition "A physical charging site hosting one or more chargers, drawing from a grid connection and optionally local solar." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:Charger a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Charger" ;
+    skos:definition "An EVSE / charge point delivering DC or AC power to a vehicle, with OCPP setpoint feedback and power derating under connector heat or grid weakness." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:Connector a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Connector" ;
+    skos:definition "A charging connector (CCS/CHAdeMO/Type 2) whose contact temperature bounds the deliverable current." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:GridConnection a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Grid Connection" ;
+    skos:definition "The point of common coupling to the distribution grid, with a voltage/frequency and an import/export limit." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:Transformer a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Grid Transformer" ;
+    skos:definition "A distribution transformer feeding the charging network, whose winding hot-spot temperature and insulation loss-of-life are tracked per IEC 60076-7." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:SolarPanel a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Solar Panel Array" ;
+    skos:definition "A photovoltaic array generating power from irradiance, offsetting charging demand and exporting surplus." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:CoolingSystem a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Cooling System" ;
+    skos:definition "A liquid-cooling loop removing heat from a battery pack or DC fast charger, characterised by coolant inlet temperature and flow rate." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  BATTERY DOMAIN  (⊑ nxr:Equipment)
+#################################################################
+ev:BatteryModule a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Battery Module" ;
+    skos:definition "A series/parallel group of cells within a pack, the unit of thermal and balancing management." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+ev:BatteryCell a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Battery Cell" ;
+    skos:definition "An individual electrochemical cell with its own voltage, temperature, state-of-charge and state-of-health — the atom of the cell-level heatmap." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  VEHICLES / FLEET
+#################################################################
+ev:ElectricVehicle a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ;
+    rdfs:label "Electric Vehicle" ;
+    skos:definition "An electric vehicle with a battery pack and a PMSM drive, twinned for range prediction and V2G participation." ;
+    nxr:taxonomyCategory "MobileAsset" .
+
+ev:EVFleet a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "EV Fleet" ;
+    skos:definition "A fleet of electric vehicles aggregated as a twin for charging scheduling, state-of-health tracking and V2G dispatch." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  OBSERVABLE PROPERTIES  (the live signals)
+#################################################################
+### Charging network / grid ###
+ev:networkLoad         a sosa:ObservableProperty ; rdfs:label "Charging Network Load" ; nxr:expectedUnit unit:KiloW .
+ev:transformerLoad     a sosa:ObservableProperty ; rdfs:label "Transformer Load" .
+ev:activeSessions      a sosa:ObservableProperty ; rdfs:label "Active Sessions" .
+ev:availableChargers   a sosa:ObservableProperty ; rdfs:label "Available Chargers" .
+ev:avgChargePower      a sosa:ObservableProperty ; rdfs:label "Average Charge Power" ; nxr:expectedUnit unit:KiloW .
+ev:gridVoltage         a sosa:ObservableProperty ; rdfs:label "Grid Voltage" .
+ev:gridFrequency       a sosa:ObservableProperty ; rdfs:label "Grid Frequency" ; nxr:expectedUnit unit:HZ .
+ev:transformerHotspot  a sosa:ObservableProperty ; rdfs:label "Transformer Hot-Spot Temperature" ; nxr:expectedUnit unit:DEG_C .
+ev:transformerAging    a sosa:ObservableProperty ; rdfs:label "Transformer Aging Rate" .
+ev:connectorTemp       a sosa:ObservableProperty ; rdfs:label "Connector Temperature" ; nxr:expectedUnit unit:DEG_C .
+ev:chargerFaults       a sosa:ObservableProperty ; rdfs:label "Charger Faults" .
+ev:energyDelivered     a sosa:ObservableProperty ; rdfs:label "Energy Delivered" ; nxr:expectedUnit unit:KiloW-HR .
+
+### Solar / V2G ###
+ev:solarOutput         a sosa:ObservableProperty ; rdfs:label "Solar Output" ; nxr:expectedUnit unit:KiloW .
+ev:solarIrradiance     a sosa:ObservableProperty ; rdfs:label "Solar Irradiance" .
+ev:selfConsumption     a sosa:ObservableProperty ; rdfs:label "Solar Self-Consumption" .
+ev:v2gExport           a sosa:ObservableProperty ; rdfs:label "V2G Export Power" ; nxr:expectedUnit unit:KiloW .
+ev:spotPrice           a sosa:ObservableProperty ; rdfs:label "Spot Electricity Price" .
+ev:v2gRevenue          a sosa:ObservableProperty ; rdfs:label "V2G Revenue" .
+
+### Battery ###
+ev:stateOfCharge       a sosa:ObservableProperty ; rdfs:label "State of Charge" .
+ev:stateOfHealth       a sosa:ObservableProperty ; rdfs:label "State of Health" .
+ev:cellVoltageDelta    a sosa:ObservableProperty ; rdfs:label "Cell Voltage Delta" ; nxr:expectedUnit unit:V .
+ev:packVoltage         a sosa:ObservableProperty ; rdfs:label "Pack Voltage" ; nxr:expectedUnit unit:V .
+ev:packCurrent         a sosa:ObservableProperty ; rdfs:label "Pack Current" ; nxr:expectedUnit unit:A .
+ev:cellTempMax         a sosa:ObservableProperty ; rdfs:label "Max Cell Temperature" ; nxr:expectedUnit unit:DEG_C .
+ev:cellTempRise        a sosa:ObservableProperty ; rdfs:label "Cell Temperature Rise Rate" .
+ev:coolantTemp         a sosa:ObservableProperty ; rdfs:label "Coolant Temperature" ; nxr:expectedUnit unit:DEG_C .
+ev:chargeRate          a sosa:ObservableProperty ; rdfs:label "Charge Rate (C)" .
+ev:motorTemp           a sosa:ObservableProperty ; rdfs:label "Motor Winding Temperature" ; nxr:expectedUnit unit:DEG_C .
+ev:motorEfficiency     a sosa:ObservableProperty ; rdfs:label "Motor Efficiency" .
+ev:rangeEstimate       a sosa:ObservableProperty ; rdfs:label "Range Estimate" ; nxr:expectedUnit unit:KiloM .
+
+
+#################################################################
+#  OBJECT PROPERTIES  (the EV entity-relationship spine)
+#################################################################
+ev:hasStation a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain ev:ChargingNetwork ; rdfs:range ev:ChargingStation ;
+    rdfs:label "has station" .
+
+ev:hasCharger a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain ev:ChargingStation ; rdfs:range ev:Charger ;
+    rdfs:label "has charger" .
+
+ev:hasConnector a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain ev:Charger ; rdfs:range ev:Connector ;
+    rdfs:label "has connector" .
+
+ev:poweredBy a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:dependsOn ;
+    rdfs:range ev:GridConnection ;
+    rdfs:label "powered by" .
+
+ev:feedsGrid a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:range ev:GridConnection ;
+    rdfs:label "feeds grid" .
+
+ev:hasModule a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain ev:BatteryPack ; rdfs:range ev:BatteryModule ;
+    rdfs:label "has module" .
+
+ev:hasCell a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain ev:BatteryModule ; rdfs:range ev:BatteryCell ;
+    rdfs:label "has cell" .
+
+ev:hasVehicle a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain ev:EVFleet ; rdfs:range ev:ElectricVehicle ;
+    rdfs:label "has vehicle" .
+
+ev:cools a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:domain ev:CoolingSystem ;
+    rdfs:label "cools" .
+
+
+#################################################################
+#  DATATYPE PROPERTIES
+#################################################################
+ev:ratedPowerKW a owl:DatatypeProperty ;
+    rdfs:label "rated power (kW)" ; rdfs:range xsd:double ;
+    skos:definition "Rated power of a charger/transformer/inverter (kW)." .
+
+ev:nominalVoltage a owl:DatatypeProperty ;
+    rdfs:label "nominal voltage (V)" ; rdfs:range xsd:double .
+
+ev:stateOfChargePct a owl:DatatypeProperty ;
+    rdfs:label "state of charge (%)" ; rdfs:range xsd:double .
+
+ev:stateOfHealthPct a owl:DatatypeProperty ;
+    rdfs:label "state of health (%)" ; rdfs:range xsd:double .
+
+ev:cellCount a owl:DatatypeProperty ;
+    rdfs:label "cell count" ; rdfs:range xsd:integer .
+
+ev:moduleCount a owl:DatatypeProperty ;
+    rdfs:label "module count" ; rdfs:range xsd:integer .
+
+
+#################################################################
+#  FAILURE MODES
+#################################################################
+ev:CellImbalance a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Cell Voltage Imbalance" ;
+    skos:definition "Max–min cell voltage delta exceeds the balancing threshold — capacity loss and hot-spotting risk." ;
+    nxr:taxonomyCategory "Capability" .
+
+ev:ThermalRunaway a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Thermal Runaway Precursor" ;
+    skos:definition "Cell temperature rise rate and voltage collapse indicate the onset of thermal runaway — a P0 safety event." ;
+    nxr:taxonomyCategory "Capability" .
+
+ev:GridOverload a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Grid Overload" ;
+    skos:definition "Total charging load approaches the transformer rated capacity — load shedding required to prevent a trip." ;
+    nxr:taxonomyCategory "Capability" .
+
+ev:TransformerOverheat a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Transformer Overheat" ;
+    skos:definition "Transformer hot-spot temperature accelerates insulation loss-of-life beyond the IEC 60076-7 reference." ;
+    nxr:taxonomyCategory "Capability" .
+
+ev:BatteryEndOfLife a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Battery End-of-Life" ;
+    skos:definition "State-of-health falls below the first-life threshold (80%), initiating a second-life assessment." ;
+    nxr:taxonomyCategory "Capability" .

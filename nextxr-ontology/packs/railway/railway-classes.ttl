@@ -1,0 +1,364 @@
+@prefix rail: <https://ontology.nextxr.io/v3/railway#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  RAILWAY / METRO DOMAIN PACK v1.0  —  LAYER 4
+#
+#  A heavy/metro rail (MRT) vertical: the fixed railway system
+#  (lines, stations, platforms, permanent way, traction power,
+#  signalling, station services) plus rolling stock. Physics,
+#  behaviour rules and the live network map live in
+#  nextxr-ontology/railway/ (RailwayPhysics + TrainsetPhysics).
+#
+#  Stack: BFO -> SOSA -> platform (nxr) -> RAILWAY
+#  Every class subclasses a platform mid-level class, never BFO
+#  directly, and carries an nxr:taxonomyCategory (its Neo4j label).
+#################################################################
+
+<https://ontology.nextxr.io/v3/railway> a owl:Ontology ;
+    dct:title "NextXR Railway / Metro Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Urban heavy-rail / metro layer: rail network, lines, stations, platforms, permanent way, third-rail traction power, CBTC signalling, platform-screen doors, station environmental services and rolling stock — each with dedicated physics and safety monitoring." ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+
+#################################################################
+#  SPATIAL BACKBONE  (places — nxr:Space, label "Location")
+#################################################################
+
+rail:RailNetwork a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Rail Network" ;
+    skos:definition "A metro / MRT network twinned as a single supervised asset with a live spatial map: lines, stations, permanent way, traction power, signalling and station services, monitored via ~25 network KPIs and per-line / per-station status. The head node the operations control centre supervises." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:Line a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Line" ;
+    skos:definition "A metro line: an ordered chain of stations joined by running track, operated as one timetable with its own rolling-stock allocation and headway target." ;
+    nxr:taxonomyCategory "Location" .
+
+rail:Station a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Station" ;
+    skos:definition "A passenger station on one or more lines, containing platforms, vertical circulation (escalators/lifts), environmental services (ACMV) and platform-screen doors. Interchange stations serve more than one line." ;
+    nxr:taxonomyCategory "Location" .
+
+rail:Platform a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Platform" ;
+    skos:definition "A boarding platform at a station, edged by platform-screen doors, carrying a passenger level-of-service and a dwell-time contribution." ;
+    nxr:taxonomyCategory "Location" .
+
+rail:Depot a owl:Class ;
+    rdfs:subClassOf nxr:Space ;
+    rdfs:label "Depot" ;
+    skos:definition "A stabling and maintenance depot: berthing roads for rolling stock, maintenance bays and workshop equipment. Predicts train availability for service." ;
+    nxr:taxonomyCategory "Location" .
+
+
+#################################################################
+#  PERMANENT WAY  (the fixed track infrastructure)
+#################################################################
+
+rail:Track a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Track" ;
+    skos:definition "A running-track segment (continuously welded rail on its formation) between two stations, bearing wheel–rail contact loads and thermal stress." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:ThirdRail a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Third Rail" ;
+    skos:definition "A conductor rail supplying traction current (nominally 750 V DC) to trains through their collector shoes, fed by traction substations at intervals along the line." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:Switch a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Switch (Point Machine)" ;
+    skos:definition "A powered set of points (turnout) with a point machine that moves and locks the switch rails, routing trains between tracks." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  TRACTION POWER
+#################################################################
+
+rail:TractionSubstation a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Traction Substation" ;
+    skos:definition "A rectifier substation converting incoming AC to 750 V DC and feeding a section of third rail; loading and output voltage vary with the trains it currently supplies." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  SIGNALLING & CONTROL  (CBTC train detection + supervision)
+#################################################################
+
+rail:SignalSystem a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Signalling System" ;
+    skos:definition "The interlocking / CBTC signalling system for a line: enforces safe separation (movement authority), aggregates train-detection devices and holds movements on a fault." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:TrackCircuit a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Track Circuit" ;
+    skos:definition "A train-detection device sensing occupancy of a defined block. Failure to clear within the expected dwell window raises a signalling safety hold." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:AxleCounter a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Axle Counter" ;
+    skos:definition "A train-detection device counting axles in and out of a block to prove it clear; the primary detection technology for CBTC territory." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:OperationsControlCentre a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Operations Control Centre (OCC)" ;
+    skos:definition "The supervisory control node that aggregates every line, station and fleet twin into a top-level operational picture, coordinating service recovery and incident response." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  STATION SERVICES
+#################################################################
+
+rail:PSD a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Platform-Screen Door" ;
+    skos:definition "A platform-screen door array synchronised with train doors; consecutive failed open/close cycles escalate to the station controller." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:Escalator a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Escalator" ;
+    skos:definition "A passenger escalator; its motor current, torque and temperature rise with step load, speed and ambient temperature, tripping a thermal limit when overloaded." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:ACMV a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Station ACMV" ;
+    skos:definition "The station air-conditioning and mechanical-ventilation plant serving platforms and concourse; a collapsing supply/return pressure differential indicates filter blockage or fan failure." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  ROLLING STOCK  (moves — nxr:MobileAsset, label "MobileAsset")
+#################################################################
+
+rail:RollingStock a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ;
+    rdfs:label "Rolling Stock (Train Set)" ;
+    skos:definition "A train set (multiple-unit formation) that runs a line under its train-control and management system, carrying bogies, traction motors, doors and saloon HVAC. The twinned asset of a rolling-stock twin." ;
+    nxr:taxonomyCategory "MobileAsset" .
+
+rail:Bogie a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Bogie" ;
+    skos:definition "A running-gear truck carrying wheelsets, primary/secondary suspension and traction motors; its vibration signature (ISO 10816-3) reveals wheel and bearing condition." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+rail:TractionMotor a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Traction Motor" ;
+    skos:definition "An axle-hung traction motor delivering tractive and regenerative-braking effort; winding temperature is bounded by its insulation class." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  OBSERVABLE PROPERTIES  (the live signals)
+#  Distinct IRIs so monitoring rules never cross-fire.
+#################################################################
+
+### Network / operations KPIs ###
+rail:onTimePerformance   a sosa:ObservableProperty ; rdfs:label "On-Time Performance" .
+rail:headwayAdherence    a sosa:ObservableProperty ; rdfs:label "Headway Adherence" .
+rail:networkSpeed        a sosa:ObservableProperty ; rdfs:label "Network Speed" ; nxr:expectedUnit unit:KiloM-PER-HR .
+rail:trainAvailability   a sosa:ObservableProperty ; rdfs:label "Train Availability" .
+rail:trainsInService     a sosa:ObservableProperty ; rdfs:label "Trains In Service" .
+rail:loadFactor          a sosa:ObservableProperty ; rdfs:label "Passenger Load Factor" .
+rail:dwellTime           a sosa:ObservableProperty ; rdfs:label "Dwell Time" ; nxr:expectedUnit unit:SEC .
+rail:networkDelay        a sosa:ObservableProperty ; rdfs:label "Network Delay" ; nxr:expectedUnit unit:MIN .
+rail:activeIncidents     a sosa:ObservableProperty ; rdfs:label "Active Incidents" .
+
+### Traction power ###
+rail:tractionPower       a sosa:ObservableProperty ; rdfs:label "Traction Power" ; nxr:expectedUnit unit:MegaW .
+rail:regenShare          a sosa:ObservableProperty ; rdfs:label "Regen Share" .
+rail:thirdRailVoltage    a sosa:ObservableProperty ; rdfs:label "Third-Rail Voltage" ; nxr:expectedUnit unit:V .
+rail:substationLoad      a sosa:ObservableProperty ; rdfs:label "Substation Load" .
+rail:tractionMotorTemp   a sosa:ObservableProperty ; rdfs:label "Traction Motor Temperature" ; nxr:expectedUnit unit:DEG_C .
+
+### Permanent way ###
+rail:railTemperature     a sosa:ObservableProperty ; rdfs:label "Rail Temperature" ; nxr:expectedUnit unit:DEG_C .
+rail:railStress          a sosa:ObservableProperty ; rdfs:label "CWR Rail Stress" ; nxr:expectedUnit unit:MegaPA .
+rail:derailmentQuotient  a sosa:ObservableProperty ; rdfs:label "Derailment Quotient (Q/P)" .
+rail:bogieVibration      a sosa:ObservableProperty ; rdfs:label "Bogie Vibration (RMS)" .
+
+### Signalling ###
+rail:trackCircuitFaults  a sosa:ObservableProperty ; rdfs:label "Track-Circuit Faults" .
+rail:signalFaults        a sosa:ObservableProperty ; rdfs:label "Signal Faults" .
+
+### Station services ###
+rail:psdFaults           a sosa:ObservableProperty ; rdfs:label "PSD Faults" .
+rail:escalatorMotorTemp  a sosa:ObservableProperty ; rdfs:label "Escalator Motor Temperature" ; nxr:expectedUnit unit:DEG_C .
+rail:stationHvacLoad     a sosa:ObservableProperty ; rdfs:label "Station HVAC Load" .
+rail:platformHvacDifferential a sosa:ObservableProperty ; rdfs:label "Platform HVAC Differential" ; nxr:expectedUnit unit:PA .
+rail:platformLOS         a sosa:ObservableProperty ; rdfs:label "Platform Level of Service" .
+
+### Rolling-stock (train-set twin) signals ###
+rail:trainSpeed          a sosa:ObservableProperty ; rdfs:label "Train Speed" ; nxr:expectedUnit unit:KiloM-PER-HR .
+rail:tractiveEffort      a sosa:ObservableProperty ; rdfs:label "Tractive Effort" ; nxr:expectedUnit unit:KiloN .
+rail:lineCurrent         a sosa:ObservableProperty ; rdfs:label "Line Current" ; nxr:expectedUnit unit:A .
+rail:motorCurrent        a sosa:ObservableProperty ; rdfs:label "Motor Current" ; nxr:expectedUnit unit:A .
+rail:wheelFlat           a sosa:ObservableProperty ; rdfs:label "Wheel Flat" ; nxr:expectedUnit unit:MilliM .
+rail:brakeTemperature    a sosa:ObservableProperty ; rdfs:label "Brake Temperature" ; nxr:expectedUnit unit:DEG_C .
+rail:brakeWear           a sosa:ObservableProperty ; rdfs:label "Brake Wear" .
+rail:doorFaults          a sosa:ObservableProperty ; rdfs:label "Door Faults" .
+rail:carHvacTemp         a sosa:ObservableProperty ; rdfs:label "Saloon HVAC Temperature" ; nxr:expectedUnit unit:DEG_C .
+rail:auxVoltage          a sosa:ObservableProperty ; rdfs:label "Auxiliary Voltage" ; nxr:expectedUnit unit:V .
+
+
+#################################################################
+#  OBJECT PROPERTIES  (the railway entity-relationship spine)
+#  Declared so the graph knows not just THAT things connect but
+#  through WHICH railway relation. All specialise nxr: relations.
+#################################################################
+
+rail:operatesLine a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:RailNetwork ; rdfs:range rail:Line ;
+    rdfs:label "operates line" ;
+    skos:definition "The rail network operates this line." .
+
+rail:servesStation a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:contains ;
+    rdfs:domain rail:Line ; rdfs:range rail:Station ;
+    rdfs:label "serves station" ;
+    skos:definition "The line calls at this station (ordered by rail:sequenceIndex on the station)." .
+
+rail:hasPlatform a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:Station ; rdfs:range rail:Platform ;
+    rdfs:label "has platform" .
+
+rail:hasPSD a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:Platform ; rdfs:range rail:PSD ;
+    rdfs:label "has platform-screen door" .
+
+rail:hasEscalator a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:Station ; rdfs:range rail:Escalator ;
+    rdfs:label "has escalator" .
+
+rail:hasACMV a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:Station ; rdfs:range rail:ACMV ;
+    rdfs:label "has ACMV plant" .
+
+rail:feedsSection a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:feeds ;
+    rdfs:domain rail:TractionSubstation ; rdfs:range rail:ThirdRail ;
+    rdfs:label "feeds section" ;
+    skos:definition "The traction substation feeds this third-rail section." .
+
+rail:supervises a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:monitors ;
+    rdfs:domain rail:OperationsControlCentre ; rdfs:range rail:Line ;
+    rdfs:label "supervises" ;
+    skos:definition "The OCC supervises this line's operation." .
+
+rail:signalsLine a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:monitors ;
+    rdfs:domain rail:SignalSystem ; rdfs:range rail:Line ;
+    rdfs:label "signals line" .
+
+rail:hasDetector a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:SignalSystem ;
+    rdfs:label "has detector" ;
+    skos:definition "The signalling system aggregates this train-detection device (axle counter / track circuit)." .
+
+rail:stabledAt a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:locatedAt ;
+    rdfs:domain rail:RollingStock ; rdfs:range rail:Depot ;
+    rdfs:label "stabled at" .
+
+rail:hasBogie a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:RollingStock ; rdfs:range rail:Bogie ;
+    rdfs:label "has bogie" .
+
+rail:hasTractionMotor a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ;
+    rdfs:domain rail:Bogie ; rdfs:range rail:TractionMotor ;
+    rdfs:label "has traction motor" .
+
+
+#################################################################
+#  DATATYPE PROPERTIES  (safety-critical / descriptive attributes)
+#################################################################
+
+rail:sequenceIndex a owl:DatatypeProperty ;
+    rdfs:label "sequence index" ;
+    rdfs:range xsd:integer ;
+    skos:definition "0-based position of a station along a line, defining the running order." .
+
+rail:nominalVoltage a owl:DatatypeProperty ;
+    rdfs:label "nominal traction voltage" ;
+    rdfs:range xsd:double ;
+    skos:definition "Nominal supply voltage (V DC) of a third-rail section — 750 for standard metro third rail." .
+
+rail:formationLength a owl:DatatypeProperty ;
+    rdfs:label "formation length (cars)" ;
+    rdfs:range xsd:integer ;
+    skos:definition "Number of cars in a rolling-stock formation." .
+
+rail:berthCount a owl:DatatypeProperty ;
+    rdfs:label "berth count" ;
+    rdfs:range xsd:integer ;
+    skos:definition "Number of stabling/maintenance berths in a depot." .
+
+
+#################################################################
+#  FAILURE MODES  (referenced by findings / diagnoses)
+#################################################################
+
+rail:TractionOvervoltage a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Traction Overvoltage" ;
+    skos:definition "Third-rail voltage exceeds the safe ceiling (>900 V DC), typically regenerative-braking energy with no receptive load; requires substation load-shed." ;
+    nxr:taxonomyCategory "Capability" .
+
+rail:RailBuckle a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Rail Buckle (CWR)" ;
+    skos:definition "Continuously-welded rail compressive stress exceeds the buckling threshold under high rail temperature." ;
+    nxr:taxonomyCategory "Capability" .
+
+rail:Derailment a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Derailment Risk" ;
+    skos:definition "Wheel/rail lateral-to-vertical force ratio (Q/P) approaches the Nadal flange-climb limit." ;
+    nxr:taxonomyCategory "Capability" .
+
+rail:LineBlocked a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Line Blocked" ;
+    skos:definition "A line is out of service (e.g. traction-power loss or signalling failure); trains hold and service recovers around the block." ;
+    nxr:taxonomyCategory "Capability" .
+
+rail:SignalHold a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Signalling Safety Hold" ;
+    skos:definition "A track circuit failed to clear within the expected dwell window; the interlocking holds movements as a fail-safe." ;
+    nxr:taxonomyCategory "Capability" .

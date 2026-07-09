@@ -49,6 +49,8 @@ DOMAIN_FILES = [
     "packs/hospital/hospital-classes.ttl",
     "packs/hospital/hospital-shapes.ttl",
     "packs/hospital/hospital-bindings.ttl",
+    "packs/hospital/hospital-twin-classes.ttl",
+    "packs/hospital/hospital-twin-shapes.ttl",
     "packs/datacenter/datacenter-classes.ttl",
     "packs/datacenter/datacenter-shapes.ttl",
     "packs/datacenter/datacenter-bindings.ttl",
@@ -64,6 +66,12 @@ MACHINE_FILES = [
     "packs/edm/edm-shapes.ttl",
     "packs/fleet/fleet-classes.ttl",
     "packs/fleet/fleet-shapes.ttl",
+    "packs/railway/railway-classes.ttl",
+    "packs/railway/railway-shapes.ttl",
+    "packs/ev/ev-classes.ttl",
+    "packs/ev/ev-shapes.ttl",
+    "packs/defence/defence-classes.ttl",
+    "packs/defence/defence-shapes.ttl",
 ]
 
 # Layer 4 — domain packs.

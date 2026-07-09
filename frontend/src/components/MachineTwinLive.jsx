@@ -10,8 +10,15 @@ import { useMemo } from 'react'
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
 import NetworkMap from './NetworkMap'
+import RailwayNetworkMap from './RailwayNetworkMap'
+import RailwayDepotBoard from './RailwayDepotBoard'
+import HospitalCampusViews from './HospitalCampusViews'
+import EVNetworkViews from './EVNetworkViews'
+import EVBatteryHeatmap from './EVBatteryHeatmap'
+import DefenceBaseViews from './DefenceBaseViews'
+import DefenceDamageControl from './DefenceDamageControl'
 import { usePolling, useApi } from '../hooks/useApi'
-import { statusColor, healthBand } from '../lib/machine'
+import { statusColor, healthBand, isNetworkDomain } from '../lib/machine'
 import { localName } from '../lib/format'
 import api from '../api/client'
 
@@ -29,7 +36,7 @@ export default function MachineTwinLive({ tenant, domain }) {
     usePolling(() => api.twinDiagnostics(tenant), 3000, [tenant], { skip: !tenant })
   const { data: net } =
     usePolling(() => api.twinNetwork(tenant).catch(() => null), 2000, [tenant],
-      { skip: !tenant || domain !== 'tram-network' })
+      { skip: !tenant || !isNetworkDomain(domain) })
   const { data: domains } = useApi(() => api.machineDomains(), [])
 
   const faults = useMemo(() => {
@@ -92,7 +99,23 @@ export default function MachineTwinLive({ tenant, domain }) {
         </Card>
       </div>
 
-      {/* Network map (fleet only) */}
+      {/* Live network map */}
+      {domain === 'railway-metro' && net && (
+        <>
+          <Card title={<><i className="ti ti-map-2" /> Live Metro Network</>}
+            action={net.blocked?.length
+              ? <span className="pill pill-red">{net.blocked.length} line blocked</span>
+              : <span className="pill pill-green">● all lines running</span>}
+            style={{ marginBottom: 16 }}>
+            <RailwayNetworkMap net={net} />
+          </Card>
+          <Card title={<><i className="ti ti-building-warehouse" /> Depot Board</>}
+            action={<span className="pill pill-surface">predicted availability</span>}
+            style={{ marginBottom: 16 }}>
+            <RailwayDepotBoard depots={net.depots} />
+          </Card>
+        </>
+      )}
       {domain === 'tram-network' && net && (
         <Card title={<><i className="ti ti-map-2" /> Live Network Map</>}
           action={net.blocked?.length
@@ -100,6 +123,36 @@ export default function MachineTwinLive({ tenant, domain }) {
             : <span className="pill pill-green">● all routes running</span>}
           style={{ marginBottom: 16 }}>
           <NetworkMap net={net} />
+        </Card>
+      )}
+      {domain === 'hospital-campus' && net && (
+        <div style={{ marginBottom: 16 }}>
+          <HospitalCampusViews net={net} />
+        </div>
+      )}
+      {domain === 'ev-charging-network' && net && (
+        <div style={{ marginBottom: 16 }}>
+          <EVNetworkViews net={net} />
+        </div>
+      )}
+      {domain === 'ev-battery-pack' && net && (
+        <Card title={<><i className="ti ti-grid-dots" /> Battery Cell Heatmap</>}
+          action={<span className="pill pill-surface">SoC · SoH · V · °C</span>}
+          style={{ marginBottom: 16 }}>
+          <EVBatteryHeatmap net={net} />
+        </Card>
+      )}
+      {domain === 'defence-base' && net && (
+        <div style={{ marginBottom: 16 }}>
+          <DefenceBaseViews net={net} />
+        </div>
+      )}
+      {domain === 'defence-warship' && net && (
+        <Card title={<><i className="ti ti-ship" /> Damage Control</>}
+          action={net.ship?.capsize_risk ? <span className="pill pill-red">capsize risk</span>
+            : <span className="pill pill-green">● hull nominal</span>}
+          style={{ marginBottom: 16 }}>
+          <DefenceDamageControl net={net} />
         </Card>
       )}
 

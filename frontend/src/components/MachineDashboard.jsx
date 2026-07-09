@@ -10,12 +10,19 @@ import { Card } from './ui/Card'
 import { Empty } from './ui/States'
 import { HealthRing, Sparkline } from './ui/Viz'
 import NetworkMap from './NetworkMap'
+import RailwayNetworkMap from './RailwayNetworkMap'
+import RailwayDepotBoard from './RailwayDepotBoard'
+import HospitalCampusViews from './HospitalCampusViews'
+import EVNetworkViews from './EVNetworkViews'
+import EVBatteryHeatmap from './EVBatteryHeatmap'
+import DefenceBaseViews from './DefenceBaseViews'
+import DefenceDamageControl from './DefenceDamageControl'
 import TurbineModel from './TurbineModel'
 import Scene3D from './Scene3D'
 import { usePolling, useApi } from '../hooks/useApi'
 import {
   domainMeta, statusColor, healthBand, riskFromHealth, hColor,
-  stubNarration, stubReply,
+  stubNarration, stubReply, isNetworkDomain,
 } from '../lib/machine'
 import { localName } from '../lib/format'
 import api from '../api/client'
@@ -28,7 +35,7 @@ export default function MachineDashboard({ tenant, domain, name }) {
   const { data: state, refetch } = usePolling(() => api.twinRuntimeState(tenant), 1500, [tenant], { skip: !tenant })
   const { data: diag } = usePolling(() => api.twinDiagnostics(tenant), 3000, [tenant], { skip: !tenant })
   const { data: net } = usePolling(() => api.twinNetwork(tenant).catch(() => null), 2000, [tenant],
-    { skip: !tenant || domain !== 'tram-network' })
+    { skip: !tenant || !isNetworkDomain(domain) })
   const { data: domains } = useApi(() => api.machineDomains(), [])
 
   const health = state?.health
@@ -107,20 +114,51 @@ export default function MachineDashboard({ tenant, domain, name }) {
         </div>
       </div>
 
-      {/* 3D / network scene */}
-      <Card title={<><i className={`ti ${meta.icon}`} /> {domain === 'tram-network' ? 'Live Network Map' : '3-D Twin'}</>}
-        action={domain === 'tram-network' && net?.blocked?.length
-          ? <span className="pill pill-red">{net.blocked.length} route blocked</span>
-          : <span className="pill pill-green">● live</span>}
-        className="section-gap">
-        {domain === 'tram-network'
-          ? (net ? <NetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
-          : domain === 'turbine-engine'
-            ? <TurbineModel latest={latest} health={health} height={340} />
-            : domain === 'edm-machine'
-              ? <Scene3D domain="edm-machine" machine={name || meta.label} live={latest} height={340} />
-              : <MachineHero meta={meta} name={name || meta.label} health={health} latest={latest} />}
-      </Card>
+      {/* Hospital campus: the five clinical views (own cards) */}
+      {domain === 'hospital-campus' ? (
+        <div className="section-gap"><HospitalCampusViews net={net} /></div>
+      ) : domain === 'ev-charging-network' ? (
+        <div className="section-gap"><EVNetworkViews net={net} /></div>
+      ) : domain === 'ev-battery-pack' ? (
+        <Card title={<><i className="ti ti-grid-dots" /> Battery Cell Heatmap</>}
+          action={<span className="pill pill-green">● live</span>} className="section-gap">
+          {net ? <EVBatteryHeatmap net={net} /> : <Empty label="Loading cells…" icon="ti-loader" />}
+        </Card>
+      ) : domain === 'defence-base' ? (
+        <div className="section-gap"><DefenceBaseViews net={net} /></div>
+      ) : domain === 'defence-warship' ? (
+        <Card title={<><i className="ti ti-ship" /> Damage Control</>}
+          action={net?.ship?.capsize_risk ? <span className="pill pill-red">capsize risk</span> : <span className="pill pill-green">● live</span>}
+          className="section-gap">
+          {net ? <DefenceDamageControl net={net} /> : <Empty label="Loading…" icon="ti-loader" />}
+        </Card>
+      ) : (
+        /* 3D / network scene */
+        <Card title={<><i className={`ti ${meta.icon}`} /> {domain === 'railway-metro' ? 'Live Metro Network'
+          : domain === 'tram-network' ? 'Live Network Map' : '3-D Twin'}</>}
+          action={isNetworkDomain(domain) && net?.blocked?.length
+            ? <span className="pill pill-red">{net.blocked.length} {domain === 'railway-metro' ? 'line' : 'route'} blocked</span>
+            : <span className="pill pill-green">● live</span>}
+          className="section-gap">
+          {domain === 'railway-metro'
+            ? (net ? <RailwayNetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
+            : domain === 'tram-network'
+              ? (net ? <NetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
+              : domain === 'turbine-engine'
+                ? <TurbineModel latest={latest} health={health} height={340} />
+                : domain === 'edm-machine'
+                  ? <Scene3D domain="edm-machine" machine={name || meta.label} live={latest} height={340} />
+                  : <MachineHero meta={meta} name={name || meta.label} health={health} latest={latest} />}
+        </Card>
+      )}
+
+      {/* Depot board (metro only) */}
+      {domain === 'railway-metro' && net?.depots && (
+        <Card title={<><i className="ti ti-building-warehouse" /> Depot Board</>}
+          action={<span className="pill pill-surface">predicted availability</span>} className="section-gap">
+          <RailwayDepotBoard depots={net.depots} />
+        </Card>
+      )}
 
       {/* AI Co-Pilot */}
       <CoPilot tenant={tenant} state={{ ...state, name: name || meta.label }} className="section-gap" />
@@ -304,7 +342,14 @@ function WorkOrder({ domain, name, findings }) {
       ],
       parts: domain === 'turbine-engine' ? ['Bearing kit', 'Oil filter', 'Seal set']
         : domain === 'edm-machine' ? ['Wire spool', 'Dielectric filter', 'Ion-exchange resin']
-          : ['Brake pads', 'Pantograph carbon', 'OHL section'],
+          : domain === 'railway-metro' ? ['Third-rail shoe', 'PSD actuator', 'HVAC filter bank', 'Rectifier module']
+            : domain === 'railway-trainset' ? ['Wheelset', 'Brake pads', 'Traction motor bearing', 'Door drive']
+              : domain === 'hospital-campus' ? ['AHU filter set', 'Medical gas regulator', 'UPS battery string', 'TMV / flush valve']
+                : domain === 'ev-charging-network' ? ['Connector cable', 'Charger power module', 'Transformer tap', 'Contactor']
+                  : domain === 'ev-battery-pack' ? ['Cell module', 'BMS slave board', 'Coolant pump', 'Balancing resistor']
+                    : domain === 'defence-base' ? ['Radar TWT', 'Sensor node', 'Magazine cooling unit', 'Fuel bladder']
+                      : domain === 'defence-warship' ? ['GT hot section', 'Bilge pump', 'Watertight door seal', 'Hull plate']
+                        : ['Brake pads', 'Pantograph carbon', 'OHL section'],
     })
   }
   return (

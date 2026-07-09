@@ -1,7 +1,7 @@
 """fleet — tram fleet-network digital-twin domain (physics, prediction, behaviours)."""
-from fleet.physics import FleetPhysics, SIGNALS, UNITS, redlines, FAULTS
-from fleet.predict import component_health, predict
-from fleet.behaviors import build_fleet_registry
+from .physics import FleetPhysics, SIGNALS, UNITS, redlines, FAULTS
+from .predict import component_health, predict
+from .behaviors import build_fleet_registry
 
 SPEC = {
     "key": "tram-network",

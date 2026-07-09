@@ -1,0 +1,72 @@
+@prefix hsp:  <https://ontology.nextxr.io/v3/hospital#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sh:   <http://www.w3.org/ns/shacl#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+#  HOSPITAL CAMPUS TWIN SHACL SHAPES
+#
+#  Every campus class is an nxr:Equipment / nxr:Space / cfp:Room
+#  subclass, so the platform PhysicalAssetShape / SpaceShape already
+#  enforce the 10-property base contract via subclass targeting.
+#  These add the domain floor + value-range constraints that fire
+#  only when the (optional) attribute is present.
+#################################################################
+
+hsp:HospitalShape a sh:NodeShape ;
+    sh:targetClass hsp:Hospital ; sh:node nxr:BaseEntityShape .
+
+hsp:WardShape a sh:NodeShape ;
+    sh:targetClass hsp:Ward ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path hsp:bedCount ; sh:datatype xsd:integer ;
+        sh:minInclusive 1 ; sh:maxCount 1 ;
+        sh:message "A ward declares at least one bed." ] .
+
+hsp:OperatingTheatreShape a sh:NodeShape ;
+    sh:targetClass hsp:OperatingTheatre ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path hsp:pressureSetpoint ; sh:datatype xsd:double ;
+        sh:minInclusive 0 ; sh:maxInclusive 60 ; sh:maxCount 1 ;
+        sh:message "OR pressure setpoint is a single positive value (Pa)." ] .
+
+hsp:EmergencyDeptShape a sh:NodeShape ;
+    sh:targetClass hsp:EmergencyDept ; sh:node nxr:BaseEntityShape .
+
+hsp:PharmacyShape a sh:NodeShape ;
+    sh:targetClass hsp:Pharmacy ; sh:node nxr:BaseEntityShape .
+
+hsp:LaboratoryShape a sh:NodeShape ;
+    sh:targetClass hsp:Laboratory ; sh:node nxr:BaseEntityShape .
+
+hsp:RadiologyRoomShape a sh:NodeShape ;
+    sh:targetClass hsp:RadiologyRoom ; sh:node nxr:BaseEntityShape .
+
+hsp:MedicalGasZoneShape a sh:NodeShape ;
+    sh:targetClass hsp:MedicalGasZone ; sh:node nxr:BaseEntityShape ;
+    sh:property [ sh:path hsp:gasType ; sh:datatype xsd:string ; sh:maxCount 1 ] .
+
+hsp:BedShape a sh:NodeShape ;
+    sh:targetClass hsp:Bed ; sh:node nxr:BaseEntityShape .
+
+hsp:AutoclaveShape a sh:NodeShape ;
+    sh:targetClass hsp:Autoclave ; sh:node nxr:BaseEntityShape .
+
+hsp:BloodBankShape a sh:NodeShape ;
+    sh:targetClass hsp:BloodBank ; sh:node nxr:BaseEntityShape .
+
+hsp:ColdStorageShape a sh:NodeShape ;
+    sh:targetClass hsp:ColdStorage ; sh:node nxr:BaseEntityShape .
+
+hsp:InfusionPumpShape a sh:NodeShape ;
+    sh:targetClass hsp:InfusionPump ; sh:node nxr:BaseEntityShape .
+
+hsp:VentilatorShape a sh:NodeShape ;
+    sh:targetClass hsp:Ventilator ; sh:node nxr:BaseEntityShape .
+
+hsp:RTLSTagShape a sh:NodeShape ;
+    sh:targetClass hsp:RTLSTag ; sh:node nxr:BaseEntityShape .
+
+hsp:PneumaticTubeShape a sh:NodeShape ;
+    sh:targetClass hsp:PneumaticTube ; sh:node nxr:BaseEntityShape .
+
+hsp:WaterSystemShape a sh:NodeShape ;
+    sh:targetClass hsp:WaterSystem ; sh:node nxr:BaseEntityShape .

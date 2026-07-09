@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 
-from fleet.physics import SIGNALS, redlines
+from .physics import SIGNALS, redlines
 
 
 def _status(h: float) -> str:
@@ -58,7 +58,7 @@ _GUARDS = [
 
 def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) -> dict:
     if physics is None:
-        from fleet.physics import FleetPhysics
+        from .physics import FleetPhysics
         physics = FleetPhysics()
 
     st = copy.deepcopy(state)

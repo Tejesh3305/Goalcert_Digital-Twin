@@ -1,0 +1,278 @@
+@prefix def:  <https://ontology.nextxr.io/v3/defence#> .
+@prefix nxr:  <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa: <http://www.w3.org/ns/sosa/> .
+@prefix unit: <http://qudt.org/vocab/unit/> .
+@prefix owl:  <http://www.w3.org/2002/07/owl#> .
+@prefix rdf:  <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd:  <http://www.w3.org/2001/XMLSchema#> .
+@prefix dct:  <http://purl.org/dc/terms/> .
+
+#################################################################
+#  DEFENCE DOMAIN PACK v1.0  —  LAYER 4
+#
+#  Defence / military vertical: bases, perimeters, C4ISR, radar,
+#  vessels, aircraft, ground vehicles, weapon systems, ammunition,
+#  fuel, NBC. Physics, behaviour rules and the live views live in
+#  packs/defence/ (DefenceBasePhysics + DefenceWarshipPhysics).
+#
+#  Governance: classes/properties may be ITAR-controlled and carry a
+#  MIL-STD-882 safety criticality; those annotations drive access
+#  control and safety review (see defence-shapes.ttl).
+#################################################################
+
+<https://ontology.nextxr.io/v3/defence> a owl:Ontology ;
+    dct:title "NextXR Defence Pack" ;
+    owl:versionInfo "1.0.0" ;
+    dct:description "Military base, C4ISR, radar, naval and air platforms, weapons, ammunition, fuel and NBC, with dedicated physics (Brayton, radar propagation, ship stability, NBC plume, structural fatigue) and force-protection / safety monitoring." ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+
+#################################################################
+#  ANNOTATION PROPERTIES  (governance: ITAR + MIL-STD-882)
+#################################################################
+def:itarControlled a owl:AnnotationProperty ;
+    rdfs:label "ITAR controlled" ;
+    skos:definition "True if the class/property is subject to ITAR export-control; the access layer restricts it to cleared tenants." .
+
+def:safetyCriticality a owl:AnnotationProperty ;
+    rdfs:label "MIL-STD-882 safety criticality" ;
+    skos:definition "MIL-STD-882 severity category (Catastrophic/Critical/Marginal/Negligible) of a hazard associated with this class." .
+
+
+#################################################################
+#  TWIN HEADS
+#################################################################
+def:MilitaryBase a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Military Base" ;
+    skos:definition "A military installation twinned as a single supervised asset: perimeter, C4ISR, radar, hangars, runways, fuel/ammunition storage, NBC and a live tactical picture." ;
+    nxr:taxonomyCategory "PhysicalAsset" ;
+    def:itarControlled true .
+
+
+#################################################################
+#  PLACES  (⊑ nxr:Space, label "Location")
+#################################################################
+def:Perimeter a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Perimeter" ;
+    skos:definition "The defended boundary of a base, divided into sectors and monitored for intrusion." ;
+    nxr:taxonomyCategory "Location" .
+
+def:Sector a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Sector" ;
+    skos:definition "A named sector of the perimeter / area of responsibility used to localise force-protection alerts." ;
+    nxr:taxonomyCategory "Location" .
+
+def:Building a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Building" ;
+    nxr:taxonomyCategory "Location" .
+
+def:Hangar a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Hangar" ;
+    skos:definition "An aircraft hangar sheltering and servicing air platforms." ;
+    nxr:taxonomyCategory "Location" .
+
+def:Runway a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Runway" ;
+    nxr:taxonomyCategory "Location" .
+
+def:Port a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Naval Port" ;
+    nxr:taxonomyCategory "Location" .
+
+def:Compartment a owl:Class ;
+    rdfs:subClassOf nxr:Space ; rdfs:label "Compartment" ;
+    skos:definition "A watertight compartment of a vessel, tracked for progressive flooding in damage control." ;
+    nxr:taxonomyCategory "Location" .
+
+
+#################################################################
+#  PLATFORMS  (move — ⊑ nxr:MobileAsset)
+#################################################################
+def:Vessel a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ; rdfs:label "Vessel (Warship)" ;
+    skos:definition "A naval surface combatant twinned for propulsion, stability, structural fatigue and damage control." ;
+    nxr:taxonomyCategory "MobileAsset" ; def:itarControlled true .
+
+def:Aircraft a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ; rdfs:label "Aircraft" ;
+    skos:definition "A fixed-wing air platform with an engine, airframe, avionics and weapons, tracked on flight-hours/cycles." ;
+    nxr:taxonomyCategory "MobileAsset" ; def:itarControlled true .
+
+def:GroundVehicle a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ; rdfs:label "Ground Vehicle" ;
+    nxr:taxonomyCategory "MobileAsset" .
+
+def:UAV a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ; rdfs:label "UAV" ;
+    skos:definition "An unmanned aerial vehicle for ISR / strike." ;
+    nxr:taxonomyCategory "MobileAsset" ; def:itarControlled true .
+
+def:Submarine a owl:Class ;
+    rdfs:subClassOf nxr:MobileAsset ; rdfs:label "Submarine" ;
+    nxr:taxonomyCategory "MobileAsset" ; def:itarControlled true .
+
+
+#################################################################
+#  SYSTEMS / EQUIPMENT  (⊑ nxr:Equipment)
+#################################################################
+def:WeaponSystem a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Weapon System" ;
+    nxr:taxonomyCategory "PhysicalAsset" ; def:itarControlled true ;
+    def:safetyCriticality "Catastrophic" .
+
+def:Radar a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Radar" ;
+    skos:definition "A surveillance/tracking radar with an azimuth/elevation coverage arc, subject to terrain masking and jamming." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+def:CommunicationNode a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Communication Node" ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+def:CommandCenter a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Command Center (C4ISR)" ;
+    skos:definition "The C4ISR node fusing sensor and asset feeds into a common operating picture and mission board." ;
+    nxr:taxonomyCategory "PhysicalAsset" ; def:itarControlled true .
+
+def:Ammunition a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Ammunition Store" ;
+    skos:definition "A munitions magazine monitored for storage temperature/humidity against cook-off risk (MIL-STD-882)." ;
+    nxr:taxonomyCategory "PhysicalAsset" ; def:safetyCriticality "Catastrophic" .
+
+def:FuelStorage a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Fuel Storage" ;
+    nxr:taxonomyCategory "PhysicalAsset" ; def:safetyCriticality "Critical" .
+
+def:NBCSystem a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "NBC System" ;
+    skos:definition "Nuclear/biological/chemical detection and collective-protection system monitoring contamination and plume spread." ;
+    nxr:taxonomyCategory "PhysicalAsset" ; def:safetyCriticality "Catastrophic" .
+
+def:GasTurbine a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ; rdfs:label "Gas Turbine" ;
+    skos:definition "A naval / aero gas turbine modelled on the Brayton cycle." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+
+#################################################################
+#  OBSERVABLE PROPERTIES  (the live signals)
+#################################################################
+### Base / C4ISR ###
+def:threatLevel        a sosa:ObservableProperty ; rdfs:label "Threat Level" .
+def:perimeterBreaches  a sosa:ObservableProperty ; rdfs:label "Perimeter Breaches" .
+def:trackedObjects     a sosa:ObservableProperty ; rdfs:label "Tracked Objects" .
+def:radarCoverage      a sosa:ObservableProperty ; rdfs:label "Radar Coverage" .
+def:radarRange         a sosa:ObservableProperty ; rdfs:label "Radar Range" ; nxr:expectedUnit unit:KiloM .
+def:jammingLevel       a sosa:ObservableProperty ; rdfs:label "Jamming Level" .
+def:commsAvailability  a sosa:ObservableProperty ; rdfs:label "Comms Availability" .
+def:ammoTemperature    a sosa:ObservableProperty ; rdfs:label "Ammunition Temperature" ; nxr:expectedUnit unit:DEG_C .
+def:ammoHumidity       a sosa:ObservableProperty ; rdfs:label "Ammunition Humidity" .
+def:cookoffMargin      a sosa:ObservableProperty ; rdfs:label "Cook-off Margin" ; nxr:expectedUnit unit:DEG_C .
+def:fuelLevel          a sosa:ObservableProperty ; rdfs:label "Fuel Level" .
+def:nbcReading         a sosa:ObservableProperty ; rdfs:label "NBC Contamination Reading" .
+def:nbcPlumeRange      a sosa:ObservableProperty ; rdfs:label "NBC Plume Range" ; nxr:expectedUnit unit:KiloM .
+def:aircraftAvailability a sosa:ObservableProperty ; rdfs:label "Aircraft Availability" .
+def:flightHoursToService a sosa:ObservableProperty ; rdfs:label "Flight Hours to Service" ; nxr:expectedUnit unit:HR .
+def:sortiesReady       a sosa:ObservableProperty ; rdfs:label "Sorties Ready" .
+def:missionReadiness   a sosa:ObservableProperty ; rdfs:label "Mission Readiness" .
+def:forceProtection    a sosa:ObservableProperty ; rdfs:label "Force Protection Condition" .
+
+### Warship ###
+def:gtPower            a sosa:ObservableProperty ; rdfs:label "Gas Turbine Power" ; nxr:expectedUnit unit:MegaW .
+def:gtEGT              a sosa:ObservableProperty ; rdfs:label "Turbine Exhaust Gas Temperature" ; nxr:expectedUnit unit:DEG_C .
+def:gtCompressorTemp   a sosa:ObservableProperty ; rdfs:label "Compressor Delivery Temperature" ; nxr:expectedUnit unit:DEG_C .
+def:gtEfficiency       a sosa:ObservableProperty ; rdfs:label "Gas Turbine Efficiency" .
+def:listAngle          a sosa:ObservableProperty ; rdfs:label "List Angle" .
+def:rightingLever      a sosa:ObservableProperty ; rdfs:label "Righting Lever (GZ)" .
+def:freeboard          a sosa:ObservableProperty ; rdfs:label "Freeboard" .
+def:floodingPercent    a sosa:ObservableProperty ; rdfs:label "Flooding" .
+def:draft              a sosa:ObservableProperty ; rdfs:label "Draft" .
+def:fatigueDamage      a sosa:ObservableProperty ; rdfs:label "Fatigue Damage Index" .
+def:crackLength        a sosa:ObservableProperty ; rdfs:label "Crack Length" ; nxr:expectedUnit unit:MilliM .
+def:fatigueLife        a sosa:ObservableProperty ; rdfs:label "Fatigue Life Remaining" .
+def:hullStress         a sosa:ObservableProperty ; rdfs:label "Hull Stress" ; nxr:expectedUnit unit:MegaPA .
+def:shipSpeed          a sosa:ObservableProperty ; rdfs:label "Ship Speed" .
+
+
+#################################################################
+#  OBJECT PROPERTIES  (the defence entity-relationship spine)
+#################################################################
+def:hasSector a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ; rdfs:domain def:Perimeter ; rdfs:range def:Sector ;
+    rdfs:label "has sector" .
+
+def:defends a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:monitors ; rdfs:domain def:Perimeter ; rdfs:range def:MilitaryBase ;
+    rdfs:label "defends" .
+
+def:hasAsset a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ; rdfs:domain def:MilitaryBase ;
+    rdfs:label "has asset" .
+
+def:aggregates a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:monitors ; rdfs:domain def:CommandCenter ;
+    rdfs:label "aggregates" ;
+    skos:definition "The C4ISR command centre fuses this asset's feed into the common operating picture." .
+
+def:hasCompartment a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ; rdfs:domain def:Vessel ; rdfs:range def:Compartment ;
+    rdfs:label "has compartment" .
+
+def:hasRadar a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ; rdfs:range def:Radar ;
+    rdfs:label "has radar" .
+
+def:hasEngine a owl:ObjectProperty ;
+    rdfs:subPropertyOf nxr:hasPart ; rdfs:range def:GasTurbine ;
+    rdfs:label "has engine" .
+
+
+#################################################################
+#  DATATYPE PROPERTIES
+#################################################################
+def:coverageArcDeg a owl:DatatypeProperty ;
+    rdfs:label "radar coverage arc (deg)" ; rdfs:range xsd:double .
+
+def:flightHours a owl:DatatypeProperty ;
+    rdfs:label "airframe flight hours" ; rdfs:range xsd:double .
+
+def:classification a owl:DatatypeProperty ;
+    rdfs:label "classification marking" ; rdfs:range xsd:string ;
+    def:itarControlled true .
+
+
+#################################################################
+#  FAILURE MODES
+#################################################################
+def:PerimeterBreach a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ; rdfs:label "Perimeter Breach" ;
+    skos:definition "A tracked object has crossed the defended perimeter — a Force Protection event." ;
+    nxr:taxonomyCategory "Capability" ; def:safetyCriticality "Critical" .
+
+def:AmmunitionCookoff a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ; rdfs:label "Ammunition Cook-off Risk" ;
+    skos:definition "Munitions storage conditions approach the cook-off threshold (MIL-STD-882)." ;
+    nxr:taxonomyCategory "Capability" ; def:safetyCriticality "Catastrophic" .
+
+def:ProgressiveFlooding a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ; rdfs:label "Progressive Flooding" ;
+    skos:definition "Flooding across compartments produces a dangerous list requiring damage control." ;
+    nxr:taxonomyCategory "Capability" ; def:safetyCriticality "Catastrophic" .
+
+def:StructuralFatigueFailure a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ; rdfs:label "Structural Fatigue Failure" ;
+    skos:definition "Cumulative fatigue damage (Miner) with crack growth (Paris) approaches structural life." ;
+    nxr:taxonomyCategory "Capability" ; def:safetyCriticality "Critical" .
+
+def:NBCContamination a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ; rdfs:label "NBC Contamination" ;
+    skos:definition "A nuclear/biological/chemical release with a spreading contamination plume." ;
+    nxr:taxonomyCategory "Capability" ; def:safetyCriticality "Catastrophic" .
+
+def:JammingAttack a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ; rdfs:label "Electronic Attack (Jamming)" ;
+    skos:definition "Hostile jamming degrades radar coverage and communications." ;
+    nxr:taxonomyCategory "Capability" ; def:safetyCriticality "Critical" .

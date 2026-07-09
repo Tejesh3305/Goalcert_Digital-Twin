@@ -3,9 +3,17 @@
  * physics runtime: gas turbine, wire-EDM, tram fleet). Used to decide when a
  * panel should render the machine-twin surfaces instead of the HVAC/CFP feed.
  */
-export const MACHINE_DOMAINS = ['turbine-engine', 'edm-machine', 'tram-network']
+export const MACHINE_DOMAINS = ['turbine-engine', 'edm-machine', 'tram-network',
+  'railway-metro', 'railway-trainset', 'hospital-campus', 'ev-charging-network', 'ev-battery-pack',
+  'defence-base', 'defence-warship']
 
 export const isMachineDomain = (domain) => MACHINE_DOMAINS.includes(domain)
+
+/** Domains that expose a live network/spatial payload via GET /twins/{tenant}/network. */
+export const NETWORK_DOMAINS = ['tram-network', 'railway-metro', 'hospital-campus',
+  'ev-charging-network', 'ev-battery-pack', 'defence-base', 'defence-warship']
+
+export const isNetworkDomain = (domain) => NETWORK_DOMAINS.includes(domain)
 
 /** Status → CSS colour var, matching the sensor-card status classes. */
 export const statusColor = (status) => ({
@@ -51,6 +59,27 @@ export const DOMAIN_META = {
   'tram-network': { label: 'Tram Fleet Network', tag: 'Transit · Mobility', icon: 'ti-train',
     accent: '#0d9488', control: 'Service level', machine: true, network: true, signals: 22,
     blurb: 'A tram fleet-network twin — a live map of vehicles, per-route status, traction power and service KPIs.' },
+  'railway-metro': { label: 'Metro Rail Network', tag: 'Rail · Transit', icon: 'ti-train',
+    accent: '#0ea5e9', control: 'Service level', machine: true, network: true, signals: 25,
+    blurb: 'A full MRT / metro twin — lines, stations, permanent way, third-rail traction power, CBTC signalling and station services, with a live network map, per-station KPIs and a depot board.' },
+  'railway-trainset': { label: 'Rolling Stock', tag: 'Rail · Vehicle', icon: 'ti-container',
+    accent: '#6366f1', control: 'Throttle', machine: true, signals: 14,
+    blurb: 'A rolling-stock twin — one train set at the vehicle level: traction, bogies, braking, doors and auxiliaries, with health and remaining-useful-life.' },
+  'hospital-campus': { label: 'Hospital Campus', tag: 'Healthcare · Estates', icon: 'ti-building-hospital',
+    accent: '#0891b2', control: 'Patient load', machine: true, network: true, signals: 22,
+    blurb: 'A full hospital-campus twin — theatres, ICU, ED, pharmacy, wards, medical gas, water safety, power resilience, sterilisation, infection control and patient flow, with a bed board, OR calendar, patient-flow funnel, infection map and medical-gas schematic.' },
+  'ev-charging-network': { label: 'EV Charging Network', tag: 'E-Mobility · Grid', icon: 'ti-charging-pile',
+    accent: '#16a34a', control: 'Demand level', machine: true, network: true, signals: 20,
+    blurb: 'An EV charging-network twin — stations, chargers, grid connection, transformer, solar and V2G, with a charging geo map, a grid load curve and a V2G arbitrage view.' },
+  'ev-battery-pack': { label: 'EV Battery Pack', tag: 'E-Mobility · Battery', icon: 'ti-battery-charging',
+    accent: '#65a30d', control: 'Charge rate', machine: true, network: true, signals: 9,
+    blurb: 'A battery-pack twin at cell level — Thevenin ECM, thermal coupling and degradation — with a cell-health heatmap and imbalance / thermal-runaway / SoH monitoring.' },
+  'defence-base': { label: 'Military Base (C4ISR)', tag: 'Defence · C4ISR', icon: 'ti-building-fortress',
+    accent: '#475569', control: 'Readiness', machine: true, network: true, signals: 18,
+    blurb: 'A military-base twin — perimeter, C4ISR, radar, hangars, fuel and ammunition storage and NBC, with a NATO APP-6 tactical map and a mission board.' },
+  'defence-warship': { label: 'Warship', tag: 'Defence · Naval', icon: 'ti-ship',
+    accent: '#334155', control: 'Speed demand', machine: true, network: true, signals: 14,
+    blurb: 'A warship twin — gas-turbine propulsion, stability under progressive flooding and hull structural fatigue, with a damage-control compartment diagram.' },
   hvac: { label: 'HVAC Facility', tag: 'Buildings', icon: 'ti-air-conditioning',
     accent: '#7c3aed', signals: 1,
     blurb: 'A site with a server room cooled by an air handler — the live temperature feed and Tier A/B/C rules.' },

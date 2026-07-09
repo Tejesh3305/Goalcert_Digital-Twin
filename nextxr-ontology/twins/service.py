@@ -29,6 +29,10 @@ from typing import Optional
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
 CFP  = "https://ontology.nextxr.io/v3/cfp#"
+RAIL = "https://ontology.nextxr.io/v3/railway#"
+HSP  = "https://ontology.nextxr.io/v3/hospital#"
+EV   = "https://ontology.nextxr.io/v3/ev#"
+DEF  = "https://ontology.nextxr.io/v3/defence#"
 
 _DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "twins.db"
 
@@ -79,6 +83,80 @@ TEMPLATES = {
         "seeds_feed": False,
         "machine": True,
         "class_iri": "https://ontology.nextxr.io/v3/fleet#TramNetwork",
+    },
+    "railway-metro": {
+        "label": "Metro Rail Network",
+        "description": "A full MRT / metro twin — lines, stations, platforms, "
+                       "permanent way, third-rail traction power, CBTC "
+                       "signalling and station services, with a live network "
+                       "map, per-station KPIs and a depot board.",
+        "primary_signal": "rail:onTimePerformance",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": RAIL + "RailNetwork",
+    },
+    "railway-trainset": {
+        "label": "Rolling Stock (Train Set)",
+        "description": "A rolling-stock twin — one train set at the vehicle "
+                       "level: traction, bogies, braking, doors and auxiliaries "
+                       "with health + remaining-useful-life.",
+        "primary_signal": "rail:trainSpeed",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": RAIL + "RollingStock",
+    },
+    "hospital-campus": {
+        "label": "Hospital Campus",
+        "description": "A full hospital-campus twin — theatres, ICU, ED, pharmacy, "
+                       "wards, medical gas, water safety, power resilience, "
+                       "sterilisation, infection control and patient flow, with a "
+                       "bed board, OR calendar, patient-flow funnel, infection map "
+                       "and medical-gas schematic.",
+        "primary_signal": "hsp:orPressure",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": HSP + "Hospital",
+    },
+    "ev-charging-network": {
+        "label": "EV Charging Network",
+        "description": "An EV charging-network twin — stations, chargers, grid "
+                       "connection, transformer, solar and V2G, with a charging "
+                       "geo map, grid load curve and a V2G trading view.",
+        "primary_signal": "ev:networkLoad",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": EV + "ChargingNetwork",
+    },
+    "ev-battery-pack": {
+        "label": "EV Battery Pack",
+        "description": "A battery-pack twin at cell level — modules of cells with "
+                       "a Thevenin ECM, thermal coupling and degradation, with a "
+                       "cell-health heatmap and imbalance / thermal-runaway / SoH "
+                       "monitoring.",
+        "primary_signal": "ev:cellVoltageDelta",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": EV + "BatteryPack",
+    },
+    "defence-base": {
+        "label": "Military Base (C4ISR)",
+        "description": "A military-base twin — perimeter, C4ISR command centre, "
+                       "radar, hangars, runways, fuel and ammunition storage and "
+                       "NBC, with a NATO APP-6 tactical map and a mission board.",
+        "primary_signal": "def:radarCoverage",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": DEF + "MilitaryBase",
+    },
+    "defence-warship": {
+        "label": "Warship",
+        "description": "A naval surface-combatant twin — gas-turbine propulsion, "
+                       "stability under progressive flooding, hull structural "
+                       "fatigue and a damage-control compartment diagram.",
+        "primary_signal": "def:listAngle",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": DEF + "Vessel",
     },
     "blank": {
         "label": "Blank Twin",
@@ -240,6 +318,20 @@ class TwinRegistry:
 
         tpl = TEMPLATES.get(twin.domain, {})
         if tpl.get("machine"):
+            if twin.domain == "railway-metro":
+                return self._seed_railway_metro(twin, writer, actor)
+            if twin.domain == "railway-trainset":
+                return self._seed_railway_trainset(twin, writer, actor)
+            if twin.domain == "hospital-campus":
+                return self._seed_hospital_campus(twin, writer, actor)
+            if twin.domain == "ev-charging-network":
+                return self._seed_charging_network(twin, writer, actor)
+            if twin.domain == "ev-battery-pack":
+                return self._seed_battery_pack(twin, writer, actor)
+            if twin.domain == "defence-base":
+                return self._seed_military_base(twin, writer, actor)
+            if twin.domain == "defence-warship":
+                return self._seed_warship(twin, writer, actor)
             return self._seed_machine(twin, writer, actor, tpl["class_iri"])
 
         if twin.domain == "generic-facility":
@@ -374,3 +466,452 @@ class TwinRegistry:
         )
 
         return ups.node_id if ups.ok else None
+
+    # ------------------------------------------------------------------
+    #  Railway / metro seeds
+    #
+    #  These build the railway entity-relationship graph the ontology
+    #  describes (P1-015 … P1-020). The physics + live network map run in
+    #  the machine-twin runtime (railway/); the seed is the ONTOLOGICAL
+    #  representation the platform reasons over (topology, findings targets,
+    #  compliance). _seed_railway_metro composes the six named builders.
+    # ------------------------------------------------------------------
+    def _rail_new(self, t, writer, actor, cls, name, props=None, rels=None):
+        """Create one railway node; returns its node id (or None)."""
+        r = writer.create(
+            tenant_id=t, canonical_type=RAIL + cls, actor=actor,
+            properties={"displayName": name, **(props or {})},
+            relationships=rels,
+        )
+        return r.node_id if r.ok else None
+
+    def _rail_link(self, t, writer, actor, src, predicate, tgt):
+        """Wire a railway relationship between two existing nodes."""
+        if src and tgt:
+            writer.relate(tenant_id=t, actor=actor, source_id=src,
+                          predicate=predicate, target_id=tgt)
+
+    def _seed_occ(self, t, writer, actor, twin_name):
+        """P1-020 — the Operations Control Centre (top-level supervisory node)."""
+        return self._rail_new(t, writer, actor, "OperationsControlCentre",
+                              f"{twin_name} — OCC", {"status": "running"})
+
+    def _seed_signalling(self, t, writer, actor):
+        """P1-019 — a CBTC signalling system aggregating train-detection devices."""
+        sig = self._rail_new(t, writer, actor, "SignalSystem",
+                            "CBTC Signalling System", {"status": "running"})
+        ac = self._rail_new(t, writer, actor, "AxleCounter", "Axle Counter AC-01")
+        tc = self._rail_new(t, writer, actor, "TrackCircuit", "Track Circuit TC-01")
+        self._rail_link(t, writer, actor, sig, "rail:hasDetector", ac)
+        self._rail_link(t, writer, actor, sig, "rail:hasDetector", tc)
+        return sig
+
+    def _seed_depot(self, t, writer, actor, name="Main Depot", berths=8):
+        """P1-017 — a stabling + maintenance depot."""
+        return self._rail_new(t, writer, actor, "Depot", name,
+                             {"status": "running", "berthCount": int(berths)})
+
+    def _seed_rolling_stock(self, t, writer, actor, name, depot_id=None, cars=6):
+        """P1-018 — a train set with bogies + traction motors, stabled at a depot."""
+        from graph.writer import Rel  # local import: one-way dependency
+        rels = [Rel("rail:stabledAt", depot_id)] if depot_id else None
+        rs = self._rail_new(t, writer, actor, "RollingStock", name,
+                           {"status": "in_service", "formationLength": int(cars)}, rels)
+        for b in range(2):
+            bogie = self._rail_new(t, writer, actor, "Bogie", f"{name} — Bogie {b + 1}")
+            motor = self._rail_new(t, writer, actor, "TractionMotor",
+                                 f"{name} — TM {b + 1}")
+            self._rail_link(t, writer, actor, bogie, "rail:hasTractionMotor", motor)
+            self._rail_link(t, writer, actor, rs, "rail:hasBogie", bogie)
+        return rs
+
+    def _seed_station(self, t, writer, actor, name, seq=0):
+        """P1-016 — a station with a platform (+PSD), escalator and ACMV plant."""
+        station = self._rail_new(t, writer, actor, "Station", name,
+                               {"status": "open", "sequenceIndex": int(seq)})
+        platform = self._rail_new(t, writer, actor, "Platform", f"{name} — Platform 1")
+        psd = self._rail_new(t, writer, actor, "PSD", f"{name} — PSD Array")
+        esc = self._rail_new(t, writer, actor, "Escalator", f"{name} — Escalator 1")
+        acmv = self._rail_new(t, writer, actor, "ACMV", f"{name} — ACMV Plant")
+        self._rail_link(t, writer, actor, platform, "rail:hasPSD", psd)
+        self._rail_link(t, writer, actor, station, "rail:hasPlatform", platform)
+        self._rail_link(t, writer, actor, station, "rail:hasEscalator", esc)
+        self._rail_link(t, writer, actor, station, "rail:hasACMV", acmv)
+        return station
+
+    def _seed_line(self, t, writer, actor, name, station_ids):
+        """P1-015 — a metro line calling at an ordered list of stations."""
+        line = self._rail_new(t, writer, actor, "Line", name, {"status": "running"})
+        for sid in station_ids:
+            self._rail_link(t, writer, actor, line, "rail:servesStation", sid)
+        return line
+
+    def _seed_railway_metro(self, twin, writer, actor) -> Optional[str]:
+        """P1-015…020 — the whole metro: network head node supervised by an OCC,
+        3 lines over shared interchange stations, permanent way + traction power,
+        signalling and a depot with rolling stock. Returns the RailNetwork id (the
+        node the live findings flag)."""
+        t = twin.tenant_id
+
+        network = self._rail_new(t, writer, actor, "RailNetwork",
+                               f"{twin.name} — Metro Network", {"status": "running"})
+        occ = self._seed_occ(t, writer, actor, twin.name)
+        signalsys = self._seed_signalling(t, writer, actor)
+        depot = self._seed_depot(t, writer, actor, "Central Depot", berths=8)
+
+        # Rolling stock stabled at the depot
+        for i in range(2):
+            self._seed_rolling_stock(t, writer, actor, f"Train Set {i + 1:02d}", depot)
+
+        # Traction power: substations feeding energised third-rail sections
+        for nm in ("TSS Riverside", "TSS Expo"):
+            third = self._rail_new(t, writer, actor, "ThirdRail", f"{nm} — Third Rail",
+                                 {"status": "energised", "nominalVoltage": 750.0})
+            sub = self._rail_new(t, writer, actor, "TractionSubstation", nm,
+                               {"status": "running"})
+            self._rail_link(t, writer, actor, sub, "rail:feedsSection", third)
+        self._rail_new(t, writer, actor, "Track", "Running Track (CWR)",
+                     {"status": "in_service"})
+
+        # Shared stations (interchanges reused across lines)
+        stations = {}
+        for seq, (sid, sname) in enumerate(
+                [("CEN", "Central"), ("RIV", "Riverside"),
+                 ("MKT", "Market"), ("EXPO", "Expo")]):
+            stations[sid] = self._seed_station(t, writer, actor, sname, seq)
+
+        # Lines over those stations, each operated by the network + supervised
+        line_defs = [
+            ("Line 1 · North–South", ["RIV", "CEN", "MKT"]),
+            ("Line 2 · East–West", ["CEN", "EXPO"]),
+            ("Line 3 · Circle", ["RIV", "EXPO", "MKT"]),
+        ]
+        for lname, stops in line_defs:
+            line = self._seed_line(t, writer, actor, lname,
+                                 [stations[s] for s in stops])
+            self._rail_link(t, writer, actor, network, "rail:operatesLine", line)
+            self._rail_link(t, writer, actor, occ, "rail:supervises", line)
+            self._rail_link(t, writer, actor, signalsys, "rail:signalsLine", line)
+
+        return network
+
+    def _seed_railway_trainset(self, twin, writer, actor) -> Optional[str]:
+        """P1-018 — a stand-alone rolling-stock twin: a depot + one train set with
+        bogies and traction motors. Returns the RollingStock id."""
+        t = twin.tenant_id
+        writer.create(
+            tenant_id=t, canonical_type=CORE + "Site", actor=actor,
+            properties={"displayName": f"{twin.name} — Depot Site"},
+        )
+        depot = self._seed_depot(t, writer, actor, f"{twin.name} — Home Depot", berths=4)
+        return self._seed_rolling_stock(t, writer, actor, twin.name, depot, cars=6)
+
+    # ------------------------------------------------------------------
+    #  Hospital campus seeds
+    #
+    #  Build the hospital entity-relationship graph the ontology describes
+    #  (P3-017 … P3-022). The physics + live clinical views run in the
+    #  machine-twin runtime (hospital/); the seed is the ONTOLOGICAL
+    #  representation. _seed_hospital_campus composes the department builders.
+    #  Reuses existing hsp:/cfp: classes (ICU, MedicalGasManifold,
+    #  PatientMonitor, NurseCallSystem, AirHandlingUnit, UPS, Generator).
+    # ------------------------------------------------------------------
+    def _hsp_new(self, t, writer, actor, iri, name, props=None):
+        r = writer.create(
+            tenant_id=t, canonical_type=iri, actor=actor,
+            properties={"displayName": name, **(props or {})},
+        )
+        return r.node_id if r.ok else None
+
+    def _hsp_link(self, t, writer, actor, src, predicate, tgt):
+        if src and tgt:
+            writer.relate(tenant_id=t, actor=actor, source_id=src,
+                          predicate=predicate, target_id=tgt)
+
+    def _seed_operating_theatre(self, t, writer, actor, name):
+        """P3-018 — an OR twin: AHU pressure, medical-gas pendant, anaesthetic
+        machine (patient monitor) and an RTLS tag, pre-wired with hsp:* sensors."""
+        theatre = self._hsp_new(t, writer, actor, HSP + "OperatingTheatre", name,
+                              {"status": "active", "pressureSetpoint": 15.0})
+        ahu = self._hsp_new(t, writer, actor, CFP + "AirHandlingUnit", f"{name} — AHU",
+                          {"status": "running", "setpoint": 20.0})
+        gas = self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", f"{name} — O2 Pendant",
+                          {"status": "running", "gasType": "O2"})
+        mon = self._hsp_new(t, writer, actor, HSP + "PatientMonitor", f"{name} — Anaesthetic Monitor")
+        tag = self._hsp_new(t, writer, actor, HSP + "RTLSTag", f"{name} — RTLS Tag")
+        self._hsp_link(t, writer, actor, ahu, "cfp:suppliesAirTo", theatre)
+        self._hsp_link(t, writer, actor, tag, "hsp:tracks", mon)
+        return theatre
+
+    def _seed_icu(self, t, writer, actor, name="ICU", beds=8):
+        """P3-019 — an ICU twin: bed-level ventilator + patient monitor, RTLS tags
+        and a nurse-call system."""
+        icu = self._hsp_new(t, writer, actor, HSP + "ICU", name,
+                          {"status": "open", "bedCount": int(beds)})
+        nurse = self._hsp_new(t, writer, actor, HSP + "NurseCallSystem", f"{name} — Nurse Call")
+        self._hsp_link(t, writer, actor, icu, "nxr:hasPart", nurse)
+        for i in range(min(beds, 4)):     # a representative subset of bays
+            bed = self._hsp_new(t, writer, actor, HSP + "Bed", f"{name} — Bed {i + 1}",
+                              {"status": "occupied"})
+            vent = self._hsp_new(t, writer, actor, HSP + "Ventilator", f"{name} — Ventilator {i + 1}")
+            mon = self._hsp_new(t, writer, actor, HSP + "PatientMonitor", f"{name} — Monitor {i + 1}")
+            tag = self._hsp_new(t, writer, actor, HSP + "RTLSTag", f"{name} — Tag {i + 1}")
+            self._hsp_link(t, writer, actor, icu, "hsp:hasBed", bed)
+            self._hsp_link(t, writer, actor, bed, "nxr:hasPart", vent)
+            self._hsp_link(t, writer, actor, tag, "hsp:tracks", bed)
+            self._hsp_link(t, writer, actor, mon, "nxr:monitors", bed)
+        return icu
+
+    def _seed_pharmacy(self, t, writer, actor, name="Pharmacy"):
+        """P3-020 — a pharmacy twin: cold storage, blood bank and a pneumatic-tube
+        station."""
+        pharm = self._hsp_new(t, writer, actor, HSP + "Pharmacy", name, {"status": "open"})
+        cold = self._hsp_new(t, writer, actor, HSP + "ColdStorage", f"{name} — Cold Storage",
+                           {"status": "running"})
+        blood = self._hsp_new(t, writer, actor, HSP + "BloodBank", f"{name} — Blood Bank",
+                            {"status": "running"})
+        tube = self._hsp_new(t, writer, actor, HSP + "PneumaticTube", f"{name} — Tube Station")
+        for a in (cold, blood, tube):
+            self._hsp_link(t, writer, actor, pharm, "nxr:hasPart", a)
+        return pharm
+
+    def _seed_emergency_dept(self, t, writer, actor, name="Emergency Department", bays=6):
+        """P3-021 — an ED twin: triage/resus bays with beds, monitors and imaging
+        feeding the patient-flow model."""
+        ed = self._hsp_new(t, writer, actor, HSP + "EmergencyDept", name, {"status": "open"})
+        rad = self._hsp_new(t, writer, actor, HSP + "RadiologyRoom", f"{name} — Imaging",
+                          {"status": "running"})
+        self._hsp_link(t, writer, actor, ed, "nxr:hasPart", rad)
+        for i in range(min(bays, 4)):
+            bed = self._hsp_new(t, writer, actor, HSP + "Bed", f"{name} — Bay {i + 1}",
+                              {"status": "occupied" if i < 2 else "available"})
+            mon = self._hsp_new(t, writer, actor, HSP + "PatientMonitor", f"{name} — Monitor {i + 1}")
+            self._hsp_link(t, writer, actor, ed, "hsp:hasBed", bed)
+            self._hsp_link(t, writer, actor, mon, "nxr:monitors", bed)
+        return ed
+
+    def _seed_medical_gas(self, t, writer, actor):
+        """P3-022 — the medical-gas system: O2 + N2O manifolds feeding pipeline
+        pressure zones (the schematic + alarm bindings)."""
+        o2 = self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", "O2 Manifold",
+                         {"status": "running", "gasType": "O2"})
+        n2o = self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", "N2O Manifold",
+                          {"status": "running", "gasType": "N2O"})
+        for zname, gas, manifold in [("Theatres Zone", "O2", o2), ("ICU Zone", "O2", o2),
+                                     ("Emergency Zone", "O2", o2), ("Wards Zone", "O2", o2)]:
+            zone = self._hsp_new(t, writer, actor, HSP + "MedicalGasZone", zname,
+                               {"status": "running", "gasType": gas})
+            self._hsp_link(t, writer, actor, manifold, "hsp:servesZone", zone)
+        return o2
+
+    def _seed_hospital_campus(self, twin, writer, actor) -> Optional[str]:
+        """P3-017…022 — the whole campus: a Hospital head node with theatres, ICU,
+        ED, pharmacy, wards, medical gas, water and power. Returns the Hospital id
+        (the node the live findings flag)."""
+        t = twin.tenant_id
+        hospital = self._hsp_new(t, writer, actor, HSP + "Hospital",
+                               f"{twin.name} — Campus", {"status": "running"})
+
+        departments = [
+            self._seed_operating_theatre(t, writer, actor, "Theatre 1"),
+            self._seed_operating_theatre(t, writer, actor, "Theatre 2"),
+            self._seed_icu(t, writer, actor, "ICU"),
+            self._seed_emergency_dept(t, writer, actor, "Emergency Department"),
+            self._seed_pharmacy(t, writer, actor, "Pharmacy"),
+            self._hsp_new(t, writer, actor, HSP + "Laboratory", "Laboratory", {"status": "open"}),
+        ]
+        # Wards with beds
+        for wname, n in [("Ward A", 4), ("Ward B", 4)]:
+            ward = self._hsp_new(t, writer, actor, HSP + "Ward", wname,
+                               {"status": "open", "bedCount": n})
+            for i in range(n):
+                bed = self._hsp_new(t, writer, actor, HSP + "Bed", f"{wname} — Bed {i + 1}",
+                                  {"status": "occupied" if i < 3 else "available"})
+                self._hsp_link(t, writer, actor, ward, "hsp:hasBed", bed)
+            departments.append(ward)
+
+        # Campus-wide infrastructure
+        self._seed_medical_gas(t, writer, actor)
+        self._hsp_new(t, writer, actor, HSP + "WaterSystem", "Domestic Water System",
+                    {"status": "running"})
+        self._hsp_new(t, writer, actor, HSP + "Autoclave", "CSSD Autoclave", {"status": "running"})
+        self._hsp_new(t, writer, actor, CFP + "UPS", "Critical UPS", {"status": "running"})
+        self._hsp_new(t, writer, actor, CFP + "Generator", "Standby Generator", {"status": "standby"})
+
+        for dep in departments:
+            self._hsp_link(t, writer, actor, hospital, "hsp:hasDepartment", dep)
+        return hospital
+
+    # ------------------------------------------------------------------
+    #  EV / e-mobility seeds
+    #
+    #  Build the EV entity-relationship graph the ontology describes
+    #  (P2-015…019). Physics + live views run in the machine-twin runtime
+    #  (ev/). Reuses the _hsp_new/_hsp_link helpers (full-IRI create + relate).
+    # ------------------------------------------------------------------
+    def _seed_grid_node(self, t, writer, actor, name="Grid Node"):
+        """P2-018 — a grid-connection node with a transformer and solar."""
+        grid = self._hsp_new(t, writer, actor, EV + "GridConnection", name,
+                           {"status": "connected", "nominalVoltage": 400.0})
+        tx = self._hsp_new(t, writer, actor, EV + "Transformer", f"{name} — Transformer",
+                         {"status": "running", "ratedPowerKW": 2500.0})
+        self._hsp_link(t, writer, actor, tx, "nxr:feeds", grid)
+        return grid
+
+    def _seed_solar_farm(self, t, writer, actor, grid_id=None, name="Solar Array"):
+        """P2-019 — a solar array with an inverter feeding the grid connection."""
+        solar = self._hsp_new(t, writer, actor, EV + "SolarPanel", name,
+                            {"status": "generating", "ratedPowerKW": 800.0})
+        if grid_id:
+            self._hsp_link(t, writer, actor, solar, "ev:feedsGrid", grid_id)
+        return solar
+
+    def _seed_ev_fleet(self, t, writer, actor, name="EV Fleet", vehicles=3):
+        """P2-017 — an EV fleet aggregating electric vehicles (each with a pack)."""
+        fleet = self._hsp_new(t, writer, actor, EV + "EVFleet", name, {"status": "active"})
+        for i in range(vehicles):
+            ev = self._hsp_new(t, writer, actor, EV + "ElectricVehicle", f"{name} — EV {i + 1}",
+                             {"status": "idle", "stateOfChargePct": 65.0, "stateOfHealthPct": 92.0})
+            pack = self._hsp_new(t, writer, actor, EV + "BatteryPack", f"{name} — EV {i + 1} Pack",
+                               {"status": "ok", "stateOfHealthPct": 92.0, "moduleCount": 8})
+            self._hsp_link(t, writer, actor, ev, "nxr:hasPart", pack)
+            self._hsp_link(t, writer, actor, fleet, "ev:hasVehicle", ev)
+        return fleet
+
+    def _seed_battery_pack(self, twin, writer, actor) -> Optional[str]:
+        """P2-016 — a battery pack of N modules of cells with a cooling loop.
+        Returns the BatteryPack id (the node the live findings flag)."""
+        t = twin.tenant_id
+        writer.create(tenant_id=t, canonical_type=CORE + "Site", actor=actor,
+                      properties={"displayName": f"{twin.name} — Lab"})
+        pack = self._hsp_new(t, writer, actor, EV + "BatteryPack", twin.name,
+                           {"status": "ok", "stateOfChargePct": 62.0,
+                            "stateOfHealthPct": 93.0, "moduleCount": 8})
+        cooling = self._hsp_new(t, writer, actor, EV + "CoolingSystem", f"{twin.name} — Coolant Loop",
+                              {"status": "running"})
+        self._hsp_link(t, writer, actor, cooling, "ev:cools", pack)
+        for m in range(4):     # a representative subset of modules
+            module = self._hsp_new(t, writer, actor, EV + "BatteryModule", f"{twin.name} — Module {m + 1}",
+                                 {"status": "ok", "cellCount": 12})
+            self._hsp_link(t, writer, actor, pack, "ev:hasModule", module)
+            for k in range(3):
+                cell = self._hsp_new(t, writer, actor, EV + "BatteryCell",
+                                   f"{twin.name} — M{m + 1}C{k + 1}",
+                                   {"status": "ok", "nominalVoltage": 3.7})
+                self._hsp_link(t, writer, actor, module, "ev:hasCell", cell)
+        return pack
+
+    def _seed_charging_network(self, twin, writer, actor) -> Optional[str]:
+        """P2-015 — a charging network: stations with chargers + connectors, a grid
+        connection with a transformer, solar, and a small EV fleet. Returns the
+        ChargingNetwork id."""
+        t = twin.tenant_id
+        network = self._hsp_new(t, writer, actor, EV + "ChargingNetwork",
+                              f"{twin.name} — Network", {"status": "running"})
+        grid = self._seed_grid_node(t, writer, actor, "Grid PCC")
+        self._seed_solar_farm(t, writer, actor, grid, "Rooftop Solar")
+
+        for sname, chargers, kw in [("City Hub", 2, 150.0), ("Airport", 2, 350.0),
+                                    ("Riverside Mall", 2, 75.0), ("Highway Rapid", 2, 350.0)]:
+            station = self._hsp_new(t, writer, actor, EV + "ChargingStation", sname, {"status": "online"})
+            self._hsp_link(t, writer, actor, network, "ev:hasStation", station)
+            self._hsp_link(t, writer, actor, station, "ev:poweredBy", grid)
+            for c in range(chargers):
+                charger = self._hsp_new(t, writer, actor, EV + "Charger", f"{sname} — Charger {c + 1}",
+                                      {"status": "available", "ratedPowerKW": kw})
+                connector = self._hsp_new(t, writer, actor, EV + "Connector", f"{sname} — CCS {c + 1}",
+                                        {"status": "idle"})
+                self._hsp_link(t, writer, actor, charger, "ev:hasConnector", connector)
+                self._hsp_link(t, writer, actor, station, "ev:hasCharger", charger)
+
+        self._seed_ev_fleet(t, writer, actor, "Depot Fleet", vehicles=3)
+        return network
+
+    # ------------------------------------------------------------------
+    #  Defence seeds
+    #
+    #  Build the defence entity-relationship graph the ontology describes
+    #  (P4-012…016). Physics + live views run in the machine-twin runtime
+    #  (packs/defence/). Reuses the _hsp_new/_hsp_link helpers.
+    # ------------------------------------------------------------------
+    def _seed_command_center(self, t, writer, actor, name="Command Center"):
+        """P4-016 — a C4ISR command centre aggregating asset feeds."""
+        return self._hsp_new(t, writer, actor, DEF + "CommandCenter", name,
+                           {"status": "operational", "classification": "UNCLASSIFIED"})
+
+    def _seed_radar_station(self, t, writer, actor, name, arc=360.0):
+        """P4-015 — a radar with a coverage arc + jamming status."""
+        return self._hsp_new(t, writer, actor, DEF + "Radar", name,
+                           {"status": "radiating", "coverageArcDeg": float(arc)})
+
+    def _seed_aircraft(self, t, writer, actor, name, hours=42.0):
+        """P4-014 — an aircraft with engine, avionics, weapons + flight-hour counter."""
+        ac = self._hsp_new(t, writer, actor, DEF + "Aircraft", name,
+                         {"status": "ready", "flightHours": float(hours),
+                          "classification": "UNCLASSIFIED"})
+        eng = self._hsp_new(t, writer, actor, DEF + "GasTurbine", f"{name} — Engine")
+        wpn = self._hsp_new(t, writer, actor, DEF + "WeaponSystem", f"{name} — Weapons")
+        self._hsp_link(t, writer, actor, ac, "def:hasEngine", eng)
+        self._hsp_link(t, writer, actor, ac, "nxr:hasPart", wpn)
+        return ac
+
+    def _seed_warship(self, twin, writer, actor) -> Optional[str]:
+        """P4-013 — a warship with a gas turbine, radar mast, weapons and watertight
+        compartments (damage-control). Returns the Vessel id."""
+        t = twin.tenant_id
+        writer.create(tenant_id=t, canonical_type=CORE + "Site", actor=actor,
+                      properties={"displayName": f"{twin.name} — Naval Port"})
+        vessel = self._hsp_new(t, writer, actor, DEF + "Vessel", twin.name,
+                             {"status": "underway", "classification": "UNCLASSIFIED"})
+        gt = self._hsp_new(t, writer, actor, DEF + "GasTurbine", f"{twin.name} — GT Propulsion")
+        radar = self._seed_radar_station(t, writer, actor, f"{twin.name} — Mast Radar", 360.0)
+        wpn = self._hsp_new(t, writer, actor, DEF + "WeaponSystem", f"{twin.name} — CIWS")
+        self._hsp_link(t, writer, actor, vessel, "def:hasEngine", gt)
+        self._hsp_link(t, writer, actor, vessel, "def:hasRadar", radar)
+        self._hsp_link(t, writer, actor, vessel, "nxr:hasPart", wpn)
+        for cname in ("Fwd Store", "Magazine", "Aux Machinery", "Main Machinery",
+                      "Shaft Alley", "Ops Room"):
+            comp = self._hsp_new(t, writer, actor, DEF + "Compartment", f"{twin.name} — {cname}",
+                               {"status": "dry"})
+            self._hsp_link(t, writer, actor, vessel, "def:hasCompartment", comp)
+        return vessel
+
+    def _seed_military_base(self, twin, writer, actor) -> Optional[str]:
+        """P4-012 — the whole base: perimeter + sectors, C4ISR, radar, hangars,
+        runways, fuel + ammunition storage and NBC, with an air fleet. Returns the
+        MilitaryBase id."""
+        t = twin.tenant_id
+        base = self._hsp_new(t, writer, actor, DEF + "MilitaryBase",
+                           f"{twin.name} — Base", {"status": "operational",
+                                                   "classification": "UNCLASSIFIED"})
+        # perimeter + sectors
+        perimeter = self._hsp_new(t, writer, actor, DEF + "Perimeter", "Base Perimeter",
+                                {"status": "secure"})
+        self._hsp_link(t, writer, actor, perimeter, "def:defends", base)
+        for s in ("North", "East", "South", "West"):
+            sector = self._hsp_new(t, writer, actor, DEF + "Sector", f"Sector {s}", {"status": "clear"})
+            self._hsp_link(t, writer, actor, perimeter, "def:hasSector", sector)
+
+        cc = self._seed_command_center(t, writer, actor, f"{twin.name} — C4ISR")
+        assets = [cc, perimeter]
+        radars = [self._seed_radar_station(t, writer, actor, "Search Radar", 360.0),
+                  self._seed_radar_station(t, writer, actor, "Fire-Control Radar", 120.0)]
+        assets += radars
+        for cls, nm, props in [
+            (DEF + "Hangar", "Aircraft Hangar", {"status": "active"}),
+            (DEF + "Runway", "Main Runway", {"status": "open"}),
+            (DEF + "FuelStorage", "Fuel Farm", {"status": "nominal"}),
+            (DEF + "Ammunition", "Ammunition Store", {"status": "secure"}),
+            (DEF + "NBCSystem", "NBC Detection", {"status": "monitoring"}),
+            (DEF + "CommunicationNode", "SATCOM Node", {"status": "online"}),
+        ]:
+            assets.append(self._hsp_new(t, writer, actor, cls, nm, props))
+        aircraft = [self._seed_aircraft(t, writer, actor, f"Falcon 0{i + 1}", 42.0 - 8.0 * i)
+                    for i in range(2)]
+        assets += aircraft
+
+        for a in assets:
+            self._hsp_link(t, writer, actor, base, "def:hasAsset", a)
+        for a in radars + aircraft:
+            self._hsp_link(t, writer, actor, cc, "def:aggregates", a)
+        return base

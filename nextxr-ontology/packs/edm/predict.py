@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import copy
 
-from edm.physics import SIGNALS, redlines
+from .physics import SIGNALS, redlines
 
 
 def _status(h: float) -> str:
@@ -52,7 +52,7 @@ _GUARDS = [
 
 def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) -> dict:
     if physics is None:
-        from edm.physics import EDMPhysics
+        from .physics import EDMPhysics
         physics = EDMPhysics()
 
     st = copy.deepcopy(state)
