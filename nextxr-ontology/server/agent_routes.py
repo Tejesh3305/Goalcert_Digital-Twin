@@ -295,6 +295,130 @@ def twin_scene_by_tenant(tenant: str):
     return {"tenant": tenant, "scene_result": scene}
 
 
+# ── One-shot 2-D plan → 3-D scene → live digital twin ──────────────
+# Mirrors the standalone apps/2d-to-3d "upload → Build 3-D" feature, but instead
+# of stopping at the rendered model it commits the reconstructed building as a
+# real twin (graph + registry + cached scene) so it streams live physics. This
+# is what the "Build a Twin → From a 2-D Plan" panel calls.
+class BuildFromPlan(BaseModel):
+    data: str                          # image data URL (PDFs rasterised client-side)
+    filename: str = "plan.png"
+    name: Optional[str] = None
+    facility: Optional[str] = None
+    floors: int = 1
+
+
+@router.post("/twin/build-from-plan")
+def twin_build_from_plan(req: BuildFromPlan):
+    """Parse an uploaded 2-D floor plan into a 3-D `nxr-scene/1`, then commit it
+    as a live digital twin.
+
+    Pipeline (all reusing the existing agent nodes):
+        vision parse  → bim_model
+        schema_mapper → Building/Floor/Room/equipment drafts (+ enrich/auto-wire)
+        validator     → SHACL gate
+        graph_writer  → commit to Neo4j + register the twin
+        scene_generator → nxr-scene/1 with live entityIds, cached per-tenant
+
+    Robust: if the database is offline (or the commit fails) the reconstructed
+    3-D scene is STILL returned with `committed:false` and cached, so the model
+    always renders and the dashboard can re-fetch it. Works with no API key too —
+    the parse degrades to a synthesized building for the chosen facility."""
+    if not req.data:
+        raise HTTPException(400, "Provide an image data URL in `data`.")
+
+    from agents import bim_support as bs
+    from agents.twin_agents import (PLAN_PARSER_SYSTEM, schema_mapper,
+                                    validator, graph_writer, scene_generator)
+
+    gw = get_gateway()
+    facility = req.facility or bs.infer_facility(req.filename)
+    floors = max(1, min(12, int(req.floors or 1)))
+
+    # 1 · Vision parse → bim_model (degrades to a synthesized building w/o a key).
+    try:
+        result = gw.complete_json_vision(
+            tenant_id="build", session_id="build",
+            system=PLAN_PARSER_SYSTEM,
+            user_text=(f"Facility hint: {facility}. Floors hint: {floors}. Parse "
+                       f"this floor plan into the bim_model JSON. Capture every "
+                       f"labelled room with its printed dimensions; do not omit rooms."),
+            image_urls=[req.data], stub={"_synth": True}, max_tokens=12000,
+        )
+    except Exception as e:
+        raise HTTPException(500, f"parse failed: {e}")
+
+    bm = bs.normalize_bim_model(result, facility, floors)
+    facility = bm.get("facility") or facility
+    synthesized = bool(bm.get("synthesized"))
+    parse_note = gw.last_vision_error if synthesized else None
+
+    tenant = _new_session("twin")
+    name = (req.name or bm.get("building", {}).get("name")
+            or f"{facility.title()} Twin")
+
+    # 2 · Try to commit a live twin. schema_mapper's BIM branch enriches bm
+    #     in-place (furnish + auto-wire), so we must not enrich it again.
+    committed, scene, enriched = False, None, False
+    try:
+        state = new_twin_state(tenant, tenant, twin_name=name)
+        state["uploaded_files"] = [{"url": req.data, "type": "image",
+                                    "filename": req.filename}]
+        state["bim_model"] = bm
+        state["domain"] = facility
+        state["user_intent"] = f"{facility} building"
+
+        state.update(schema_mapper(state))     # bim_model → drafts (+ enrich)
+        enriched = True
+        state.update(validator(state))
+
+        if (state.get("validation") or {}).get("ok"):
+            from graph.connection import get_driver
+            get_driver().verify_connectivity()  # raises fast if DB is offline
+            state.update(graph_writer(state))
+            committed = bool(state.get("committed"))
+
+        if committed:
+            state["twin_id"] = tenant
+            state.update(scene_generator(state))  # scene w/ live ids + cache
+            scene = state.get("scene_result")
+    except Exception as e:
+        parse_note = parse_note or f"live twin not committed ({e}); 3-D only."
+
+    # 3 · Fallback scene straight from the bim_model (always renders offline).
+    if not scene or not scene.get("nodes"):
+        if not enriched:
+            bs.enrich_domain(bm, facility)
+        scene = bs.bim_model_to_scene(bm, id_map={})
+        scene["status"] = "ok"
+        scene["twin_id"] = tenant
+        bs.save_scene_cache(tenant, scene)     # so the dashboard can re-fetch it
+
+    scene["facility"] = facility
+    scene["synthesized"] = synthesized
+    scene["parse_note"] = parse_note
+    scene["vision_backend"] = getattr(gw, "last_vision_backend", None)
+
+    return {"tenant": tenant, "twin_name": name, "committed": committed,
+            "facility": facility, "synthesized": synthesized,
+            "parse_note": parse_note, "scene": scene}
+
+
+@router.get("/twin/sample-scene/{facility}")
+def twin_sample_scene(facility: str, floors: int = 1):
+    """A no-LLM sample building for a facility — lets the plan panel render (and
+    demo the flow) with no API key. Not committed as a twin; purely visual."""
+    from agents import bim_support as bs
+    floors = max(1, min(12, int(floors or 1)))
+    bm = bs.synthesize_bim_model(facility, floors)
+    bs.enrich_domain(bm, facility)
+    scene = bs.bim_model_to_scene(bm, id_map={})
+    scene["status"] = "ok"
+    scene["facility"] = facility
+    scene["synthesized"] = True
+    return {"facility": facility, "scene": scene}
+
+
 # ── Bundle Author flow ─────────────────────────────────────────────
 @router.post("/bundle/start")
 def bundle_start(req: BundleStart):
@@ -369,6 +493,133 @@ def ops_state(session_id: str):
     if cur is None:
         raise HTTPException(404, "Unknown session")
     return {"session_id": session_id, "state": _public(cur)}
+
+
+# ── Ops reasoning: outlook + cascade (markdown for the Integration Hub) ──
+# The hub calls these and renders {report | result} as markdown. Both are
+# grounded in the twin's real state and degrade gracefully if the DB is offline.
+class OpsAnalysisReq(BaseModel):
+    tenant: str
+    horizon_min: float = 360.0
+
+
+def _fmt_when(mins: float) -> str:
+    return f"~{round(mins / 60, 1)} h" if mins < 1440 else f"~{round(mins / 1440, 1)} d"
+
+
+@router.post("/ops/analysis")
+def ops_analysis(req: OpsAnalysisReq):
+    """A plain-language operational outlook over the horizon — physics forecast for
+    machine twins, or a findings-driven outlook for facility twins."""
+    tenant = req.tenant
+    hours = round(req.horizon_min / 60, 1)
+    lines = [f"## Operational outlook — next {hours} h", ""]
+    kind = "facility"
+    try:
+        try:
+            from twins.runtime import get_machine_engine
+            tw = get_machine_engine().ensure(tenant)
+        except Exception:
+            tw = None
+
+        if tw is not None:
+            kind = "machine"
+            pred = tw.predict_forward(horizon_min=req.horizon_min, points=60)
+            state = tw.state_dict()
+            health = state.get("health")
+            sev = pred.get("severity", "nominal")
+            rul = sorted(pred.get("rul", []), key=lambda r: r.get("minutes", 9e9))
+            lines.append(f"- **Health now:** {round((health or 0) * 100)}%  ·  **Outlook:** {sev}")
+            if rul:
+                top = rul[0]
+                lines.append(f"- **Earliest constraint:** {top['component'].replace('_', ' ')} "
+                             f"reaches its limit in {_fmt_when(top.get('minutes', 0))} — this sets the "
+                             f"maintenance window.")
+                lines += ["", "### Projected limits within the horizon"]
+                lines += [f"- {r['component'].replace('_', ' ')}: {_fmt_when(r.get('minutes', 0))}" for r in rul[:5]]
+                action = f"Inspect the {top['component'].replace('_', ' ')} before {_fmt_when(top.get('minutes', 0))}."
+            else:
+                lines.append("- No subsystem is projected to breach a limit within the horizon.")
+                action = "No action needed — continue monitoring."
+            findings = state.get("findings", [])
+            if findings:
+                lines += ["", "### Active findings"]
+                lines += [f"- [{f.get('severity')}] {f.get('message') or f.get('displayName')}" for f in findings[:6]]
+            lines += ["", f"**Recommended:** {action}"]
+        else:
+            from graph.query import GraphQuery
+            findings = GraphQuery().get_findings(tenant)
+            crit = [f for f in findings if f.get("severity") == "critical"]
+            warn = [f for f in findings if f.get("severity") == "warning"]
+            sev = "critical" if crit else "warning" if warn else "nominal"
+            lines.append(f"- **Outlook:** {sev}  ·  {len(findings)} active finding(s) "
+                         f"({len(crit)} critical, {len(warn)} warning)")
+            if findings:
+                lines += ["", "### Active findings"]
+                lines += [f"- [{f.get('severity')}] {f.get('displayName') or f.get('id')}" for f in findings[:8]]
+            worst = (crit or warn or findings or [None])[0]
+            action = (f"Prioritise: {worst.get('displayName')}." if worst
+                      else "No action needed — the facility is nominal.")
+            lines += ["", f"**Recommended:** {action}"]
+    except Exception as e:
+        lines.append(f"_Live data unavailable ({e}); outlook could not be computed._")
+
+    md = "\n".join(lines)
+    return {"tenant": tenant, "kind": kind, "horizon_min": req.horizon_min,
+            "report": md, "result": md}
+
+
+class OpsCascadeReq(BaseModel):
+    tenant: str
+    entity_id: Optional[str] = None
+    fault: Optional[str] = None
+    finding_ids: list[str] = []
+
+
+@router.post("/ops/cascade")
+def ops_cascade(req: OpsCascadeReq):
+    """Trace how a fault at an entity propagates downstream (DEPENDS_ON / FED_BY),
+    returning a markdown fault-propagation report."""
+    lines = ["## Fault-propagation analysis", ""]
+    affected = []
+    source = {"id": req.entity_id, "displayName": None}
+    try:
+        from graph.query import GraphQuery
+        q = GraphQuery()
+        entity_id = req.entity_id
+        if not entity_id:
+            # Fall back to the entity flagged by the first critical/warning finding.
+            for f in q.get_findings(req.tenant):
+                if f.get("severity") in ("critical", "warning") and f.get("flaggedEntityId"):
+                    entity_id = f["flaggedEntityId"]
+                    break
+        if not entity_id:
+            lines.append("No source entity given and no active finding to anchor on. "
+                         "Provide `entity_id` to trace a cascade.")
+            md = "\n".join(lines)
+            return {"tenant": req.tenant, "source": source, "affected": [], "report": md, "result": md}
+
+        root = q.get_node(req.tenant, entity_id)
+        name = (root or {}).get("displayName") or entity_id
+        source = {"id": entity_id, "displayName": name}
+        deps = q.dependents(req.tenant, entity_id, max_depth=4)
+        affected = [{"id": d.get("id"), "displayName": d.get("displayName"),
+                     "type": (d.get("canonicalType") or "").split("#")[-1]} for d in deps]
+        fault_txt = f" ({req.fault})" if req.fault else ""
+        lines.append(f"A fault at **{name}**{fault_txt} propagates to **{len(deps)}** "
+                     f"downstream asset(s):")
+        lines.append("")
+        if deps:
+            lines += [f"- {a['displayName'] or a['id']}"
+                      f"{(' — ' + a['type']) if a['type'] else ''}" for a in affected[:25]]
+        else:
+            lines.append("- No downstream dependents — the fault is contained to this asset.")
+    except Exception as e:
+        lines.append(f"_Live topology unavailable ({e}); cascade could not be traced._")
+
+    md = "\n".join(lines)
+    return {"tenant": req.tenant, "source": source, "affected": affected,
+            "report": md, "result": md}
 
 
 # ── Plugin Scaffolder (Team 4) ───────────────────────────────────

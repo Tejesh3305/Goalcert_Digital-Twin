@@ -75,7 +75,7 @@ export const api = {
   // The behaviour archetype catalog (generative dynamics archetypes + monitoring kinds).
   archetypes: () => request('/schema/archetypes'),
 
-  // ── Machine twins (live physics runtime: turbine / EDM / tram-fleet) ──
+  // ── Machine twins (live physics runtime: turbine / EDM / rail / hospital / EV / defence) ──
   // Which domains the machine-twin runtime can twin.
   machineDomains: () => request('/twins/domains'),
   // Latest frame + health + recent findings.
@@ -130,6 +130,14 @@ export const api = {
   // BIM: rebuild a twin's 3-D scene straight from its graph (no session needed)
   twinSceneByTenant: (tenant) => request(`/agents/twin/scene/${encodeURIComponent(tenant)}`),
 
+  // Build a Twin from a 2-D plan: parse → 3-D scene → live digital twin (one shot).
+  // body: { data (image data URL), filename, name?, facility?, floors? }
+  buildFromPlan: (body) =>
+    request('/agents/twin/build-from-plan', { method: 'POST', body: JSON.stringify(body) }),
+  // No-LLM sample building for a facility (renders with no API key).
+  sampleScene: (facility, floors = 1) =>
+    request(`/agents/twin/sample-scene/${encodeURIComponent(facility)}?${qs({ floors })}`),
+
   // Bundle Author (author a new vertical, human-gated publish)
   bundleStart: (body) => request('/agents/bundle/start', { method: 'POST', body: JSON.stringify(body || {}) }),
   bundleMessage: (session_id, message) =>
@@ -141,6 +149,19 @@ export const api = {
   // Operational (Diagnosis + Recommender — Team 2)
   opsDiagnose: (body) => request('/agents/ops/diagnose', { method: 'POST', body: JSON.stringify(body) }),
   opsState: (session_id) => request(`/agents/ops/${session_id}`),
+  // Ops reasoning: 6-hour outlook + fault-propagation (markdown report/result).
+  opsAnalysis: (tenant, horizon_min = 360) =>
+    request('/agents/ops/analysis', { method: 'POST', body: JSON.stringify({ tenant, horizon_min }) }),
+  opsCascade: (tenant, body = {}) =>
+    request('/agents/ops/cascade', { method: 'POST', body: JSON.stringify({ tenant, ...body }) }),
+
+  // ── Hub-facing surfaces (top-level) ──
+  // Forecast + RUL for a tenant (physics for machine twins, findings outlook for facilities).
+  predict: (tenant, horizon_min = 360, points = 60) =>
+    request('/predict', { method: 'POST', body: JSON.stringify({ tenant, horizon_min, points }) }),
+  // Versioned AR maintenance steps for an asset, grounded in its live findings.
+  arOverlay: (assetId, tenant, version) =>
+    request(`/assets/${encodeURIComponent(assetId)}/ar-overlay?${qs({ tenant, version })}`),
 
   // Plugin Scaffolder (Team 4)
   pluginStart: () => request('/agents/plugin/start', { method: 'POST' }),

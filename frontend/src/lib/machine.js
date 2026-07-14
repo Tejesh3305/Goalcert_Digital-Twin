@@ -1,16 +1,17 @@
 /**
  * machine.js — client-side knowledge of the machine-twin domains (the live
- * physics runtime: gas turbine, wire-EDM, tram fleet). Used to decide when a
- * panel should render the machine-twin surfaces instead of the HVAC/CFP feed.
+ * physics runtime: gas turbine, wire-EDM, rail, hospital, EV, defence). Used to
+ * decide when a panel should render the machine-twin surfaces instead of the
+ * HVAC/CFP feed.
  */
-export const MACHINE_DOMAINS = ['turbine-engine', 'edm-machine', 'tram-network',
+export const MACHINE_DOMAINS = ['turbine-engine', 'edm-machine',
   'railway-metro', 'railway-trainset', 'hospital-campus', 'ev-charging-network', 'ev-battery-pack',
   'defence-base', 'defence-warship']
 
 export const isMachineDomain = (domain) => MACHINE_DOMAINS.includes(domain)
 
 /** Domains that expose a live network/spatial payload via GET /twins/{tenant}/network. */
-export const NETWORK_DOMAINS = ['tram-network', 'railway-metro', 'hospital-campus',
+export const NETWORK_DOMAINS = ['railway-metro', 'hospital-campus',
   'ev-charging-network', 'ev-battery-pack', 'defence-base', 'defence-warship']
 
 export const isNetworkDomain = (domain) => NETWORK_DOMAINS.includes(domain)
@@ -56,9 +57,6 @@ export const DOMAIN_META = {
   'edm-machine': { label: 'Wire EDM', tag: 'Precision Machining', icon: 'ti-square-rotated-forbid-2',
     accent: '#2563eb', control: 'Intensity', machine: true, signals: 18,
     blurb: 'A wire electrical-discharge-machining twin — discharge, dielectric, wire-transport and axis signals.' },
-  'tram-network': { label: 'Tram Fleet Network', tag: 'Transit · Mobility', icon: 'ti-train',
-    accent: '#0d9488', control: 'Service level', machine: true, network: true, signals: 22,
-    blurb: 'A tram fleet-network twin — a live map of vehicles, per-route status, traction power and service KPIs.' },
   'railway-metro': { label: 'Metro Rail Network', tag: 'Rail · Transit', icon: 'ti-train',
     accent: '#0ea5e9', control: 'Service level', machine: true, network: true, signals: 25,
     blurb: 'A full MRT / metro twin — lines, stations, permanent way, third-rail traction power, CBTC signalling and station services, with a live network map, per-station KPIs and a depot board.' },

@@ -9,7 +9,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
 import { HealthRing, Sparkline } from './ui/Viz'
-import NetworkMap from './NetworkMap'
 import RailwayNetworkMap from './RailwayNetworkMap'
 import RailwayDepotBoard from './RailwayDepotBoard'
 import HospitalCampusViews from './HospitalCampusViews'
@@ -134,21 +133,18 @@ export default function MachineDashboard({ tenant, domain, name }) {
         </Card>
       ) : (
         /* 3D / network scene */
-        <Card title={<><i className={`ti ${meta.icon}`} /> {domain === 'railway-metro' ? 'Live Metro Network'
-          : domain === 'tram-network' ? 'Live Network Map' : '3-D Twin'}</>}
+        <Card title={<><i className={`ti ${meta.icon}`} /> {domain === 'railway-metro' ? 'Live Metro Network' : '3-D Twin'}</>}
           action={isNetworkDomain(domain) && net?.blocked?.length
             ? <span className="pill pill-red">{net.blocked.length} {domain === 'railway-metro' ? 'line' : 'route'} blocked</span>
             : <span className="pill pill-green">● live</span>}
           className="section-gap">
           {domain === 'railway-metro'
             ? (net ? <RailwayNetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
-            : domain === 'tram-network'
-              ? (net ? <NetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
-              : domain === 'turbine-engine'
-                ? <TurbineModel latest={latest} health={health} height={340} />
-                : domain === 'edm-machine'
-                  ? <Scene3D domain="edm-machine" machine={name || meta.label} live={latest} height={340} />
-                  : <MachineHero meta={meta} name={name || meta.label} health={health} latest={latest} />}
+            : domain === 'turbine-engine'
+              ? <TurbineModel latest={latest} health={health} height={340} />
+              : domain === 'edm-machine'
+                ? <Scene3D domain="edm-machine" machine={name || meta.label} live={latest} height={340} />
+                : <MachineHero meta={meta} name={name || meta.label} health={health} latest={latest} />}
         </Card>
       )}
 

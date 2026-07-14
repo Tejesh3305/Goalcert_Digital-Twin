@@ -105,6 +105,16 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
 
+        # Honor the identity headers the Integration Hub gateway forwards for
+        # tenant scoping / audit logging (the browser never holds these). Stash
+        # them on request.state so downstream handlers can read them; they never
+        # gate access on their own (the X-API-Key does that).
+        request.state.identity = {
+            "user": request.headers.get("X-Goalcert-User"),
+            "role": request.headers.get("X-Goalcert-Role"),
+            "org": request.headers.get("X-Goalcert-Org"),
+        }
+
         # Public paths (frontend app, assets, docs)
         if _is_public(path, request.method):
             return await call_next(request)

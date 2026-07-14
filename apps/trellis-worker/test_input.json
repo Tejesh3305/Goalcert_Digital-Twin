@@ -1,0 +1,13 @@
+{
+  "input": {
+    "images": ["<paste a base64 PNG here>"],
+    "seed": 1,
+    "ss_sampling_steps": 25,
+    "ss_guidance_strength": 7.5,
+    "slat_sampling_steps": 25,
+    "slat_guidance_strength": 3.0,
+    "mesh_simplify": 0.9,
+    "texture_size": 2048,
+    "preprocess": true
+  }
+}

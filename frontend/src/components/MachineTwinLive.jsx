@@ -9,7 +9,6 @@
 import { useMemo } from 'react'
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
-import NetworkMap from './NetworkMap'
 import RailwayNetworkMap from './RailwayNetworkMap'
 import RailwayDepotBoard from './RailwayDepotBoard'
 import HospitalCampusViews from './HospitalCampusViews'
@@ -115,15 +114,6 @@ export default function MachineTwinLive({ tenant, domain }) {
             <RailwayDepotBoard depots={net.depots} />
           </Card>
         </>
-      )}
-      {domain === 'tram-network' && net && (
-        <Card title={<><i className="ti ti-map-2" /> Live Network Map</>}
-          action={net.blocked?.length
-            ? <span className="pill pill-red">{net.blocked.length} route blocked</span>
-            : <span className="pill pill-green">● all routes running</span>}
-          style={{ marginBottom: 16 }}>
-          <NetworkMap net={net} />
-        </Card>
       )}
       {domain === 'hospital-campus' && net && (
         <div style={{ marginBottom: 16 }}>

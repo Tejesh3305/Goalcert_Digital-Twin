@@ -75,15 +75,6 @@ TEMPLATES = {
         "machine": True,
         "class_iri": "https://ontology.nextxr.io/v3/edm#WireEDM",
     },
-    "tram-network": {
-        "label": "Tram Fleet Network",
-        "description": "A tram fleet-network twin — live vehicles, per-route "
-                       "status, traction power and service KPIs.",
-        "primary_signal": "fleet:otp",
-        "seeds_feed": False,
-        "machine": True,
-        "class_iri": "https://ontology.nextxr.io/v3/fleet#TramNetwork",
-    },
     "railway-metro": {
         "label": "Metro Rail Network",
         "description": "A full MRT / metro twin — lines, stations, platforms, "

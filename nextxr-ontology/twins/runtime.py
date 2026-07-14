@@ -38,13 +38,13 @@ def load_specs() -> dict:
     """Discover the available machine domains from their SPECs. Missing/broken
     domains are skipped so one bad module never takes the runtime down.
 
-    A domain module may expose a single `SPEC` (turbine/edm/fleet) or a `SPECS`
+    A domain module may expose a single `SPEC` (turbine/edm) or a `SPECS`
     list of several specs backed by the same package (railway exposes both the
     metro-network and the rolling-stock twins). Each machine-twin domain is a
     self-contained pack under `packs/<domain>/` (ontology TTL + physics + behaviours
     + prediction co-located)."""
     specs: dict[str, dict] = {}
-    for mod in ("turbine", "edm", "fleet", "railway", "hospital", "ev", "defence"):
+    for mod in ("turbine", "edm", "railway", "hospital", "ev", "defence"):
         try:
             m = __import__(f"packs.{mod}", fromlist=["SPEC", "SPECS"])
             candidates = list(getattr(m, "SPECS", None) or [])

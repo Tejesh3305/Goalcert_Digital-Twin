@@ -1,8 +1,10 @@
+import { useEffect, useState } from 'react'
 import { PanelHeader, KpiCard, Card } from '../components/ui/Card'
 import { SeverityPill } from '../components/ui/Modal'
 import NoTwin from '../components/NoTwin'
 import FeedControls from '../components/FeedControls'
 import DemoTwin from '../components/DemoTwin'
+import BimViewer from '../components/BimViewer'
 import MachineDashboard from '../components/MachineDashboard'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
@@ -47,11 +49,12 @@ function FacilityDashboard() {
         <FeedControls />
       </PanelHeader>
 
-      {/* Live interactive 3-D twin — the reconstructed building, alerts overlaid. */}
+      {/* Live interactive 3-D twin — the twin's real reconstructed scene from its
+          own graph (live status overlaid); a demo scene only if it has no geometry. */}
       <Card title="3-D Twin" className="section-gap"
-            action={<span className="pill pill-blue" style={{ fontSize: 10 }}>DEMO SCENE</span>}
+            action={<span className="pill pill-green" style={{ fontSize: 10 }}>● live</span>}
             style={{ padding: 0, overflow: 'hidden' }}>
-        <DemoTwin domain={activeTwin?.domain} name={activeTwin?.name} />
+        <TwinScene tenant={activeTenant} domain={activeTwin?.domain} name={activeTwin?.name} />
       </Card>
 
       <div className="grid-4 section-gap">
@@ -166,6 +169,26 @@ function FacilityDashboard() {
       )}
     </div>
   )
+}
+
+/** The twin's real 3-D scene, rebuilt from its own graph geometry (live status
+ *  overlaid by tenant). Falls back to a demo scene only if the twin has no
+ *  geometry at all, so the hero never renders blank. */
+function TwinScene({ tenant, domain, name }) {
+  const [scene, setScene] = useState(undefined)  // undefined = loading, null = none
+  useEffect(() => {
+    if (!tenant) return
+    let alive = true
+    setScene(undefined)
+    api.twinSceneByTenant(tenant)
+      .then((r) => { if (alive) setScene(r.scene_result?.nodes?.length ? r.scene_result : null) })
+      .catch(() => { if (alive) setScene(null) })
+    return () => { alive = false }
+  }, [tenant])
+
+  if (scene === undefined) return <div className="bim-loading"><span className="spinner" /> Reconstructing scene…</div>
+  if (scene) return <BimViewer scene={scene} tenant={tenant} />
+  return <DemoTwin domain={domain} name={name} />   // graceful fallback: no geometry
 }
 
 const sevIcon = (s) => ({ critical: 'ev-crit', warning: 'ev-warn', info: 'ev-info' }[s] || 'ev-info')

@@ -71,6 +71,7 @@ from server.schema_routes import router as schema_router
 from server.twins_routes import router as twins_router
 from server.twin_runtime_routes import router as twin_runtime_router
 from server.agent_routes import router as agent_router
+from server.hub_routes import router as hub_router
 
 # ── App setup ───────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ app.include_router(schema_router)
 app.include_router(twin_runtime_router)
 app.include_router(twins_router)
 app.include_router(agent_router)
+app.include_router(hub_router)
 
 
 # ── Global DB-down handler ──────────────────────────────────────────

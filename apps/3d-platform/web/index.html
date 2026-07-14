@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NextXR · 3D Generation Platform</title>
+<script type="module" src="https://unpkg.com/@google/model-viewer/dist/model-viewer.min.js"></script>
+<style>
+  :root { --bg:#0f1117; --panel:#161922; --line:#262b39; --muted:#8b93a7; --accent:#7c3aed; --accent2:#2563eb; --ok:#16a34a; --warn:#f59e0b; --err:#f43f5e; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Inter',system-ui,sans-serif; background:var(--bg); color:#e8ebf2; height:100vh; display:grid; grid-template-columns:340px 1fr; }
+  .panel { background:var(--panel); border-right:1px solid var(--line); padding:18px; overflow:auto; }
+  .brand { font-size:16px; } .brand b{color:#fff;} .muted{color:var(--muted); font-size:12.5px; line-height:1.5;}
+  h4 { margin:18px 0 8px; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#aab2cc; }
+  .drop { margin:12px 0; border:1.5px dashed var(--line); border-radius:12px; min-height:130px; display:flex; align-items:center; justify-content:center; cursor:pointer; overflow:hidden; background:#11141c; text-align:center; }
+  .drop:hover{border-color:var(--accent);} .drop img{max-width:100%; max-height:180px; object-fit:contain;}
+  .dz{color:var(--muted); font-size:13px;} .dz .big{font-size:28px; color:var(--accent);}
+  label.l{display:block; font-size:11px; color:var(--muted); margin:10px 0 4px;}
+  select,input.t{ width:100%; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:#11141c; color:#fff; font-size:12.5px;}
+  .btn{ width:100%; margin-top:14px; padding:11px; border-radius:10px; border:none; cursor:pointer; font-weight:600; background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#fff;}
+  .btn:disabled{opacity:.5; cursor:default;}
+  .stage{ position:relative; }
+  main{ position:relative; display:flex; flex-direction:column; }
+  .viewer{ flex:1; background:#0c0f16; position:relative; }
+  model-viewer{ width:100%; height:100%; --poster-color:transparent; }
+  .empty{ position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:var(--muted); flex-direction:column; gap:8px; }
+  .empty .big{font-size:46px;}
+  .stages{ border-top:1px solid var(--line); max-height:42%; overflow:auto; padding:12px 18px; background:var(--panel);}
+  .srow{ display:flex; align-items:center; gap:10px; padding:7px 0; font-size:12.5px; border-bottom:1px solid var(--line);}
+  .dot{ width:9px; height:9px; border-radius:50%; background:#39405a; flex:none;}
+  .dot.running{ background:var(--warn); box-shadow:0 0 0 4px rgba(245,158,11,.18);}
+  .dot.done{ background:var(--ok);} .dot.skipped{ background:#6b7280;} .dot.error{ background:var(--err);}
+  .sname{ width:130px; color:#cdd3e6; flex:none; text-transform:capitalize;}
+  .snote{ color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .sms{ color:#5c647c; font-size:11px; }
+  .hdr{ padding:10px 18px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; background:var(--panel);}
+  .pill{ font-size:11px; padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--muted);}
+  .pill.object{ color:#c4b5fd; border-color:#7c3aed;} .pill.drawing{ color:#93c5fd; border-color:#2563eb;}
+  .pill.done{color:#86efac;border-color:var(--ok);} .pill.error{color:#fca5a5;border-color:var(--err);} .pill.running{color:#fcd34d;border-color:var(--warn);}
+  a.dl{ color:#93c5fd; font-size:12px; text-decoration:none;} a.dl:hover{text-decoration:underline;}
+  .row{display:flex; gap:8px;} .row>*{flex:1;}
+  .warnbox{ font-size:11.5px; color:#fcd34d; background:rgba(245,158,11,.08); border:1px solid rgba(245,158,11,.3); border-radius:8px; padding:8px 10px; margin-top:10px; line-height:1.5;}
+</style>
+</head>
+<body>
+  <aside class="panel">
+    <div class="brand">NextXR · <b>3D Platform</b></div>
+    <p class="muted">Image → 3D model. Photos of objects run through TRELLIS; floor plans / CAD route to the 2-D→3-D scene parser.</p>
+
+    <div class="drop" id="drop">
+      <div class="dz" id="dz"><div class="big">⤓</div>Drop image or PDF<br><span>JPG · PNG · PDF</span></div>
+      <input id="file" type="file" accept="image/*,.pdf" hidden />
+    </div>
+
+    <label class="l">Route</label>
+    <select id="route">
+      <option value="">Auto-detect</option>
+      <option value="object">Object photo (TRELLIS)</option>
+      <option value="drawing">Drawing / floor plan</option>
+    </select>
+
+    <div id="objfields">
+      <label class="l">Object type (optional)</label>
+      <input class="t" id="object_type" placeholder="e.g. gas turbine" />
+      <div class="row">
+        <div><label class="l">Asset ID</label><input class="t" id="asset_id" placeholder="GT-1001" /></div>
+        <div><label class="l">Material</label><input class="t" id="material" placeholder="steel" /></div>
+      </div>
+    </div>
+    <div id="drawfields" style="display:none">
+      <label class="l">Facility</label>
+      <select id="facility">
+        <option value="">Auto</option><option>hospital</option><option>datacenter</option>
+        <option>residential</option><option>office</option><option>factory</option>
+      </select>
+      <label class="l">Floors</label><input class="t" id="floors" type="number" value="1" min="1" max="12" />
+    </div>
+
+    <button class="btn" id="go" disabled>Generate 3D</button>
+    <div id="warn" class="warnbox" style="display:none"></div>
+    <div id="trellisnote" class="muted" style="margin-top:12px"></div>
+  </aside>
+
+  <main>
+    <div class="hdr">
+      <span id="status" class="pill">idle</span>
+      <span id="routepill"></span>
+      <span id="jobid" class="muted"></span>
+      <span style="flex:1"></span>
+      <a id="downloadGlb" class="dl" style="display:none" target="_blank">⬇ GLB</a>
+      <a id="downloadTwin" class="dl" style="display:none" target="_blank">⬇ twin.json</a>
+    </div>
+    <div class="viewer">
+      <model-viewer id="mv" style="display:none" camera-controls auto-rotate exposure="1.0"
+                    shadow-intensity="1" environment-image="neutral"></model-viewer>
+      <div class="empty" id="empty"><div class="big">🧊</div>Your 3-D model appears here<br>
+        <span class="muted">upload an object photo and press Generate</span></div>
+    </div>
+    <div class="stages" id="stages"><div class="muted">Pipeline stages will stream here…</div></div>
+  </main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let dataURL = null, fileObj = null, poll = null;
+
+fetch('/api/health').then(r=>r.json()).then(h=>{
+  $('trellisnote').innerHTML = h.trellis
+    ? `✓ TRELLIS configured: <code>${h.trellis_model}</code>`
+    : '⚠ TRELLIS not configured — reconstruction returns a <b>stub mesh</b>. Set REPLICATE_API_TOKEN + TRELLIS_REPLICATE_MODEL in .env for real models.';
+});
+
+$('drop').onclick = () => $('file').click();
+$('drop').ondragover = (e)=>{e.preventDefault();};
+$('drop').ondrop = (e)=>{e.preventDefault(); pick(e.dataTransfer.files[0]);};
+$('file').onchange = (e)=> pick(e.target.files[0]);
+$('route').onchange = () => {
+  const v = $('route').value;
+  $('objfields').style.display = v==='drawing' ? 'none':'block';
+  $('drawfields').style.display = v==='drawing' ? 'block':'none';
+};
+
+function pick(f){
+  if(!f) return; fileObj = f;
+  const r = new FileReader();
+  r.onload = () => { dataURL = r.result;
+    if(f.type.startsWith('image/')) $('drop').innerHTML = `<img src="${dataURL}"/>`;
+    else $('drop').innerHTML = `<div class="dz"><div class="big">📄</div>${f.name}</div>`;
+    $('go').disabled = false;
+  };
+  r.readAsDataURL(f);
+}
+
+$('go').onclick = async () => {
+  if(!fileObj) return;
+  $('go').disabled = true; $('warn').style.display='none';
+  const fd = new FormData();
+  fd.append('file', fileObj);
+  fd.append('route', $('route').value);
+  fd.append('object_type', $('object_type').value);
+  fd.append('asset_id', $('asset_id').value);
+  fd.append('material', $('material').value);
+  fd.append('facility', $('facility').value);
+  fd.append('floors', $('floors').value || '1');
+  const r = await fetch('/api/jobs', {method:'POST', body:fd});
+  const j = await r.json();
+  $('jobid').textContent = 'job ' + j.job_id;
+  if(poll) clearInterval(poll);
+  poll = setInterval(()=>refresh(j.job_id), 900);
+  refresh(j.job_id);
+};
+
+async function refresh(id){
+  const j = await (await fetch('/api/jobs/'+id)).json();
+  const st = $('status'); st.textContent = j.status; st.className = 'pill ' + j.status;
+  if(j.state && j.state.route){
+    const rp = $('routepill'); rp.textContent = j.state.route; rp.className = 'pill ' + j.state.route;
+  }
+  renderStages(j.stages||[]);
+  if(j.status==='done' || j.status==='error'){
+    clearInterval(poll); poll=null; $('go').disabled=false;
+    const glb = j.state && j.state.result_glb;
+    if(glb){
+      const url = `/api/jobs/${id}/file/${glb}`;
+      const mv = $('mv'); mv.src = url; mv.style.display='block'; $('empty').style.display='none';
+      const d=$('downloadGlb'); d.style.display='inline'; d.href=url;
+    } else if (j.state && j.state.scene_path){
+      $('empty').innerHTML = '<div class="big">🏠</div>Drawing parsed into a scene graph<br><span class="muted">open it in the 2-D→3-D viewer (scene.json saved as artifact)</span>';
+    }
+    const tw = j.state && j.state.twin_path;
+    if(tw){ const t=$('downloadTwin'); t.style.display='inline'; t.href=`/api/jobs/${id}/file/${tw}`; }
+    const q = j.state && j.state.quality;
+    if(q && q.suitable===false){ $('warn').style.display='block'; $('warn').textContent='⚠ input quality: '+(q.warnings||[]).join(', '); }
+    if(j.status==='error'){ $('warn').style.display='block'; $('warn').textContent='Error: '+(j.error||'see error.log'); }
+  }
+}
+
+function renderStages(stages){
+  if(!stages.length){ return; }
+  $('stages').innerHTML = stages.map(s=>`
+    <div class="srow">
+      <span class="dot ${s.status}"></span>
+      <span class="sname">${s.name.replace(/_/g,' ')}</span>
+      <span class="snote">${s.note||''}</span>
+      <span class="sms">${s.ms!=null? s.ms+'ms':''}</span>
+    </div>`).join('');
+}
+</script>
+</body>
+</html>

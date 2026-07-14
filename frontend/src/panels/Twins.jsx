@@ -26,7 +26,7 @@ export default function Twins() {
   // machine domains first, then facilities/blank
   const order = ['defence-base', 'defence-warship', 'ev-charging-network', 'ev-battery-pack',
     'hospital-campus', 'railway-metro', 'railway-trainset', 'turbine-engine', 'edm-machine',
-    'tram-network', 'generic-facility', 'hvac', 'blank']
+    'generic-facility', 'hvac', 'blank']
   const sorted = [...templates].sort((a, b) => {
     const ia = order.indexOf(a.key); const ib = order.indexOf(b.key)
     return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib)

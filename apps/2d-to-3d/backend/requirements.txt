@@ -1,0 +1,8 @@
+# Standalone 2-D → 3-D backend (no Neo4j, no ontology).
+fastapi>=0.100
+uvicorn>=0.20
+pydantic>=2.0
+python-dotenv>=1.0
+# Vision: openai (gpt-4o) always; anthropic (Claude) preferred when ANTHROPIC_API_KEY set.
+openai>=1.30
+anthropic>=0.40

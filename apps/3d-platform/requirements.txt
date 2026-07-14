@@ -1,0 +1,19 @@
+# 3D Generation Platform — backend dependencies.
+# Core (required to run the pipeline spine):
+fastapi>=0.110
+uvicorn[standard]>=0.20
+python-multipart>=0.0.9
+python-dotenv>=1.0
+pillow>=10.0
+numpy>=1.24
+trimesh>=4.0
+requests>=2.31
+
+# Recommended (each stage degrades gracefully if missing — see DEV log):
+rembg>=2.0          # Stage 4: background removal (downloads a small model on first run)
+fast-simplification>=0.1  # Stage 11/17: LOD generation (quadric decimation)
+replicate>=0.25     # Stage 9: alternative TRELLIS provider (RunPod is preferred, needs no SDK)
+
+# Optional — upgrades geometry-prior retrieval (Stage 8) from the numpy fallback
+# to CLIP embeddings. Heavy (pulls torch); install on a GPU box / RunPod worker:
+#   pip install torch open-clip-torch

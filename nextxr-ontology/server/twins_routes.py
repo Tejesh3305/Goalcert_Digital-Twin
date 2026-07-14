@@ -58,6 +58,37 @@ def _get_query() -> GraphQuery:
     return _query
 
 
+def _live_state(tenant: str) -> dict:
+    """The hub-shaped live snapshot: {latest:{signal:number}, findings:[{id,
+    displayName,severity}], health:0..1}. Machine twins read the physics runtime;
+    facility twins derive health from their live findings."""
+    # Machine-domain twin? → physics runtime frame + findings + health.
+    try:
+        from twins.runtime import get_machine_engine
+        tw = get_machine_engine().ensure(tenant)
+    except Exception:
+        tw = None
+    if tw is not None:
+        st = tw.state_dict()
+        findings = [{"id": f.get("behaviorId") or f.get("signal") or "",
+                     "displayName": f.get("displayName") or f.get("message"),
+                     "severity": f.get("severity")} for f in st.get("findings", [])]
+        return {"latest": st.get("latest", {}), "findings": findings,
+                "health": st.get("health")}
+
+    # Facility twin → findings from the graph; health from their severity.
+    try:
+        fs = _get_query().get_findings(tenant)
+    except Exception:
+        fs = []
+    findings = [{"id": f.get("id"), "displayName": f.get("displayName"),
+                 "severity": f.get("severity")} for f in fs]
+    crit = sum(1 for f in fs if f.get("severity") == "critical")
+    warn = sum(1 for f in fs if f.get("severity") == "warning")
+    health = round(max(0.0, 1.0 - min(100, crit * 25 + warn * 8) / 100.0), 3)
+    return {"latest": {}, "findings": findings, "health": health}
+
+
 def _entity_summary(tenant: str) -> dict:
     """Quick per-label counts so the UI can show a twin's size at a glance."""
     q = _get_query()
@@ -147,7 +178,9 @@ def create_twin(req: CreateTwinRequest):
 
     d = twin.to_dict()
     d["summary"] = _entity_summary(twin.tenant_id)
-    return {"status": "created", "twin": d}
+    # Top-level id fields so the hub can read tenant from any of tenant_id|id|tenant.
+    return {"status": "created", "twin": d,
+            "tenant_id": twin.tenant_id, "tenant": twin.tenant_id, "id": twin.tenant_id}
 
 
 @router.get("/{tenant}")
@@ -159,7 +192,9 @@ def get_twin(tenant: str):
         raise HTTPException(status_code=404, detail=f"Twin '{tenant}' not found")
     d = twin.to_dict()
     d["summary"] = _entity_summary(tenant)
-    return {"twin": d}
+    # Augment with the hub-shaped live snapshot (latest/findings/health) so the
+    # Integration Hub can poll this one endpoint for live twin state.
+    return {"twin": d, **_live_state(tenant)}
 
 
 @router.delete("/{tenant}")

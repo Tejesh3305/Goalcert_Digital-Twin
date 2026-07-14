@@ -56,16 +56,14 @@ DOMAIN_FILES = [
     "packs/datacenter/datacenter-bindings.ttl",
 ]
 
-# Layer 4 — machine-twin domain packs (EDM / turbine / fleet). Single-asset (or
-# network) machine-twin domains; their physics lives in
-# nextxr-ontology/{edm,turbine,fleet}/.
+# Layer 4 — machine-twin domain packs (EDM / turbine / rail / …). Single-asset (or
+# network) machine-twin domains; their physics lives in the co-located pack under
+# nextxr-ontology/packs/<domain>/.
 MACHINE_FILES = [
     "packs/turbine/turbine-classes.ttl",
     "packs/turbine/turbine-shapes.ttl",
     "packs/edm/edm-classes.ttl",
     "packs/edm/edm-shapes.ttl",
-    "packs/fleet/fleet-classes.ttl",
-    "packs/fleet/fleet-shapes.ttl",
     "packs/railway/railway-classes.ttl",
     "packs/railway/railway-shapes.ttl",
     "packs/ev/ev-classes.ttl",
