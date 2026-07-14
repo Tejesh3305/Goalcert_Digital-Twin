@@ -36,7 +36,7 @@ services:
   #     docker compose --profile full up -d
   # By default `docker compose up -d` starts just Neo4j + Redis, and you run the
   # backend locally with `python -m server.main` (live code, no image rebuild).
-  # This avoids a stale-image container grabbing port 8000 out from under your
+  # This avoids a stale-image container grabbing port 8080 out from under your
   # local server — the cause of the "old code / Driver closed" confusion.
   # NOTE: when using this profile, rebuild after code changes:
   #     docker compose --profile full up -d --build
@@ -47,7 +47,7 @@ services:
       dockerfile: Dockerfile
     container_name: nxr-server
     ports:
-      - "8000:8000"
+      - "8080:8080"
     depends_on:
       neo4j:
         condition: service_healthy

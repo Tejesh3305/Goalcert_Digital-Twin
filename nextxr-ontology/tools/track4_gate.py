@@ -17,7 +17,7 @@ This script proves ten things:
 Prerequisites:
     - Neo4j must be running (docker compose up -d)
     - python -m graph.schema must have been run
-    - python -m server.main must be running on port 8000
+    - python -m server.main must be running on port 8080
 
 Usage:
     python tools/track4_gate.py
@@ -31,7 +31,7 @@ import urllib.request
 import urllib.error
 from urllib.parse import urlencode
 
-API = "http://localhost:8000/api/v1"
+API = "http://localhost:8080/api/v1"
 TENANT = "track4-test"
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
@@ -228,7 +228,7 @@ def main():
 
     # 10. Dashboard loads
     try:
-        req = urllib.request.Request("http://localhost:8000/")
+        req = urllib.request.Request("http://localhost:8080/")
         with urllib.request.urlopen(req) as r:
             html = r.read().decode()
             check("10. Dashboard HTML loads",

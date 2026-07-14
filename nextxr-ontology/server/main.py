@@ -12,8 +12,8 @@ Usage:
     cd nextxr-ontology
     python -m server.main
 
-    # Then open http://localhost:8000 for the dashboard
-    # API docs at http://localhost:8000/docs
+    # Then open http://localhost:8080 for the dashboard
+    # API docs at http://localhost:8080/docs
 """
 
 from __future__ import annotations
@@ -795,4 +795,4 @@ def on_startup():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("server.main:app", host="0.0.0.0", port=8000, reload=False)
+    uvicorn.run("server.main:app", host="0.0.0.0", port=8080, reload=False)

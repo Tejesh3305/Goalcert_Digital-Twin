@@ -2,7 +2,7 @@
  * client.js — the single API surface the whole frontend talks to.
  *
  * All calls hit the FastAPI server under /api/v1. In dev, Vite proxies that to
- * :8000 (see vite.config.js); in prod, FastAPI serves both the app and the API
+ * :8080 (see vite.config.js); in prod, FastAPI serves both the app and the API
  * from the same origin, so relative paths just work.
  *
  * Auth: the backend is dev-permissive (no key required unless NXR_API_KEYS is

@@ -9,6 +9,6 @@ COPY nextxr-ontology/ ./nextxr-ontology/
 
 WORKDIR /app/nextxr-ontology
 
-EXPOSE 8000
+EXPOSE 8080
 
 CMD ["python", "-m", "server.main"]

@@ -8,8 +8,8 @@
 ./start.ps1
 ```
 
-This starts Docker (Neo4j + Redis) if it isn't already, frees port 8000, and
-launches the backend serving the built UI at **http://localhost:8000**.
+This starts Docker (Neo4j + Redis) if it isn't already, frees port 8080, and
+launches the backend serving the built UI at **http://localhost:8080**.
 
 For live frontend development with hot-reload:
 
@@ -22,7 +22,7 @@ Manual equivalent:
 ```powershell
 docker compose up -d            # Neo4j + Redis
 cd nextxr-ontology
-python -m server.main           # http://localhost:8000
+python -m server.main           # http://localhost:8080
 ```
 
 ---
@@ -86,7 +86,7 @@ still starts.
 ## Two ways to run the server (don't mix them)
 
 The backend can run **locally** or **in a container** — but only one can own
-port 8000 at a time.
+port 8080 at a time.
 
 - **Local (recommended for development):** `python -m server.main` runs your
   live code. `docker compose up -d` now starts **only Neo4j + Redis** (the
@@ -97,17 +97,17 @@ port 8000 at a time.
   it with `docker stop nxr-server` before switching back to local.
 
 If you ever see behavior that doesn't match your edits, check whether a
-container is serving port 8000: `docker ps` → if `nxr-server` is listed,
+container is serving port 8080: `docker ps` → if `nxr-server` is listed,
 `docker stop nxr-server` and run locally.
 
-## The other recurring gotcha: stale servers on port 8000
+## The other recurring gotcha: stale servers on port 8080
 
 If you start the server multiple times, old `python` processes can keep holding
-port 8000 and serve **old code** (this is why the UI once showed a stale page).
-`./start.ps1` kills anything on port 8000 before starting. To do it by hand:
+port 8080 and serve **old code** (this is why the UI once showed a stale page).
+`./start.ps1` kills anything on port 8080 before starting. To do it by hand:
 
 ```powershell
-Get-NetTCPConnection -LocalPort 8000 -State Listen |
+Get-NetTCPConnection -LocalPort 8080 -State Listen |
   Select-Object -ExpandProperty OwningProcess -Unique |
   ForEach-Object { Stop-Process -Id $_ -Force }
 ```
@@ -117,7 +117,7 @@ Get-NetTCPConnection -LocalPort 8000 -State Listen |
 ## Quick status check
 
 ```powershell
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8080/api/v1/health
 ```
 
 - `{"status":"healthy", ...}`   → all good, live data flowing

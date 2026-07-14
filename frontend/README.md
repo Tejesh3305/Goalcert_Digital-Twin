@@ -36,14 +36,14 @@ placeholder real.
 ```bash
 cd frontend
 npm install
-npm run dev        # http://localhost:5173, proxies /api -> :8000
+npm run dev        # http://localhost:5173, proxies /api -> :8080
 ```
 
 Run the backend in another terminal:
 
 ```bash
 cd nextxr-ontology
-python -m server.main      # http://localhost:8000
+python -m server.main      # http://localhost:8080
 ```
 
 ## Build for production
@@ -53,7 +53,7 @@ cd frontend
 npm run build      # emits dist/, which FastAPI serves at /
 ```
 
-Then just open `http://localhost:8000` — the backend serves the built app and
+Then just open `http://localhost:8080` — the backend serves the built app and
 the API from the same origin (no proxy needed).
 
 ## Auth

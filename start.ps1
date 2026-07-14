@@ -93,25 +93,25 @@ if ($Build -or -not (Test-Path (Join-Path $frontend "dist\index.html"))) {
     } finally { Pop-Location }
 }
 
-# ── 3. Free port 8000 (kill stale servers — the recurring gotcha) ───
+# ── 3. Free port 8080 (kill stale servers — the recurring gotcha) ───
 #
 # A plain "kill the LISTEN owner" isn't enough: a server started with multiple
 # workers (uvicorn --workers / multiprocessing) leaves the listening socket
 # inherited by a *child* worker. When the parent dies, the socket lingers owned
 # by a now-dead/phantom PID while the orphaned child still holds it — so killing
-# the listed owner does nothing and :8000 stays occupied. We therefore (a) tree-
+# the listed owner does nothing and :8080 stays occupied. We therefore (a) tree-
 # kill live owners and (b) hunt down orphaned `--multiprocessing-fork` workers,
 # retrying until the LISTEN socket is gone.
-Write-Step "Ensuring port 8000 is free"
+Write-Step "Ensuring port 8080 is free"
 
-function Get-Port8000Listeners {
-    Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue |
+function Get-Port8080Listeners {
+    Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue |
         Select-Object -ExpandProperty OwningProcess -Unique
 }
 
 $freed = $false
 for ($attempt = 1; $attempt -le 5; $attempt++) {
-    $pids = Get-Port8000Listeners
+    $pids = Get-Port8080Listeners
     if (-not $pids) { $freed = $true; break }
 
     foreach ($procId in $pids) {
@@ -122,7 +122,7 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
         } else {
             # Phantom owner (dead PID still on the socket). The real holder is an
             # orphaned multiprocessing worker — find and kill those.
-            Write-Warn "port 8000 held by a dead PID ($procId) — clearing orphaned workers"
+            Write-Warn "port 8080 held by a dead PID ($procId) — clearing orphaned workers"
             Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" -ErrorAction SilentlyContinue |
                 Where-Object { $_.CommandLine -match 'multiprocessing-fork|multiprocessing\.spawn' } |
                 ForEach-Object {
@@ -134,8 +134,8 @@ for ($attempt = 1; $attempt -le 5; $attempt++) {
     Start-Sleep -Seconds 1
 }
 
-if ($freed) { Write-Ok "port 8000 is free" }
-else { Write-Warn "port 8000 still occupied after 5 attempts — close the process manually, then re-run" }
+if ($freed) { Write-Ok "port 8080 is free" }
+else { Write-Warn "port 8080 still occupied after 5 attempts — close the process manually, then re-run" }
 
 # ── 4. Optional Vite dev server ─────────────────────────────────────
 if ($Dev) {
@@ -146,8 +146,8 @@ if ($Dev) {
 
 # ── 5. Backend ──────────────────────────────────────────────────────
 Write-Step "Starting the NextXR backend"
-Write-Host "  → App:  http://localhost:8000" -ForegroundColor Green
-Write-Host "  → API:  http://localhost:8000/docs" -ForegroundColor Green
+Write-Host "  → App:  http://localhost:8080" -ForegroundColor Green
+Write-Host "  → API:  http://localhost:8080/docs" -ForegroundColor Green
 if ($Dev) { Write-Host "  → Dev:  http://localhost:5173 (live reload)" -ForegroundColor Green }
 Write-Host ""
 Push-Location $ontology

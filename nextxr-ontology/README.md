@@ -17,14 +17,14 @@ pip install -r requirements.txt
 cd nextxr-ontology
 python -m server.main
 
-# 4. Open http://localhost:8000
+# 4. Open http://localhost:8080
 #    Click "Start" to begin the telemetry simulation
 ```
 
 Or with Docker (runs both Neo4j + server):
 ```bash
 docker compose up --build
-# Open http://localhost:8000
+# Open http://localhost:8080
 ```
 
 ## Architecture
