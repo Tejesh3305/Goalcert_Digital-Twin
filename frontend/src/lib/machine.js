@@ -84,6 +84,8 @@ export const DOMAIN_META = {
   'generic-facility': { label: 'Generic Facility', tag: 'Buildings', icon: 'ti-building-cog',
     accent: '#7c3aed', signals: 8,
     blurb: 'A 3-floor building with HVAC, power, fire, security, water and network systems.' },
+  'scanned-object': { label: 'Scanned Object', tag: 'Reconstruction', icon: 'ti-cube-3d-sphere',
+    accent: '#0891b2', blurb: 'A 3-D object reconstructed from a photo with TRELLIS (RunPod).' },
   blank: { label: 'Blank Twin', tag: 'Custom', icon: 'ti-square-plus', accent: '#6b7280',
     blurb: 'An empty twin with just a root site — build it by hand via Add Asset.' },
 }

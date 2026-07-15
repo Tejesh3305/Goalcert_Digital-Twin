@@ -4,6 +4,7 @@ import { PanelHeader, Card } from '../components/ui/Card'
 import TurbineModel from '../components/TurbineModel'
 import Scene3D from '../components/Scene3D'
 import BimViewer from '../components/BimViewer'
+import GlbViewer from '../components/GlbViewer'
 import { useTwin } from '../context/TwinContext'
 import { useToast } from '../context/ToastContext'
 import { domainMeta } from '../lib/machine'
@@ -11,9 +12,12 @@ import { readPlanFile, ACCEPT } from '../lib/planUpload'
 import api from '../api/client'
 
 /**
- * Build a Twin — ONE chat that does both jobs:
+ * Build a Twin — ONE chat that does three jobs:
  *   • attach a 2-D floor plan → we vision-parse it, reconstruct the building in
  *     3-D and commit it as a live digital twin (graph + physics + telemetry);
+ *   • attach a photo of an object → we reconstruct it in 3-D with TRELLIS
+ *     (RunPod) — the upload is auto-routed server-side (plan vs. photo), no
+ *     separate button needed;
  *   • or pick / describe a domain → we wire a live physics twin around its stock
  *     model (turbine, EDM, rail, hospital, EV, defence, generic facility).
  * The assistant figures out which path you mean from what you attach / say.
@@ -83,7 +87,7 @@ export default function BuildTwin() {
   const { refreshTwins, setActiveTenant } = useTwin()
 
   const [messages, setMessages] = useState([{ role: 'ai',
-    text: "Hi — I'm the Twin Builder. Two ways to start: attach a 2-D floor plan and I'll reconstruct it as a live building twin, or pick a domain below (or just describe your asset) and I'll wire a live physics twin around it." }])
+    text: "Hi — I'm the Twin Builder. Attach a 2-D floor plan for a live building twin, attach a photo of an object to reconstruct it in 3-D with TRELLIS (RunPod), or pick a domain below (or just describe your asset) and I'll wire a live physics twin around it." }])
   const [input, setInput] = useState('')
   const [plan, setPlan] = useState(null)          // { dataUrl, filename }
   const [facility, setFacility] = useState('')     // building facility ('' = auto)
@@ -106,7 +110,7 @@ export default function BuildTwin() {
       const { dataUrl, filename } = await readPlanFile(file)
       setPlan({ dataUrl, filename }); setDomain(null); setScene(null); setCreated(null)
       const f = inferFacility(filename); if (f) setFacility(f)
-      say('ai', `Plan attached — **${filename}**. I'll reconstruct it as a ${f || 'building'} twin. Pick a facility type if you want to override auto-detect, then say “build” (or hit Reconstruct).`)
+      say('ai', `Attached — **${filename}**. If it's a floor plan I'll reconstruct it as a ${f || 'building'} twin; if it's a photo of an object I'll run it through TRELLIS (RunPod) instead — I auto-detect which. Pick a facility type if you want to override auto-detect (plans only), then say “build” (or hit Reconstruct).`)
     } catch (e) { toast.err('Could not read file', e.message); say('ai', `I couldn't read that file: ${e.message}`) }
   }
 
@@ -149,13 +153,29 @@ export default function BuildTwin() {
     setBusy(true); setScene(null); setCreated(null)
 
     if (plan) {
-      // ── Plan path: reconstruct 3-D + commit a live building twin ──
+      // ── Plan path: attach a floor plan → building twin, or an object photo
+      // → TRELLIS/RunPod reconstruction. The backend auto-classifies which. ──
       const stop = animateLog(PLAN_STEPS)
-      say('ai', 'Reconstructing your plan in 3-D and wiring a live twin…')
+      say('ai', 'Working on your upload — reconstructing it in 3-D…')
       try {
         const r = await api.buildFromPlan({ data: plan.dataUrl, filename: plan.filename,
           name: name.trim() || undefined, facility: facility || undefined, floors: 1 })
-        stop(); setScene(r.scene)
+        stop()
+
+        if (r.kind === 'object') {
+          setLog((l) => [...l, { t: `✓ TRELLIS (RunPod) reconstruction — ${r.asset_type || 'object'}`, cls: 'ok' }])
+          // Only expose the tenant for "open dashboard" when the twin committed.
+          setCreated({ tenant: r.committed ? r.tenant : null, name: r.twin_name,
+            domain: r.asset_type, kind: 'object', modelUrl: r.model_url })
+          if (r.committed) await refreshTwins()
+          const q = r.mesh_quality?.quality_score
+          const live = r.committed ? ' It’s committed as a twin — open its dashboard to see the same model live.' : ''
+          say('ai', `Done — reconstructed **${r.twin_name}** from your photo with TRELLIS (RunPod)${q != null ? ` — mesh quality ${q}/100` : ''}. Drag to rotate/zoom the model.${live}`)
+          toast.ok('3-D model generated', r.twin_name)
+          return
+        }
+
+        setScene(r.scene)
         const desc = r.synthesized
           ? `I couldn't fully read the drawing, so I reconstructed a representative ${r.facility} layout${r.parse_note ? ` (${r.parse_note})` : ''}.`
           : `Reconstructed with ${r.scene?.vision_backend || 'vision'} — ${r.scene?.nodes?.length || 0} elements.`
@@ -249,16 +269,35 @@ export default function BuildTwin() {
             </div>
           )}
 
+          {/* Attached-file preview (thumbnail so you can see what's attached) */}
+          {plan && (
+            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10,
+              padding: 8, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface2)' }}>
+              <img src={plan.dataUrl} alt={plan.filename}
+                style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)', background: '#fff' }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <i className="ti ti-photo" style={{ marginRight: 4, color: 'var(--accent-green)' }} />{plan.filename}
+                </div>
+                <div className="muted" style={{ fontSize: 11 }}>Attached · floor plan or object photo (auto-detected on build)</div>
+              </div>
+              <button className="btn" title="Remove attachment" disabled={busy}
+                onClick={() => { setPlan(null); setScene(null); setCreated(null) }}>
+                <i className="ti ti-x" />
+              </button>
+            </div>
+          )}
+
           {/* Input row */}
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); attachPlan(e.dataTransfer.files?.[0]) }}>
-            <button className="btn" title="Attach a 2-D plan (PNG/JPG/PDF)" onClick={() => fileRef.current?.click()} disabled={busy}>
+            <button className="btn" title="Attach a 2-D floor plan or a photo of an object (PNG/JPG/PDF)" onClick={() => fileRef.current?.click()} disabled={busy}>
               <i className={`ti ${plan ? 'ti-file-check' : 'ti-paperclip'}`} style={plan ? { color: 'var(--accent-green)' } : undefined} />
             </button>
             <input ref={fileRef} type="file" accept={ACCEPT} style={{ display: 'none' }} onChange={(e) => attachPlan(e.target.files?.[0])} />
             <input className="input" value={input} disabled={busy}
-              placeholder={plan ? 'Say “build” to reconstruct — or describe the building…' : 'Describe your asset, or drop a plan…'}
+              placeholder={plan ? 'Say “build” to reconstruct — or describe the building…' : 'Describe your asset, or drop a plan / object photo…'}
               onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
             <button className="btn btn-primary" onClick={send} disabled={busy || !input.trim()}><i className="ti ti-send" /></button>
           </div>
@@ -290,7 +329,21 @@ export default function BuildTwin() {
             </Card>
           )}
 
-          {created ? (
+          {created?.kind === 'object' ? (
+            <Card style={{ borderColor: 'rgba(22,163,74,.4)', background: 'rgba(22,163,74,.06)' }}>
+              <div style={{ fontWeight: 700, color: 'var(--accent-green)' }}><i className="ti ti-circle-check" /> 3-D model generated</div>
+              <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--muted)' }}>
+                {created.tenant
+                  ? 'Reconstructed from your photo with TRELLIS (RunPod) and committed as a twin — its dashboard shows this exact mesh.'
+                  : 'Reconstructed from your photo with TRELLIS (RunPod). Start the database (./start.ps1) and rebuild to commit it as a live twin.'}
+                <div style={{ marginTop: 6 }}>Model: <a href={created.modelUrl} target="_blank" rel="noreferrer"><i className="ti ti-download" /> download .glb</a></div>
+              </div>
+              {created.tenant && (
+                <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={openDashboard}>
+                  <i className="ti ti-layout-dashboard" /> Open twin dashboard</button>
+              )}
+            </Card>
+          ) : created ? (
             <Card style={{ borderColor: 'rgba(22,163,74,.4)', background: 'rgba(22,163,74,.06)' }}>
               <div style={{ fontWeight: 700, color: 'var(--accent-green)' }}><i className="ti ti-circle-check" /> Live digital twin generated</div>
               <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--muted)' }}>
@@ -305,6 +358,7 @@ export default function BuildTwin() {
               <div className="card-title" style={{ fontSize: 12 }}><i className="ti ti-info-circle" /> How it works</div>
               <div style={{ fontSize: 11.5, lineHeight: 1.9, color: 'var(--muted)' }}>
                 <div><b>Plan →</b> attach a 2-D floor plan; we vision-parse it, reconstruct the building in 3-D, furnish &amp; auto-wire services, then commit a live twin.</div>
+                <div><b>Photo →</b> attach a photo of an object; we reconstruct it in 3-D with TRELLIS (RunPod).</div>
                 <div><b>Domain →</b> pick a chip or describe your asset; we wire a live physics twin (telemetry, 3-tier behaviours, RUL).</div>
                 <div style={{ marginTop: 4 }}>Then open its dashboard to monitor, predict and inject faults.</div>
               </div>
@@ -325,6 +379,7 @@ function Rich({ text }) {
 
 /** The right-column preview — reconstructed scene, live twin, or a domain hero. */
 function Preview({ scene, created, domain }) {
+  if (created?.kind === 'object') return <GlbViewer url={created.modelUrl} height={420} />
   if (scene) return <BimViewer scene={scene} tenant={created?.kind === 'building' ? created.tenant : undefined} />
   // A committed building twin with no in-memory scene → fetch by tenant.
   if (created?.kind === 'building') return <BimViewer tenant={created.tenant} />

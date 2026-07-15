@@ -21,7 +21,10 @@ The frontend just posts messages and renders state — it never sees the graph.
 from __future__ import annotations
 
 import base64
+import re
 import sys
+import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -257,9 +260,10 @@ def twin_scene_by_tenant(tenant: str):
     re-loading a twin's 3-D view)."""
     from agents import bim_support as bs
 
-    # Fast path: a cached scene from the build (includes furniture + entityIds).
+    # Fast path: a cached scene from the build (includes furniture + entityIds),
+    # or an object-scan scene (a reconstructed GLB, which carries no BIM nodes).
     cached = bs.load_scene_cache(tenant)
-    if cached and cached.get("nodes"):
+    if cached and (cached.get("nodes") or cached.get("model_url")):
         return {"tenant": tenant, "scene_result": cached}
 
     try:
@@ -295,11 +299,103 @@ def twin_scene_by_tenant(tenant: str):
     return {"tenant": tenant, "scene_result": scene}
 
 
+def _decode_data_url(data: str) -> bytes:
+    m = re.match(r"^data:[^;]+;base64,(.*)$", data, re.S)
+    return base64.b64decode(m.group(1) if m else data)
+
+
+def _build_twin_from_object_photo(image_bytes: bytes, filename: str, name: Optional[str]) -> dict:
+    """Photo of an object → TRELLIS (RunPod) → GLB, via the merged 3-D platform
+    pipeline (server/threed_platform — unchanged from its standalone form, just
+    invoked in-process instead of over HTTP). Runs the same job store +
+    thread-pooled orchestrator the platform's own UI uses, so behaviour/limits
+    (e.g. its 2-worker cap) are identical."""
+    from server.threed_platform.app.store import store as threed_store
+    from server.threed_platform.app.orchestrator import submit as threed_submit
+
+    job = threed_store.create(filename, {"route": "object"})
+    job_id = job["id"]
+    in_path = threed_store.job_dir(job_id) / "input" / filename
+    in_path.write_bytes(image_bytes)
+    threed_store.set_state(job_id, "input_path", str(in_path))
+    threed_store.set_state(job_id, "filename", filename)
+    threed_store.set_state(job_id, "fields", {"route": "object"})
+
+    threed_submit(job_id)
+    result = None
+    t0 = time.time()
+    while time.time() - t0 < 900:
+        time.sleep(1.5)
+        result = threed_store.load(job_id)
+        if result and result.get("status") in ("done", "error"):
+            break
+    if not result or result.get("status") != "done":
+        err = (result or {}).get("error") or "timed out waiting for reconstruction"
+        raise HTTPException(502, f"3-D reconstruction failed: {err}")
+
+    state = result.get("state") or {}
+    result_glb = state.get("result_glb")
+    if not result_glb:
+        raise HTTPException(502, "TRELLIS returned no model for this photo.")
+
+    from agents import bim_support as bs
+
+    asset_type = (state.get("understanding") or {}).get("object_label")
+    twin_name = (name or (asset_type if asset_type and asset_type != "unknown" else None)
+                 or "Scanned Object")
+    # Point straight at the file endpoint (not /result, which 302-redirects) so
+    # the three.js GLTF loader gets the bytes in one hop. The job store persists
+    # on disk, so this URL stays valid for re-loading the model later (dashboard
+    # hero, reopening the twin).
+    model_url = f"/api/v1/threed/api/jobs/{job_id}/file/{result_glb}"
+
+    # Commit a real twin (registry row + seeded graph) so the object shows up in
+    # the Twins library and its dashboard renders THIS mesh — not a stock model.
+    tenant = _new_session("twin")
+    committed = False
+    commit_note = None
+    try:
+        from twins import TwinRegistry
+        from graph.writer import GraphWriter
+        from graph.connection import get_driver
+        from changelog.service import ChangeLog
+        get_driver().verify_connectivity()  # fail fast if the DB is offline
+        TwinRegistry().create(name=twin_name, domain="scanned-object",
+                              writer=GraphWriter(changelog=ChangeLog()),
+                              tenant_id=tenant)
+        committed = True
+    except Exception as e:
+        commit_note = f"live twin not committed ({e}); 3-D model only."
+
+    # Cache an object-scan scene keyed by tenant so the 3-D viewer (Build-a-Twin
+    # preview AND the dashboard hero) renders the generated GLB. Unlike a BIM
+    # scene this carries no room/wall nodes — just the model reference.
+    bs.save_scene_cache(tenant, {
+        "format": "nxr-object/1", "kind": "object-scan", "status": "ok",
+        "twin_id": tenant, "model_url": model_url, "asset_type": asset_type,
+        "reconstruction": state.get("reconstruction"), "nodes": [],
+    })
+
+    return {
+        "tenant": tenant, "twin_name": twin_name, "committed": committed,
+        "kind": "object", "model_url": model_url, "asset_type": asset_type,
+        "reconstruction": state.get("reconstruction"),
+        "mesh_quality": state.get("mesh_quality"),
+        "parse_note": commit_note,
+        "note": "Reconstructed with TRELLIS (RunPod).",
+    }
+
+
 # ── One-shot 2-D plan → 3-D scene → live digital twin ──────────────
 # Mirrors the standalone apps/2d-to-3d "upload → Build 3-D" feature, but instead
 # of stopping at the rendered model it commits the reconstructed building as a
 # real twin (graph + registry + cached scene) so it streams live physics. This
 # is what the "Build a Twin → From a 2-D Plan" panel calls.
+#
+# The upload is auto-routed first (server/threed_platform's own router, unchanged):
+# a photo of an object goes to TRELLIS/RunPod reconstruction (_build_twin_from_
+# object_photo); a floor plan/drawing keeps using the vision-parse + procedural
+# building reconstruction below.
 class BuildFromPlan(BaseModel):
     data: str                          # image data URL (PDFs rasterised client-side)
     filename: str = "plan.png"
@@ -326,6 +422,20 @@ def twin_build_from_plan(req: BuildFromPlan):
     the parse degrades to a synthesized building for the chosen facility."""
     if not req.data:
         raise HTTPException(400, "Provide an image data URL in `data`.")
+
+    image_bytes = _decode_data_url(req.data)
+    suffix = Path(req.filename or "upload.png").suffix or ".png"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tf:
+        tf.write(image_bytes)
+        tmp_path = tf.name
+    try:
+        from server.threed_platform.app.router import classify as threed_classify
+        route_info = threed_classify(tmp_path, {})
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
+
+    if route_info["route"] == "object":
+        return _build_twin_from_object_photo(image_bytes, req.filename or "upload.png", req.name)
 
     from agents import bim_support as bs
     from agents.twin_agents import (PLAN_PARSER_SYSTEM, schema_mapper,

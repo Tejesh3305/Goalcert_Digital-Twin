@@ -72,6 +72,7 @@ from server.twins_routes import router as twins_router
 from server.twin_runtime_routes import router as twin_runtime_router
 from server.agent_routes import router as agent_router
 from server.hub_routes import router as hub_router
+from server.threed_platform.app.main import app as threed_platform_app
 
 # ── App setup ───────────────────────────────────────────────────────
 
@@ -98,6 +99,12 @@ app.include_router(twin_runtime_router)
 app.include_router(twins_router)
 app.include_router(agent_router)
 app.include_router(hub_router)
+
+# 3-D generation platform (photo-of-an-object → TRELLIS/RunPod → GLB; floor-plan
+# → the 2d-to-3d parser). Was a standalone service (apps/3d-platform); now mounted
+# in-process so "Build a Twin" can call it directly. Its own job-tester UI is at
+# /api/v1/threed/ (unchanged pipeline — see server/threed_platform/README.md).
+app.mount("/api/v1/threed", threed_platform_app)
 
 
 # ── Global DB-down handler ──────────────────────────────────────────

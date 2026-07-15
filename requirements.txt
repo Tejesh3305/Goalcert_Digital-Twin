@@ -26,3 +26,16 @@ python-dotenv>=1.0
 # in-memory fallback, so this dependency is OPTIONAL at runtime: if redis
 # isn't installed or the server is unreachable, the platform still runs.
 redis>=5.0
+
+# 3-D generation platform (server/threed_platform — photo of an object →
+# TRELLIS/RunPod → GLB; used by Build a Twin's object-photo path).
+python-multipart>=0.0.9   # multipart file uploads (FastAPI UploadFile)
+pillow>=10.0
+numpy>=1.24
+requests>=2.31
+trimesh>=4.0               # mesh repair/LOD/export — required to produce the final GLB
+
+# Recommended (each stage degrades gracefully if missing):
+# rembg>=2.0                     # background removal (else a centre-oval fallback)
+# fast-simplification>=0.1       # quadric-decimation LODs
+# replicate>=0.25                # alternative TRELLIS provider (RunPod is preferred)

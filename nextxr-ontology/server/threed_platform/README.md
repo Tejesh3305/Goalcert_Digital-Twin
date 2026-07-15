@@ -14,19 +14,32 @@ Two routes share one front door:
 A router auto-classifies each upload (overridable). We never push line drawings
 through TRELLIS.
 
+## Moved — now part of the digital-twin server
+
+This used to be the standalone `apps/3d-platform` service on its own port. It's
+now mounted **in-process** inside the main NextXR server at `/api/v1/threed`
+(`server/main.py` imports `server.threed_platform.app.main:app` and
+`app.mount("/api/v1/threed", ...)`) — the pipeline itself (this whole
+directory) is otherwise unchanged. **Build a Twin**'s upload handler
+(`server/agent_routes.py::twin_build_from_plan`) classifies each upload with
+`app/router.py` and, for a photo of an object, runs it through this pipeline's
+job store + orchestrator in-process (see `_build_twin_from_object_photo`)
+instead of making an HTTP call to itself.
+
 ## Run
 
+It starts automatically with the main server — no separate process:
+
 ```powershell
-cd 3d-platform
-python -m pip install -r requirements.txt      # first time
-copy .env.example .env                          # then fill in keys (optional)
-./run.ps1
+cd nextxr-ontology
+python -m server.main            # http://localhost:8080
 ```
 
-Open **http://localhost:8100** → drop an image → watch the stages stream →
-preview the GLB. Works **without any keys** (reconstruction returns a clearly
-marked *stub* mesh so you can exercise the whole pipeline); set the two TRELLIS
-vars in `.env` for real models.
+The bundled job-tester UI (this folder's `web/index.html`) is served at
+**http://localhost:8080/api/v1/threed/** → drop an image → watch the stages
+stream → preview the GLB. Works **without any keys** (reconstruction returns a
+clearly marked *stub* mesh so you can exercise the whole pipeline); the RunPod
+vars are already set in this folder's `.env` for real models.
 
 ## The pipeline (19-stage spine)
 
@@ -55,6 +68,9 @@ timing + notes in `job.json`, so the whole run is inspectable on disk.
 - **Geometry-prior retrieval** kept as a valuable v2 add-on (not yet wired).
 
 ## API
+
+Paths below are relative to this mount; prefix with `/api/v1/threed` on the
+main server (e.g. `POST /api/v1/threed/api/jobs`).
 
 | Method | Path | Purpose |
 |--------|------|---------|

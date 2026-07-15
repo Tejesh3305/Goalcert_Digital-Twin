@@ -5,6 +5,7 @@ import NoTwin from '../components/NoTwin'
 import FeedControls from '../components/FeedControls'
 import DemoTwin from '../components/DemoTwin'
 import BimViewer from '../components/BimViewer'
+import GlbViewer from '../components/GlbViewer'
 import MachineDashboard from '../components/MachineDashboard'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
@@ -181,12 +182,18 @@ function TwinScene({ tenant, domain, name }) {
     let alive = true
     setScene(undefined)
     api.twinSceneByTenant(tenant)
-      .then((r) => { if (alive) setScene(r.scene_result?.nodes?.length ? r.scene_result : null) })
+      .then((r) => {
+        const s = r.scene_result
+        // Keep a scene if it has BIM geometry OR is a reconstructed-object scan.
+        if (alive) setScene(s?.nodes?.length || s?.model_url ? s : null)
+      })
       .catch(() => { if (alive) setScene(null) })
     return () => { alive = false }
   }, [tenant])
 
   if (scene === undefined) return <div className="bim-loading"><span className="spinner" /> Reconstructing scene…</div>
+  // Object-scan twin: the reconstructed GLB is the model.
+  if (scene?.model_url) return <GlbViewer url={scene.model_url} height={420} />
   if (scene) return <BimViewer scene={scene} tenant={tenant} />
   return <DemoTwin domain={domain} name={name} />   // graceful fallback: no geometry
 }

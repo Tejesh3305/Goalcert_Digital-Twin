@@ -149,6 +149,13 @@ TEMPLATES = {
         "machine": True,
         "class_iri": DEF + "Vessel",
     },
+    "scanned-object": {
+        "label": "Scanned Object",
+        "description": "A 3-D object reconstructed from a photo with TRELLIS "
+                       "(RunPod). The generated mesh is the twin's model.",
+        "primary_signal": None,
+        "seeds_feed": False,
+    },
     "blank": {
         "label": "Blank Twin",
         "description": "An empty twin with just a root site. Build it by hand "
@@ -306,6 +313,21 @@ class TwinRegistry:
                 actor=actor, properties={"displayName": f"{twin.name} — Site"},
             )
             return None
+
+        if twin.domain == "scanned-object":
+            # A photo-reconstructed object: a root Site + the object as one
+            # PhysicalAsset. The generated GLB is the twin's renderable model,
+            # cached separately (bim_support scene cache) and shown by the viewer.
+            writer.create(
+                tenant_id=twin.tenant_id, canonical_type=CORE + "Site",
+                actor=actor, properties={"displayName": f"{twin.name} — Scan"},
+            )
+            asset = writer.create(
+                tenant_id=twin.tenant_id, canonical_type=CORE + "PhysicalAsset",
+                actor=actor,
+                properties={"displayName": twin.name, "status": "modelled"},
+            )
+            return asset.node_id if asset.ok else None
 
         tpl = TEMPLATES.get(twin.domain, {})
         if tpl.get("machine"):

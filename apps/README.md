@@ -17,8 +17,19 @@ reconstructs the building in 3-D (live `BimViewer`) and commits it as a live twi
 twin's real reconstructed scene (demo scenes remain only as a no-geometry fallback).
 
 `apps/2d-to-3d/` is kept as a **standalone sandbox** for iterating on parsing/visuals
-in isolation; `apps/3d-platform/` and `apps/trellis-worker/` are the image→3-D
-(mesh generation / RunPod) workers, not yet wired into the twin flow.
+in isolation.
+
+The image→3-D (TRELLIS / RunPod) pipeline has **moved** into the digital-twin
+server itself: `apps/3d-platform/` now lives at
+`nextxr-ontology/server/threed_platform/` and is mounted in-process at
+`/api/v1/threed` (unchanged pipeline — same stages, same job store, same
+provider selection). **Build a Twin** auto-routes each upload: a photo of an
+object goes through this TRELLIS/RunPod reconstruction, a floor plan/drawing
+keeps using the vision-parse + procedural building reconstruction. See
+`nextxr-ontology/server/threed_platform/README.md`.
+
+`apps/trellis-worker/` is unaffected — it's the RunPod-side serverless handler
+(deployed remotely, not run from this repo).
 
 `node_modules/`, `dist/` and runtime `data/` are gitignored — run `npm install` in a
 frontend folder to restore its deps.

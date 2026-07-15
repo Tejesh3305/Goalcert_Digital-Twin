@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -124,14 +124,17 @@ def get_file(job_id: str, path: str):
 
 
 @app.get("/api/jobs/{job_id}/result")
-def get_result(job_id: str):
+def get_result(job_id: str, request: Request):
     job = store.load(job_id)
     if not job:
         raise HTTPException(404, "no such job")
     glb = (job.get("state", {}) or {}).get("result_glb")
     if not glb:
         raise HTTPException(404, "no GLB result (drawing route renders in the 2d-to-3d viewer)")
-    return RedirectResponse(f"/api/jobs/{job_id}/file/{glb}")
+    # Honour the mount prefix (root_path) so the redirect works whether this app
+    # is standalone ("") or mounted in the main server ("/api/v1/threed").
+    root = request.scope.get("root_path", "")
+    return RedirectResponse(f"{root}/api/jobs/{job_id}/file/{glb}")
 
 
 if WEB.exists():

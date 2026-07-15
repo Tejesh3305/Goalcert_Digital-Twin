@@ -103,7 +103,7 @@
 const $ = (id) => document.getElementById(id);
 let dataURL = null, fileObj = null, poll = null;
 
-fetch('/api/health').then(r=>r.json()).then(h=>{
+fetch('api/health').then(r=>r.json()).then(h=>{
   $('trellisnote').innerHTML = h.trellis
     ? `✓ TRELLIS configured: <code>${h.trellis_model}</code>`
     : '⚠ TRELLIS not configured — reconstruction returns a <b>stub mesh</b>. Set REPLICATE_API_TOKEN + TRELLIS_REPLICATE_MODEL in .env for real models.';
@@ -141,7 +141,7 @@ $('go').onclick = async () => {
   fd.append('material', $('material').value);
   fd.append('facility', $('facility').value);
   fd.append('floors', $('floors').value || '1');
-  const r = await fetch('/api/jobs', {method:'POST', body:fd});
+  const r = await fetch('api/jobs', {method:'POST', body:fd});
   const j = await r.json();
   $('jobid').textContent = 'job ' + j.job_id;
   if(poll) clearInterval(poll);
@@ -150,7 +150,7 @@ $('go').onclick = async () => {
 };
 
 async function refresh(id){
-  const j = await (await fetch('/api/jobs/'+id)).json();
+  const j = await (await fetch('api/jobs/'+id)).json();
   const st = $('status'); st.textContent = j.status; st.className = 'pill ' + j.status;
   if(j.state && j.state.route){
     const rp = $('routepill'); rp.textContent = j.state.route; rp.className = 'pill ' + j.state.route;
@@ -160,14 +160,14 @@ async function refresh(id){
     clearInterval(poll); poll=null; $('go').disabled=false;
     const glb = j.state && j.state.result_glb;
     if(glb){
-      const url = `/api/jobs/${id}/file/${glb}`;
+      const url = `api/jobs/${id}/file/${glb}`;
       const mv = $('mv'); mv.src = url; mv.style.display='block'; $('empty').style.display='none';
       const d=$('downloadGlb'); d.style.display='inline'; d.href=url;
     } else if (j.state && j.state.scene_path){
       $('empty').innerHTML = '<div class="big">🏠</div>Drawing parsed into a scene graph<br><span class="muted">open it in the 2-D→3-D viewer (scene.json saved as artifact)</span>';
     }
     const tw = j.state && j.state.twin_path;
-    if(tw){ const t=$('downloadTwin'); t.style.display='inline'; t.href=`/api/jobs/${id}/file/${tw}`; }
+    if(tw){ const t=$('downloadTwin'); t.style.display='inline'; t.href=`api/jobs/${id}/file/${tw}`; }
     const q = j.state && j.state.quality;
     if(q && q.suitable===false){ $('warn').style.display='block'; $('warn').textContent='⚠ input quality: '+(q.warnings||[]).join(', '); }
     if(j.status==='error'){ $('warn').style.display='block'; $('warn').textContent='Error: '+(j.error||'see error.log'); }

@@ -20,7 +20,7 @@ import requests
 from ..config import settings
 from .base import Ctx, Stage, StageSkipped
 
-_SIBLING_BACKEND = (Path(__file__).resolve().parents[3] / "2d-to-3d" / "backend")
+_SIBLING_BACKEND = (Path(__file__).resolve().parents[5] / "apps" / "2d-to-3d" / "backend")
 
 
 def _data_url(path: Path) -> str:
