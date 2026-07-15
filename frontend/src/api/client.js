@@ -134,6 +134,12 @@ export const api = {
   // body: { data (image data URL), filename, name?, facility?, floors? }
   buildFromPlan: (body) =>
     request('/agents/twin/build-from-plan', { method: 'POST', body: JSON.stringify(body) }),
+  // Async build (start + poll): a TRELLIS reconstruction on a cold GPU runs for
+  // minutes — longer than proxies keep a synchronous response open in the cloud.
+  buildFromPlanStart: (body) =>
+    request('/agents/twin/build-from-plan/start', { method: 'POST', body: JSON.stringify(body) }),
+  buildFromPlanStatus: (buildId) =>
+    request(`/agents/twin/build-from-plan/status/${encodeURIComponent(buildId)}`),
   // No-LLM sample building for a facility (renders with no API key).
   sampleScene: (facility, floors = 1) =>
     request(`/agents/twin/sample-scene/${encodeURIComponent(facility)}?${qs({ floors })}`),

@@ -71,13 +71,13 @@ export default function GlbViewer({ url, height = 420, label = 'TRELLIS reconstr
         <directionalLight position={[-5, 3, -4]} intensity={0.35} color="#9ec9ff" />
         <GlbErrorBoundary>
           <Suspense fallback={<Center>Loading 3-D model…</Center>}>
-            <Bounds fit clip observe margin={1.2}>
+            <Bounds fit clip margin={1.2}>
               <Model url={url} />
             </Bounds>
           </Suspense>
         </GlbErrorBoundary>
         <ContactShadows position={[0, -1.6, 0]} opacity={0.5} scale={10} blur={2.4} far={4} />
-        <OrbitControls enablePan autoRotate autoRotateSpeed={0.6} minDistance={0.5} maxDistance={20} />
+        <OrbitControls makeDefault enablePan autoRotate autoRotateSpeed={0.6} minDistance={0.5} maxDistance={20} />
       </Canvas>
       <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(12,14,28,.72)',
         border: '1px solid rgba(124,58,237,.4)', color: '#dfe3ff', fontFamily: 'JetBrains Mono, monospace',

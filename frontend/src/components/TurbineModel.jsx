@@ -104,7 +104,7 @@ export default function TurbineModel({ url = MODEL_URL, latest = {}, height = 32
         <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
         <directionalLight position={[-5, 3, -4]} intensity={0.4} color="#9ec9ff" />
         <Suspense fallback={<Fallback label="Loading 3D model…" />}>
-          <Bounds fit clip observe margin={1.2}>
+          <Bounds fit clip margin={1.2}>
             <Model url={url} health={health} />
           </Bounds>
           {HOTSPOTS.filter(([s]) => latest[s] != null).map(([s, pos]) => (
@@ -112,7 +112,7 @@ export default function TurbineModel({ url = MODEL_URL, latest = {}, height = 32
           ))}
         </Suspense>
         <ContactShadows position={[0, -1.6, 0]} opacity={0.5} scale={10} blur={2.4} far={4} />
-        <OrbitControls enablePan={false} autoRotate autoRotateSpeed={0.6} minDistance={3} maxDistance={12} />
+        <OrbitControls makeDefault enablePan={false} autoRotate autoRotateSpeed={0.6} minDistance={3} maxDistance={12} />
       </Canvas>
       <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(12,14,28,.72)',
         border: '1px solid rgba(124,58,237,.4)', color: '#dfe3ff', fontFamily: 'JetBrains Mono, monospace',

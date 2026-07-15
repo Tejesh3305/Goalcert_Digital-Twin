@@ -81,6 +81,32 @@ function inferFacility(text) {
 
 const BUILD_INTENT = /\b(build|create|go|make|generate|start|do it|reconstruct|yes)\b/
 
+/** Run a build via the async start+poll endpoints so a minutes-long TRELLIS
+ * cold start can't hit an HTTP/proxy timeout; falls back to the one-shot call. */
+async function runBuildJob(body) {
+  let started
+  try { started = await api.buildFromPlanStart(body) }
+  catch (e) {
+    if (e.status === 404 || e.status === 405) return api.buildFromPlan(body)
+    throw e
+  }
+  const t0 = Date.now()
+  let misses = 0
+  while (Date.now() - t0 < 32 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 3000))
+    let s
+    try { s = await api.buildFromPlanStatus(started.build_id); misses = 0 }
+    catch (e) {
+      if (e.status === 404) throw new Error('The server restarted mid-build — please build again.')
+      if (++misses > 20) throw e
+      continue
+    }
+    if (s.status === 'done') return s.result
+    if (s.status === 'error') throw new Error(s.error || 'build failed')
+  }
+  throw new Error('Timed out waiting for the 3-D reconstruction.')
+}
+
 export default function BuildTwin() {
   const nav = useNavigate()
   const toast = useToast()
@@ -161,7 +187,7 @@ export default function BuildTwin() {
       const stop = animateLog(PLAN_STEPS)
       say('ai', 'Working on your upload — reconstructing it in 3-D…')
       try {
-        const r = await api.buildFromPlan({ data: plan.dataUrl, filename: plan.filename,
+        const r = await runBuildJob({ data: plan.dataUrl, filename: plan.filename,
           name: name.trim() || undefined, facility: facility || undefined, floors: 1,
           domain: dom || undefined })
         stop()

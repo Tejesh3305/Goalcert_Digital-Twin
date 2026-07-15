@@ -24,6 +24,7 @@ import base64
 import re
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -339,7 +340,9 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
     threed_submit(job_id)
     result = None
     t0 = time.time()
-    while time.time() - t0 < 900:
+    # Generous ceiling: a serverless TRELLIS endpoint can sit in RunPod's queue
+    # for minutes on a cold start / throttled GPU pool before the job even runs.
+    while time.time() - t0 < 1800:
         time.sleep(1.5)
         result = threed_store.load(job_id)
         if result and result.get("status") in ("done", "error"):
@@ -427,8 +430,7 @@ class BuildFromPlan(BaseModel):
     domain: Optional[str] = None
 
 
-@router.post("/twin/build-from-plan")
-def twin_build_from_plan(req: BuildFromPlan):
+def _build_from_plan_sync(req: BuildFromPlan) -> dict:
     """Parse an uploaded 2-D floor plan into a 3-D `nxr-scene/1`, then commit it
     as a live digital twin.
 
@@ -536,6 +538,64 @@ def twin_build_from_plan(req: BuildFromPlan):
     return {"tenant": tenant, "twin_name": name, "committed": committed,
             "facility": facility, "synthesized": synthesized,
             "parse_note": parse_note, "scene": scene}
+
+
+@router.post("/twin/build-from-plan")
+def twin_build_from_plan(req: BuildFromPlan):
+    """One-shot synchronous build (kept for back-compat / local dev). For cloud
+    deployments prefer /twin/build-from-plan/start + /status/{id}: an object
+    photo goes through TRELLIS on a serverless GPU, and a cold start can take
+    minutes — far longer than most HTTP proxies keep a response open."""
+    return _build_from_plan_sync(req)
+
+
+# ── Async build (start + poll) ──────────────────────────────────────
+# The SAME pipeline as the one-shot endpoint, run in a background thread so the
+# HTTP request returns instantly and the client polls. Survives proxy timeouts
+# (Render/ALB ~100 s) that a synchronous TRELLIS cold start would blow through.
+_BUILDS: dict[str, dict] = {}
+_BUILDS_LOCK = threading.Lock()
+
+
+def _run_build_job(build_id: str, req: BuildFromPlan) -> None:
+    try:
+        result = _build_from_plan_sync(req)
+        with _BUILDS_LOCK:
+            _BUILDS[build_id].update(status="done", result=result)
+    except HTTPException as e:
+        with _BUILDS_LOCK:
+            _BUILDS[build_id].update(status="error", error=str(e.detail))
+    except Exception as e:  # noqa: BLE001 — surfaced to the poller, never lost
+        with _BUILDS_LOCK:
+            _BUILDS[build_id].update(status="error", error=str(e))
+
+
+@router.post("/twin/build-from-plan/start")
+def twin_build_from_plan_start(req: BuildFromPlan):
+    """Kick off a build and return immediately with a build_id to poll."""
+    if not req.data:
+        raise HTTPException(400, "Provide an image data URL in `data`.")
+    build_id = _new_session("build")
+    with _BUILDS_LOCK:
+        # Opportunistic GC so long-lived servers don't accumulate old results.
+        cutoff = time.time() - 6 * 3600
+        for bid in [b for b, v in _BUILDS.items() if v.get("started", 0) < cutoff]:
+            _BUILDS.pop(bid, None)
+        _BUILDS[build_id] = {"status": "running", "started": time.time()}
+    threading.Thread(target=_run_build_job, args=(build_id, req),
+                     daemon=True).start()
+    return {"build_id": build_id, "status": "running"}
+
+
+@router.get("/twin/build-from-plan/status/{build_id}")
+def twin_build_from_plan_status(build_id: str):
+    """Poll a build: {status: running} → {status: done, result} | {status: error, error}."""
+    with _BUILDS_LOCK:
+        b = _BUILDS.get(build_id)
+        if b is None:
+            raise HTTPException(404, "Unknown build id (server restarted?) — start a new build.")
+        out = {k: v for k, v in b.items() if k != "started"}
+    return {"build_id": build_id, **out}
 
 
 @router.get("/twin/sample-scene/{facility}")
