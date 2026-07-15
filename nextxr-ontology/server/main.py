@@ -801,5 +801,8 @@ def on_startup():
 
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("server.main:app", host="0.0.0.0", port=8080, reload=False)
+    # Cloud platforms (Render, Heroku, …) inject the port to bind via $PORT.
+    uvicorn.run("server.main:app", host="0.0.0.0",
+                port=int(os.getenv("PORT", "8080")), reload=False)
