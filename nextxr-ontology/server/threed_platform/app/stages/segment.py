@@ -4,14 +4,34 @@ Removes walls, people, floor, sky, tools etc. so TRELLIS sees only the target.
 Uses `rembg` (U^2-Net) when installed; otherwise falls back to a centre-weighted
 alpha so the pipeline still runs (clearly noted in the job record).
 
+Memory knobs (small cloud instances get OOM-killed loading the full u2net):
+  REMBG_MODEL   rembg model name — default "u2net" (~170 MB); set "u2netp"
+                (~5 MB) on 512 MB instances.
+  SEGMENT_MODE  "rembg" (default) | "oval"/"off" — skip rembg entirely and use
+                the centre-oval fallback (zero extra memory).
+
 Emits: rgba.png (cutout), mask.png (binary), and records bbox.
 """
 from __future__ import annotations
+
+import os
 
 import numpy as np
 from PIL import Image
 
 from .base import Ctx, Stage
+
+# One session per process: model weights load once, not per job.
+_REMBG_SESSION = None
+
+
+def _rembg_session():
+    global _REMBG_SESSION
+    if _REMBG_SESSION is None:
+        from rembg import new_session  # type: ignore
+        model = os.getenv("REMBG_MODEL", "u2net").strip() or "u2net"
+        _REMBG_SESSION = new_session(model)
+    return _REMBG_SESSION
 
 
 def _bbox_of_alpha(alpha: np.ndarray) -> list[int] | None:
@@ -32,9 +52,12 @@ class SegmentStage(Stage):
 
         rgba = None
         try:
+            mode = os.getenv("SEGMENT_MODE", "rembg").strip().lower()
+            if mode in ("off", "oval", "box"):
+                raise RuntimeError(f"disabled via SEGMENT_MODE={mode}")
             from rembg import remove  # type: ignore
-            rgba = remove(img)  # returns RGBA PIL image
-            note = "rembg U^2-Net"
+            rgba = remove(img, session=_rembg_session())  # returns RGBA PIL image
+            note = f"rembg {os.getenv('REMBG_MODEL', 'u2net').strip() or 'u2net'}"
         except Exception as e:
             # Fallback: keep full image, soft oval alpha so downstream still works.
             note = f"rembg unavailable ({type(e).__name__}); centre-oval fallback"
