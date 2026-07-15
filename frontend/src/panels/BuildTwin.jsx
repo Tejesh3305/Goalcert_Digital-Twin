@@ -108,17 +108,20 @@ export default function BuildTwin() {
     if (!file) return
     try {
       const { dataUrl, filename } = await readPlanFile(file)
-      setPlan({ dataUrl, filename }); setDomain(null); setScene(null); setCreated(null)
+      // Keep any selected domain — it maps an object photo onto that domain.
+      setPlan({ dataUrl, filename }); setScene(null); setCreated(null)
       const f = inferFacility(filename); if (f) setFacility(f)
-      say('ai', `Attached — **${filename}**. If it's a floor plan I'll reconstruct it as a ${f || 'building'} twin; if it's a photo of an object I'll run it through TRELLIS (RunPod) instead — I auto-detect which. Pick a facility type if you want to override auto-detect (plans only), then say “build” (or hit Reconstruct).`)
+      say('ai', `Attached — **${filename}**. If it's a floor plan I'll reconstruct a ${f || 'building'} twin; if it's a photo of an object I'll reconstruct it in 3-D with TRELLIS (RunPod). **Pick a domain below** to tell me what the object is (turbine, EDM, …) and I'll build a live twin of that domain around the reconstructed model — with its physics, sensors and components. Then say “build”.`)
     } catch (e) { toast.err('Could not read file', e.message); say('ai', `I couldn't read that file: ${e.message}`) }
   }
 
   const pickDomain = (key) => {
-    setDomain(key); setPlan(null); setScene(null); setCreated(null)
+    // Don't clear an attached photo — the domain maps the photo onto that domain.
+    setDomain(key); setScene(null); setCreated(null)
     const m = domainMeta(key)
     if (!name) setName(m.label)
-    say('ai', `Great — a **${m.label}** twin. ${m.blurb || ''} Say “build” (or hit Build Twin) and I'll wire it live.`)
+    if (plan) say('ai', `Got it — I'll map your photo as a **${m.label}** and build a live twin of that domain around the reconstructed 3-D model. Say “build”.`)
+    else say('ai', `Great — a **${m.label}** twin. ${m.blurb || ''} Attach a photo of one to reconstruct its real model, or say “build” for the stock model.`)
   }
 
   const send = () => {
@@ -126,7 +129,7 @@ export default function BuildTwin() {
     say('user', text); setInput('')
     // Name capture from short phrases.
     if (!name && text.length < 40 && !BUILD_INTENT.test(text)) setName(text)
-    const inferred = !plan ? inferDomain(text) : null
+    const inferred = inferDomain(text)
     if (inferred && inferred !== domain) { setDomain(inferred) }
     const wantsBuild = BUILD_INTENT.test(text)
     setTimeout(() => {
@@ -159,19 +162,27 @@ export default function BuildTwin() {
       say('ai', 'Working on your upload — reconstructing it in 3-D…')
       try {
         const r = await api.buildFromPlan({ data: plan.dataUrl, filename: plan.filename,
-          name: name.trim() || undefined, facility: facility || undefined, floors: 1 })
+          name: name.trim() || undefined, facility: facility || undefined, floors: 1,
+          domain: dom || undefined })
         stop()
 
         if (r.kind === 'object') {
-          setLog((l) => [...l, { t: `✓ TRELLIS (RunPod) reconstruction — ${r.asset_type || 'object'}`, cls: 'ok' }])
+          const mapped = r.domain && r.domain !== 'scanned-object'  // mapped onto a physics domain
+          const dm = mapped ? domainMeta(r.domain) : null
+          setLog((l) => [...l, { t: `✓ TRELLIS (RunPod) reconstruction${dm ? ` → ${dm.label} twin` : ''}`, cls: 'ok' }])
           // Only expose the tenant for "open dashboard" when the twin committed.
           setCreated({ tenant: r.committed ? r.tenant : null, name: r.twin_name,
-            domain: r.asset_type, kind: 'object', modelUrl: r.model_url })
+            domain: r.domain, kind: 'object', modelUrl: r.model_url, mapped })
           if (r.committed) await refreshTwins()
           const q = r.mesh_quality?.quality_score
-          const live = r.committed ? ' It’s committed as a twin — open its dashboard to see the same model live.' : ''
-          say('ai', `Done — reconstructed **${r.twin_name}** from your photo with TRELLIS (RunPod)${q != null ? ` — mesh quality ${q}/100` : ''}. Drag to rotate/zoom the model.${live}`)
-          toast.ok('3-D model generated', r.twin_name)
+          const qtxt = q != null ? ` — mesh quality ${q}/100` : ''
+          const live = r.committed
+            ? (mapped
+              ? ` It’s committed as a live **${dm.label}** twin — physics, sensors and components are streaming, and its dashboard shows this exact model. Open it to monitor and inject faults.`
+              : ' It’s committed as a twin — open its dashboard to see the same model live.')
+            : ''
+          say('ai', `Done — reconstructed **${r.twin_name}** from your photo with TRELLIS (RunPod)${qtxt}. Drag to rotate/zoom the model.${live}`)
+          toast.ok(mapped ? `${dm.label} twin created` : '3-D model generated', r.twin_name)
           return
         }
 
@@ -240,9 +251,10 @@ export default function BuildTwin() {
             <div ref={endRef} />
           </div>
 
-          {/* Domain quick-chips */}
+          {/* Domain quick-chips — with a photo attached they say "what is this?"
+              and map the reconstruction onto that domain's physics/sensors. */}
           <div style={{ marginTop: 12 }}>
-            <div className="card-label">Pick a domain</div>
+            <div className="card-label">{plan ? 'What is this? — map the photo to a domain' : 'Pick a domain'}</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               {DOMAIN_CHIPS.map((k) => {
                 const m = domainMeta(k); const on = domain === k
@@ -331,11 +343,14 @@ export default function BuildTwin() {
 
           {created?.kind === 'object' ? (
             <Card style={{ borderColor: 'rgba(22,163,74,.4)', background: 'rgba(22,163,74,.06)' }}>
-              <div style={{ fontWeight: 700, color: 'var(--accent-green)' }}><i className="ti ti-circle-check" /> 3-D model generated</div>
+              <div style={{ fontWeight: 700, color: 'var(--accent-green)' }}>
+                <i className="ti ti-circle-check" /> {created.mapped ? `${domainMeta(created.domain).label} twin created` : '3-D model generated'}</div>
               <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--muted)' }}>
-                {created.tenant
-                  ? 'Reconstructed from your photo with TRELLIS (RunPod) and committed as a twin — its dashboard shows this exact mesh.'
-                  : 'Reconstructed from your photo with TRELLIS (RunPod). Start the database (./start.ps1) and rebuild to commit it as a live twin.'}
+                {!created.tenant
+                  ? 'Reconstructed from your photo with TRELLIS (RunPod). Start the database (./start.ps1) and rebuild to commit it as a live twin.'
+                  : created.mapped
+                    ? `Reconstructed from your photo and mapped onto the ${domainMeta(created.domain).label} domain — live physics, sensors and components are streaming, and the dashboard shows this exact model.`
+                    : 'Reconstructed from your photo with TRELLIS (RunPod) and committed as a twin — its dashboard shows this exact mesh.'}
                 <div style={{ marginTop: 6 }}>Model: <a href={created.modelUrl} target="_blank" rel="noreferrer"><i className="ti ti-download" /> download .glb</a></div>
               </div>
               {created.tenant && (

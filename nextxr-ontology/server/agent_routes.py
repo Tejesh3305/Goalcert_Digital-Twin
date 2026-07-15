@@ -304,22 +304,37 @@ def _decode_data_url(data: str) -> bytes:
     return base64.b64decode(m.group(1) if m else data)
 
 
-def _build_twin_from_object_photo(image_bytes: bytes, filename: str, name: Optional[str]) -> dict:
+def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
+                                  name: Optional[str], domain: Optional[str] = None) -> dict:
     """Photo of an object → TRELLIS (RunPod) → GLB, via the merged 3-D platform
     pipeline (server/threed_platform — unchanged from its standalone form, just
     invoked in-process instead of over HTTP). Runs the same job store +
     thread-pooled orchestrator the platform's own UI uses, so behaviour/limits
-    (e.g. its 2-worker cap) are identical."""
+    (e.g. its 2-worker cap) are identical.
+
+    `domain` maps the reconstruction onto a physics domain: if it names a machine
+    template (turbine-engine, edm-machine, …) the committed twin IS that domain —
+    full physics pack, sensors, components, findings — but its rendered model is
+    the reconstructed GLB, not the stock model. With no domain it commits a
+    generic `scanned-object` twin (mesh only)."""
     from server.threed_platform.app.store import store as threed_store
     from server.threed_platform.app.orchestrator import submit as threed_submit
+    from twins.service import TEMPLATES
 
-    job = threed_store.create(filename, {"route": "object"})
+    # A machine-domain hint tells the reconstructor what the photo is (recorded on
+    # the job's understanding + echoed in the pipeline report).
+    tpl = TEMPLATES.get(domain or "")
+    is_machine_domain = bool(tpl and tpl.get("machine"))
+    object_type = tpl["label"] if tpl else ""
+    fields = {"route": "object", "object_type": object_type} if object_type else {"route": "object"}
+
+    job = threed_store.create(filename, fields)
     job_id = job["id"]
     in_path = threed_store.job_dir(job_id) / "input" / filename
     in_path.write_bytes(image_bytes)
     threed_store.set_state(job_id, "input_path", str(in_path))
     threed_store.set_state(job_id, "filename", filename)
-    threed_store.set_state(job_id, "fields", {"route": "object"})
+    threed_store.set_state(job_id, "fields", fields)
 
     threed_submit(job_id)
     result = None
@@ -340,17 +355,20 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str, name: Optio
 
     from agents import bim_support as bs
 
-    asset_type = (state.get("understanding") or {}).get("object_label")
-    twin_name = (name or (asset_type if asset_type and asset_type != "unknown" else None)
-                 or "Scanned Object")
+    detected = (state.get("understanding") or {}).get("object_label")
+    asset_type = object_type or (detected if detected and detected != "unknown" else None)
+    # A domain-mapped twin is named for its domain; a generic scan for its object.
+    twin_name = name or (tpl["label"] if is_machine_domain else None) or asset_type or "Scanned Object"
     # Point straight at the file endpoint (not /result, which 302-redirects) so
     # the three.js GLTF loader gets the bytes in one hop. The job store persists
     # on disk, so this URL stays valid for re-loading the model later (dashboard
     # hero, reopening the twin).
     model_url = f"/api/v1/threed/api/jobs/{job_id}/file/{result_glb}"
 
-    # Commit a real twin (registry row + seeded graph) so the object shows up in
-    # the Twins library and its dashboard renders THIS mesh — not a stock model.
+    # Commit a real twin. With a machine-domain hint it IS that domain (full
+    # physics pack + sensors); otherwise a generic scanned-object. Either way its
+    # rendered model is the reconstructed GLB (cached below), not a stock model.
+    twin_domain = domain if is_machine_domain else "scanned-object"
     tenant = _new_session("twin")
     committed = False
     commit_note = None
@@ -360,26 +378,26 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str, name: Optio
         from graph.connection import get_driver
         from changelog.service import ChangeLog
         get_driver().verify_connectivity()  # fail fast if the DB is offline
-        TwinRegistry().create(name=twin_name, domain="scanned-object",
+        TwinRegistry().create(name=twin_name, domain=twin_domain,
                               writer=GraphWriter(changelog=ChangeLog()),
                               tenant_id=tenant)
         committed = True
     except Exception as e:
         commit_note = f"live twin not committed ({e}); 3-D model only."
 
-    # Cache an object-scan scene keyed by tenant so the 3-D viewer (Build-a-Twin
-    # preview AND the dashboard hero) renders the generated GLB. Unlike a BIM
-    # scene this carries no room/wall nodes — just the model reference.
+    # Cache an object-scan scene keyed by tenant so every 3-D viewer (Build-a-Twin
+    # preview, the facility dashboard hero AND the machine dashboard) renders the
+    # generated GLB. Carries no BIM nodes — just the model reference + domain.
     bs.save_scene_cache(tenant, {
         "format": "nxr-object/1", "kind": "object-scan", "status": "ok",
         "twin_id": tenant, "model_url": model_url, "asset_type": asset_type,
-        "reconstruction": state.get("reconstruction"), "nodes": [],
+        "domain": twin_domain, "reconstruction": state.get("reconstruction"), "nodes": [],
     })
 
     return {
         "tenant": tenant, "twin_name": twin_name, "committed": committed,
-        "kind": "object", "model_url": model_url, "asset_type": asset_type,
-        "reconstruction": state.get("reconstruction"),
+        "kind": "object", "domain": twin_domain, "model_url": model_url,
+        "asset_type": asset_type, "reconstruction": state.get("reconstruction"),
         "mesh_quality": state.get("mesh_quality"),
         "parse_note": commit_note,
         "note": "Reconstructed with TRELLIS (RunPod).",
@@ -402,6 +420,11 @@ class BuildFromPlan(BaseModel):
     name: Optional[str] = None
     facility: Optional[str] = None
     floors: int = 1
+    # Object-photo route only: a machine domain (turbine-engine, edm-machine, …)
+    # to map the reconstruction onto — the committed twin becomes THAT domain
+    # (physics + sensors) with the reconstructed GLB as its model. Ignored for
+    # floor plans. None → a generic scanned-object twin.
+    domain: Optional[str] = None
 
 
 @router.post("/twin/build-from-plan")
@@ -435,7 +458,8 @@ def twin_build_from_plan(req: BuildFromPlan):
         Path(tmp_path).unlink(missing_ok=True)
 
     if route_info["route"] == "object":
-        return _build_twin_from_object_photo(image_bytes, req.filename or "upload.png", req.name)
+        return _build_twin_from_object_photo(image_bytes, req.filename or "upload.png",
+                                             req.name, req.domain)
 
     from agents import bim_support as bs
     from agents.twin_agents import (PLAN_PARSER_SYSTEM, schema_mapper,

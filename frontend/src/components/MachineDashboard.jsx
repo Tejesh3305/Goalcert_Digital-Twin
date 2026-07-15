@@ -18,6 +18,7 @@ import DefenceBaseViews from './DefenceBaseViews'
 import DefenceDamageControl from './DefenceDamageControl'
 import TurbineModel from './TurbineModel'
 import Scene3D from './Scene3D'
+import GlbViewer from './GlbViewer'
 import { usePolling, useApi } from '../hooks/useApi'
 import {
   domainMeta, statusColor, healthBand, riskFromHealth, hColor,
@@ -36,6 +37,10 @@ export default function MachineDashboard({ tenant, domain, name }) {
   const { data: net } = usePolling(() => api.twinNetwork(tenant).catch(() => null), 2000, [tenant],
     { skip: !tenant || !isNetworkDomain(domain) })
   const { data: domains } = useApi(() => api.machineDomains(), [])
+  // If this twin was built from a photo, its reconstructed GLB is the model to
+  // show (not the stock one). Cached as an object-scan scene keyed by tenant.
+  const { data: sceneRes } = useApi(() => api.twinSceneByTenant(tenant).catch(() => null), [tenant])
+  const reconUrl = sceneRes?.scene_result?.model_url
 
   const health = state?.health
   const running = state?.running
@@ -140,11 +145,13 @@ export default function MachineDashboard({ tenant, domain, name }) {
           className="section-gap">
           {domain === 'railway-metro'
             ? (net ? <RailwayNetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
-            : domain === 'turbine-engine'
-              ? <TurbineModel latest={latest} health={health} height={340} />
-              : domain === 'edm-machine'
-                ? <Scene3D domain="edm-machine" machine={name || meta.label} live={latest} height={340} />
-                : <MachineHero meta={meta} name={name || meta.label} health={health} latest={latest} />}
+            : reconUrl
+              ? <GlbViewer url={reconUrl} height={340} label="Reconstructed model · live twin" />
+              : domain === 'turbine-engine'
+                ? <TurbineModel latest={latest} health={health} height={340} />
+                : domain === 'edm-machine'
+                  ? <Scene3D domain="edm-machine" machine={name || meta.label} live={latest} height={340} />
+                  : <MachineHero meta={meta} name={name || meta.label} health={health} latest={latest} />}
         </Card>
       )}
 

@@ -34,8 +34,12 @@ pillow>=10.0
 numpy>=1.24
 requests>=2.31
 trimesh>=4.0               # mesh repair/LOD/export — required to produce the final GLB
+# Background removal — WITHOUT this the segment stage falls back to a crude
+# centre-oval crop and TRELLIS reconstruction quality drops sharply. Downloads a
+# ~170MB u2net model on first run. Installs onnxruntime (CPU).
+rembg>=2.0
+onnxruntime>=1.17
 
 # Recommended (each stage degrades gracefully if missing):
-# rembg>=2.0                     # background removal (else a centre-oval fallback)
 # fast-simplification>=0.1       # quadric-decimation LODs
 # replicate>=0.25                # alternative TRELLIS provider (RunPod is preferred)
