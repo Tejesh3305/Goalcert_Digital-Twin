@@ -12,8 +12,7 @@ import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { makeMats, STATUS_COLOR, disposeMats, floorMaterial } from './materials'
 import { buildProp, buildGreen, pStatusPin } from './props'
-
-const PROP_SCALE = 0.32
+import { PROP_SCALE } from './catalog'
 
 export default function Scene({ scene, statusMap = {}, visibleLevels = null,
                                onPick, selectedId, showRoof = false }) {

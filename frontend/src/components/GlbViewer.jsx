@@ -5,9 +5,28 @@
  * Wrapped in an error boundary so a failed/missing GLB shows a message instead
  * of crashing the panel (drei's useGLTF throws on load failure).
  */
-import React, { Component, Suspense, useMemo } from 'react'
-import { Canvas } from '@react-three/fiber'
+import React, { Component, Suspense, useMemo, useEffect } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Html, Bounds, ContactShadows } from '@react-three/drei'
+import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+
+/**
+ * Neutral procedural image-based lighting — the R3F equivalent of the 3d-platform
+ * tester's <model-viewer environment-image="neutral">. Without an environment map
+ * PBR/metallic surfaces reflect black and the model looks dark; this lights the
+ * whole mesh evenly (no network — RoomEnvironment is generated on the GPU).
+ */
+function NeutralEnv() {
+  const { gl, scene } = useThree()
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04)
+    scene.environment = env.texture
+    return () => { env.texture.dispose(); pmrem.dispose(); scene.environment = null }
+  }, [gl, scene])
+  return null
+}
 
 function Model({ url }) {
   const { scene } = useGLTF(url)
@@ -42,12 +61,14 @@ export default function GlbViewer({ url, height = 420, label = 'TRELLIS reconstr
   )
   return (
     <div style={{ height, borderRadius: 12, overflow: 'hidden', background: '#0b0d18', position: 'relative' }}>
-      <Canvas shadows camera={{ position: [4, 2.5, 4.5], fov: 48 }} dpr={[1, 2]}>
+      <Canvas shadows camera={{ position: [4, 2.5, 4.5], fov: 48 }} dpr={[1, 2]}
+              gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}>
         <color attach="background" args={['#0b0d18']} />
-        <hemisphereLight args={['#e6ecff', '#1a2038', 0.7]} />
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
-        <directionalLight position={[-5, 3, -4]} intensity={0.4} color="#9ec9ff" />
+        <NeutralEnv />
+        <hemisphereLight args={['#e6ecff', '#1a2038', 0.5]} />
+        <ambientLight intensity={0.3} />
+        <directionalLight position={[5, 8, 5]} intensity={1.1} castShadow />
+        <directionalLight position={[-5, 3, -4]} intensity={0.35} color="#9ec9ff" />
         <GlbErrorBoundary>
           <Suspense fallback={<Center>Loading 3-D model…</Center>}>
             <Bounds fit clip observe margin={1.2}>

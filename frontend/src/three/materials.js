@@ -51,6 +51,17 @@ export function makeMats() {
     asphalt: new THREE.MeshStandardMaterial({ color: 0x6f7480, roughness: 0.85, metalness: 0.05 }),
     trunk: new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 0.9 }),
     porcelain: new THREE.MeshStandardMaterial({ color: 0xf4f6f9, roughness: 0.25, metalness: 0.05 }),
+    // medical / hospital
+    medWhite: new THREE.MeshStandardMaterial({ color: 0xf0f4f8, roughness: 0.35, metalness: 0.08 }),
+    medBlue: new THREE.MeshStandardMaterial({ color: 0x6b9fb5, roughness: 0.3, metalness: 0.5 }),
+    stainless: new THREE.MeshStandardMaterial({ color: 0xd0d4da, roughness: 0.18, metalness: 0.92, envMapIntensity: 1.4 }),
+    ivFluid: new THREE.MeshStandardMaterial({ color: 0xd4eaf7, roughness: 0.1, metalness: 0, transparent: true, opacity: 0.75 }),
+    ivTube: new THREE.MeshStandardMaterial({ color: 0xa8d0e8, roughness: 0.3, metalness: 0, transparent: true, opacity: 0.8 }),
+    // data center
+    rackBlack: new THREE.MeshStandardMaterial({ color: 0x111318, roughness: 0.6, metalness: 0.5 }),
+    serverFace: new THREE.MeshStandardMaterial({ color: 0x18191f, roughness: 0.55, metalness: 0.5 }),
+    // generic
+    orange: new THREE.MeshStandardMaterial({ color: 0xe67e22, roughness: 0.5, metalness: 0.2 }),
     led: (c) => new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 1.8 }),
   }
 }
