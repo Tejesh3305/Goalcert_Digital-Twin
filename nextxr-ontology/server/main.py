@@ -793,11 +793,24 @@ def on_startup():
     """Apply the graph schema on boot, best-effort. If Neo4j is unreachable
     (e.g. Docker is off), we log and continue — the server still serves the
     frontend and the bus/schema/twins APIs. Schema is re-applied lazily when a
-    twin is created or the feed starts."""
+    twin is created or the feed starts.
+
+    Then ensure the standard demo twins exist (idempotent). This runs in a
+    background thread so a slow cloud Neo4j (Aura round-trips) never delays the
+    server coming up / passing its health check."""
     try:
         _ensure_schema()
     except Exception as e:
         print(f"[startup] schema apply skipped (Neo4j unavailable): {e}")
+
+    def _seed():
+        try:
+            from twins.seed import seed_demo_twins
+            seed_demo_twins()
+        except Exception as e:  # noqa: BLE001
+            print(f"[startup] demo-twin seed skipped: {e}")
+
+    threading.Thread(target=_seed, daemon=True).start()
 
 
 if __name__ == "__main__":
