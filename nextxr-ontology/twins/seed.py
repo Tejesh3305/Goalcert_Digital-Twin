@@ -52,7 +52,11 @@ def seed_demo_twins() -> None:
             if domain in have:
                 continue
             try:
-                reg.create(name=name, domain=domain, writer=writer)
+                # Deterministic tenant id per domain: create() rejects an id that
+                # already exists, so a re-run or a second booting instance can't
+                # produce a duplicate for the same domain (the create is the lock).
+                reg.create(name=name, domain=domain, writer=writer,
+                           tenant_id=f"demo-{domain}")
                 created += 1
             except Exception as e:  # noqa: BLE001 — one bad domain shouldn't stop the rest
                 log.warning("demo-twin seed for %s failed: %s", domain, e)
