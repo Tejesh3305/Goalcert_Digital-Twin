@@ -8,8 +8,12 @@ import React, { Suspense, useMemo, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Html, Bounds, ContactShadows } from '@react-three/drei'
 import * as THREE from 'three'
+import turbineUrl from '../assets/turbine.glb?url'
 
-const MODEL_URL = '/models/turbine.glb'
+// Bundled as a Vite asset so the GLB is served from the remote's OWN origin.
+// (An absolute '/models/turbine.glb' would 404 when this panel renders inside
+// the hub, whose origin has no such file.)
+const MODEL_URL = turbineUrl
 
 // Minimal signal metadata for the hotspots (labels/units + thresholds).
 const SIG = {

@@ -10,17 +10,30 @@
  * sent as X-API-Key automatically.
  */
 
-const BASE = '/api/v1'
+// Resolve the API base at RUNTIME so ONE build serves both the standalone app
+// (defaults to /api/v1) and the hub, where the host sets
+// window.__NXR_API_BASE__ = '/api/twin' before mounting the federated remote.
+function apiBase() {
+  if (typeof window !== 'undefined' && window.__NXR_API_BASE__) return window.__NXR_API_BASE__
+  return (import.meta.env && import.meta.env.VITE_API_BASE) || '/api/v1'
+}
+export const getApiBase = apiBase
 
 function headers() {
   const h = { 'Content-Type': 'application/json' }
   const key = localStorage.getItem('nxr_api_key')
   if (key) h['X-API-Key'] = key
+  // When federated into the hub, the host injects its auth (Bearer JWT and/or
+  // CSRF token) so calls to the hub gateway (/api/twin/*) authenticate. Same-
+  // origin cookies also ride automatically via `credentials` below.
+  if (typeof window !== 'undefined' && typeof window.__NXR_AUTH__ === 'function') {
+    Object.assign(h, window.__NXR_AUTH__() || {})
+  }
   return h
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, { headers: headers(), ...options })
+  const res = await fetch(`${apiBase()}${path}`, { credentials: 'same-origin', headers: headers(), ...options })
   if (!res.ok) {
     let detail
     try { detail = (await res.json()).detail } catch { detail = res.statusText }
@@ -106,7 +119,7 @@ export const api = {
   stopFeed: () => request('/feed/stop', { method: 'POST' }),
 
   // ── Live event stream URL (for EventSource) ──
-  streamUrl: (tenant) => `${BASE}/bus/stream?${qs({ tenant })}`,
+  streamUrl: (tenant) => `${apiBase()}/bus/stream?${qs({ tenant })}`,
 
   // ── Agents (agentic core) ──
   agentInfo: () => request('/agents/info'),

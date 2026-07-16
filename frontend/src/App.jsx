@@ -1,16 +1,9 @@
-import { Routes, Route } from 'react-router-dom'
 import Topbar from './components/layout/Topbar'
 import Sidebar from './components/layout/Sidebar'
+import TwinRoutes from './TwinRoutes'
 
-import Dashboard from './panels/Dashboard'
-import BuildTwin from './panels/BuildTwin'
-import Twins from './panels/Twins'
-import Predict from './panels/Predict'
-import Agents from './panels/Agents'
-import Changelog from './panels/Changelog'
-import BundleAuthor from './panels/BundleAuthor'
-import Marketplace from './panels/Marketplace'
-
+// Standalone shell: chrome + the routed twin content. The hub federates only
+// <TwinRoutes/> and supplies its own chrome, so the two stay in one source.
 export default function App() {
   return (
     <div className="app-root">
@@ -18,17 +11,7 @@ export default function App() {
       <div className="body">
         <Sidebar />
         <div className="content">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/build" element={<BuildTwin />} />
-            <Route path="/twins" element={<Twins />} />
-            <Route path="/predict" element={<Predict />} />
-            <Route path="/agents" element={<Agents />} />
-            <Route path="/changelog" element={<Changelog />} />
-            <Route path="/bundle-author" element={<BundleAuthor />} />
-            <Route path="/marketplace" element={<Marketplace />} />
-            <Route path="*" element={<Dashboard />} />
-          </Routes>
+          <TwinRoutes />
         </div>
       </div>
     </div>
