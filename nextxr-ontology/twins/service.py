@@ -191,13 +191,82 @@ class Twin:
         return asdict(self)
 
 
+# Rehydrate the SQLite registry from the graph at most once per process.
+_REHYDRATED = False
+
+
+def _graph_session():
+    """A Neo4j session via the shared driver. Imported lazily so the twins
+    package keeps its hard dependencies one-way — the graph mirror below is
+    best-effort and every caller swallows failures."""
+    from graph.connection import get_driver  # local import by design
+    return get_driver().session()
+
+
 class TwinRegistry:
-    """SQLite-backed registry of twins. Seeding goes through the Graph Writer."""
+    """SQLite-backed registry of twins. Seeding goes through the Graph Writer.
+
+    The registry file lives on local disk, which is EPHEMERAL on cloud hosts
+    (Render/Heroku wipe it on every deploy) — while the twins' graph entities
+    live in Neo4j and survive. So every registry row is mirrored to a
+    `(:NxrTwinRegistry)` node, and an empty registry rehydrates from the graph
+    on first use: twins keep showing up after a redeploy."""
 
     def __init__(self, db_path: Optional[Path] = None):
         self.db_path = Path(db_path) if db_path else _DEFAULT_DB
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._rehydrate_from_graph()
+
+    # ---- graph mirror (survives redeploys) ---------------------------
+    def _mirror_upsert(self, twin: Twin) -> None:
+        try:
+            with _graph_session() as s:
+                s.run(
+                    "MERGE (t:NxrTwinRegistry {tenant_id: $tenant_id}) "
+                    "SET t.name = $name, t.domain = $domain, "
+                    "    t.description = $description, "
+                    "    t.created_at = $created_at, "
+                    "    t.seed_asset_id = $seed_asset_id",
+                    **twin.to_dict(),
+                )
+        except Exception:
+            pass  # mirror is best-effort; the local registry stays the truth
+
+    def _mirror_delete(self, tenant_id: str) -> None:
+        try:
+            with _graph_session() as s:
+                s.run("MATCH (t:NxrTwinRegistry {tenant_id: $tid}) DELETE t",
+                      tid=tenant_id)
+        except Exception:
+            pass
+
+    def _rehydrate_from_graph(self) -> None:
+        global _REHYDRATED
+        if _REHYDRATED:
+            return
+        _REHYDRATED = True
+        try:
+            with self._connect() as conn:
+                if conn.execute("SELECT 1 FROM twins LIMIT 1").fetchone():
+                    return  # registry already has rows — nothing to recover
+            with _graph_session() as s:
+                rows = s.run("MATCH (t:NxrTwinRegistry) RETURN t").data()
+            if not rows:
+                return
+            with self._connect() as conn:
+                for r in rows:
+                    t = r["t"]
+                    conn.execute(
+                        "INSERT OR IGNORE INTO twins (tenant_id, name, domain, "
+                        "description, created_at, seed_asset_id) "
+                        "VALUES (?,?,?,?,?,?)",
+                        (t.get("tenant_id"), t.get("name", ""),
+                         t.get("domain", "blank"), t.get("description", ""),
+                         t.get("created_at", ""), t.get("seed_asset_id")),
+                    )
+        except Exception:
+            pass  # graph offline — start empty, exactly as before
 
     def _connect(self):
         conn = sqlite3.connect(self.db_path, timeout=30.0)
@@ -263,7 +332,10 @@ class TwinRegistry:
             cur = conn.execute(
                 "DELETE FROM twins WHERE tenant_id = ?", (tenant_id,)
             )
-            return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+        if deleted:
+            self._mirror_delete(tenant_id)
+        return deleted
 
     # ---- creation + seeding ------------------------------------------
     def create(self, *, name: str, domain: str, writer, actor: str = "twin-factory",
@@ -300,6 +372,7 @@ class TwinRegistry:
             self._set_seed_asset(tenant_id, seed_asset_id)
             twin.seed_asset_id = seed_asset_id
 
+        self._mirror_upsert(twin)
         return twin
 
     def _seed(self, twin: Twin, writer, actor: str) -> Optional[str]:
