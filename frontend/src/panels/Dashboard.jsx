@@ -11,7 +11,7 @@ import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
 import { isMachineDomain } from '../lib/machine'
 import { timeOf } from '../lib/format'
-import api from '../api/client'
+import api, { assetUrl } from '../api/client'
 
 /** The twin's home dashboard. Machine-domain twins (turbine / EDM / tram) get the
  *  unified live machine dashboard; facility twins keep the graph-driven overview. */
@@ -193,7 +193,7 @@ function TwinScene({ tenant, domain, name }) {
 
   if (scene === undefined) return <div className="bim-loading"><span className="spinner" /> Reconstructing scene…</div>
   // Object-scan twin: the reconstructed GLB is the model.
-  if (scene?.model_url) return <GlbViewer url={scene.model_url} height={420} />
+  if (scene?.model_url) return <GlbViewer url={assetUrl(scene.model_url)} height={420} />
   if (scene) return <BimViewer scene={scene} tenant={tenant} />
   return <DemoTwin domain={domain} name={name} />   // graceful fallback: no geometry
 }

@@ -9,7 +9,7 @@ import { useTwin } from '../context/TwinContext'
 import { useToast } from '../context/ToastContext'
 import { domainMeta } from '../lib/machine'
 import { readPlanFile, ACCEPT } from '../lib/planUpload'
-import api from '../api/client'
+import api, { assetUrl } from '../api/client'
 
 /**
  * Build a Twin — ONE chat that does three jobs:
@@ -198,7 +198,7 @@ export default function BuildTwin() {
           setLog((l) => [...l, { t: `✓ TRELLIS (RunPod) reconstruction${dm ? ` → ${dm.label} twin` : ''}`, cls: 'ok' }])
           // Only expose the tenant for "open dashboard" when the twin committed.
           setCreated({ tenant: r.committed ? r.tenant : null, name: r.twin_name,
-            domain: r.domain, kind: 'object', modelUrl: r.model_url, mapped })
+            domain: r.domain, kind: 'object', modelUrl: assetUrl(r.model_url), mapped })
           if (r.committed) await refreshTwins()
           const q = r.mesh_quality?.quality_score
           const qtxt = q != null ? ` — mesh quality ${q}/100` : ''

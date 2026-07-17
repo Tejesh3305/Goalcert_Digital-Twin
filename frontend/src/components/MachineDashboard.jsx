@@ -25,7 +25,7 @@ import {
   stubNarration, stubReply, isNetworkDomain,
 } from '../lib/machine'
 import { localName } from '../lib/format'
-import api from '../api/client'
+import api, { assetUrl } from '../api/client'
 
 const sevClass = { critical: 'ev-crit', warning: 'ev-warn', info: 'ev-info', ok: 'ev-ok' }
 const fmt = (v) => (typeof v !== 'number' ? (v ?? '—') : Number.isInteger(v) ? v : v.toFixed(1))
@@ -40,7 +40,9 @@ export default function MachineDashboard({ tenant, domain, name }) {
   // If this twin was built from a photo, its reconstructed GLB is the model to
   // show (not the stock one). Cached as an object-scan scene keyed by tenant.
   const { data: sceneRes } = useApi(() => api.twinSceneByTenant(tenant).catch(() => null), [tenant])
-  const reconUrl = sceneRes?.scene_result?.model_url
+  // assetUrl(): the backend returns '/api/v1/threed/...', which resolves against the
+  // HUB's origin (404 -> black canvas) when this runs federated. Re-base it.
+  const reconUrl = assetUrl(sceneRes?.scene_result?.model_url)
 
   const health = state?.health
   const running = state?.running

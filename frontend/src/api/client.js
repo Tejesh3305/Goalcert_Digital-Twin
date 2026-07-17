@@ -19,6 +19,34 @@ function apiBase() {
 }
 export const getApiBase = apiBase
 
+/**
+ * Re-base an asset URL the BACKEND handed us onto the API base this build is actually
+ * talking to.
+ *
+ * The server returns absolute paths rooted at its own mount, e.g.
+ *   scene_result.model_url = "/api/v1/threed/api/jobs/<id>/file/artifacts/export/model.glb"
+ *
+ * Standalone that is already right — the app and the API share an origin. Federated into
+ * the hub it is NOT: the browser resolves "/api/v1/..." against the HUB's origin (:8090),
+ * where nothing serves it, so the fetch 404s. For a <GlbViewer>, that means the canvas
+ * mounts and the model silently never arrives — a black 3-D panel with no error, which is
+ * exactly how the reconstructed Gas Turbine looked inside the hub while working standalone.
+ *
+ * Swapping the server's "/api/v1" prefix for apiBase() sends it through the hub gateway
+ * ("/api/twin/threed/...") instead, which proxies to the twin and returns the file.
+ * Absolute (http://…) and data: URLs are passed through untouched.
+ */
+export function assetUrl(url) {
+  if (!url) return url
+  if (/^(https?:)?\/\//.test(url) || url.startsWith('data:') || url.startsWith('blob:')) return url
+  const base = apiBase()
+  // Strip whichever server-side mount prefix the URL carries, then re-root it.
+  const rooted = url.replace(/^\/api\/v1(?=\/|$)/, '')
+  if (rooted !== url) return `${base}${rooted}`
+  // Not an /api/v1 path (e.g. a bundled /assets/... file) — leave it alone.
+  return url
+}
+
 function headers() {
   const h = { 'Content-Type': 'application/json' }
   const key = localStorage.getItem('nxr_api_key')
