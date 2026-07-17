@@ -23,6 +23,8 @@ hardening layered on top later; this is the spine they wrap.
 
 from __future__ import annotations
 
+from paths import data_path
+
 import hashlib
 import json
 import os
@@ -35,7 +37,10 @@ from typing import Optional
 
 GENESIS_HASH = "0" * 64  # prev_event_hash of the first event in any chain
 
-_DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "changelog.db"
+# Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
+# Computing it from __file__ meant "inside the container image", which on Fargate is
+# ephemeral — this store would be wiped on every redeploy.
+_DEFAULT_DB = data_path("changelog.db")
 
 # Crockford base32 alphabet (ULID spec).
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"

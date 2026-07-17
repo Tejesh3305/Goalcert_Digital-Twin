@@ -39,6 +39,8 @@ continues from the saved checkpoint.
 
 from __future__ import annotations
 
+from paths import data_path
+
 import json
 import sqlite3
 import threading
@@ -60,7 +62,7 @@ class SqliteSaver:
     full state JSON plus the node to resume at."""
 
     def __init__(self, db_path: Optional[Path] = None):
-        default = Path(__file__).resolve().parent.parent / "data" / "agent_checkpoints.db"
+        default = data_path("agent_checkpoints.db")
         self.db_path = Path(db_path) if db_path else default
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()

@@ -21,6 +21,8 @@ it like the demo's archviz scenes.
 
 from __future__ import annotations
 
+from paths import data_dir
+
 import json
 import math
 from pathlib import Path
@@ -33,7 +35,7 @@ DC = "https://ontology.nextxr.io/v3/datacenter#"
 
 # ── scene cache (so any twin re-renders fully — incl. furniture — per tenant) ──
 def _scene_dir() -> Path:
-    d = Path(__file__).resolve().parent.parent / "data" / "scenes"
+    d = data_dir("scenes")   # reconstructed 3-D models — must persist across deploys
     d.mkdir(parents=True, exist_ok=True)
     return d
 

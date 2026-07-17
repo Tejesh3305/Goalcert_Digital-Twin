@@ -19,6 +19,8 @@ API the Capability Composer uses:
 
 from __future__ import annotations
 
+from paths import data_path
+
 import json
 import sqlite3
 import threading
@@ -28,7 +30,10 @@ from typing import Optional
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
 
-_DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "bundles.db"
+# Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
+# Computing it from __file__ meant "inside the container image", which on Fargate is
+# ephemeral — this store would be wiped on every redeploy.
+_DEFAULT_DB = data_path("bundles.db")
 
 
 # --------------------------------------------------------------------------

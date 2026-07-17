@@ -18,6 +18,8 @@ creation. "blank" seeds just a root Site, for building by hand via Add Asset.
 
 from __future__ import annotations
 
+from paths import data_path
+
 import re
 import sqlite3
 import time
@@ -34,7 +36,10 @@ HSP  = "https://ontology.nextxr.io/v3/hospital#"
 EV   = "https://ontology.nextxr.io/v3/ev#"
 DEF  = "https://ontology.nextxr.io/v3/defence#"
 
-_DEFAULT_DB = Path(__file__).resolve().parent.parent / "data" / "twins.db"
+# Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
+# Computing it from __file__ meant "inside the container image", which on Fargate is
+# ephemeral — this store would be wiped on every redeploy.
+_DEFAULT_DB = data_path("twins.db")
 
 # Domain templates: what gets seeded when a twin of this kind is created.
 # Each is a pure description; service.seed() interprets it via the Graph Writer.

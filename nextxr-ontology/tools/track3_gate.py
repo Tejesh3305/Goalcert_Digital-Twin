@@ -1,3 +1,4 @@
+from paths import data_path
 #!/usr/bin/env python3
 """
 track3_gate.py — TRACK 3 EXIT TEST (the findings loop, closed).
@@ -87,7 +88,7 @@ def main():
     driver = get_driver()
 
     # Fresh per-run change log so the gate is reproducible.
-    gate_db = ROOT / "data" / "track3_gate.db"
+    gate_db = data_path("track3_gate.db")
     if gate_db.exists():
         os.remove(gate_db)
     cl = ChangeLog(db_path=gate_db)
