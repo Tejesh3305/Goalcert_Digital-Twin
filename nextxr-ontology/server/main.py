@@ -736,8 +736,28 @@ def stop_feed():
 
 FRONTEND_DIST = ROOT.parent / "frontend" / "dist"
 
+
+class _FederationStatics(StaticFiles):
+    """StaticFiles that forces revalidation of the Module-Federation entry files.
+
+    `remoteEntry.js` and `style.css` have FIXED filenames but their CONTENT changes
+    every build (the hashed chunks they point to bust their own caches). Starlette's
+    StaticFiles emits only ETag/Last-Modified — no Cache-Control — so browsers apply
+    heuristic caching and keep serving a STALE remoteEntry.js on a soft reload. When
+    the remote gains/renames an exposed module, the hub then loads the old map and
+    dies with "Can not find remote module ./mount". Marking just these two entry
+    files no-cache (the hashed chunks stay cacheable) makes the browser revalidate
+    them every load, so a hub rebuild never desyncs from a cached remote map.
+    """
+    async def get_response(self, path, scope):
+        resp = await super().get_response(path, scope)
+        if path.endswith(("remoteEntry.js", "style.css")):
+            resp.headers["Cache-Control"] = "no-cache, max-age=0, must-revalidate"
+        return resp
+
+
 if (FRONTEND_DIST / "assets").is_dir():
-    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"),
+    app.mount("/assets", _FederationStatics(directory=FRONTEND_DIST / "assets"),
               name="assets")
 
 # Built static assets under public/ (e.g. the 3-D GLB models) — served directly

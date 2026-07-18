@@ -18,13 +18,30 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: REMOTE_BASE,
+    // Keep exactly one physical copy of React & the two renderers in this bundle,
+    // so @react-three/fiber's react-reconciler and react-dom bind to the very same
+    // React the component hooks use. Combined with the self-mounting `./mount`
+    // entry below (which renders this remote under its OWN react-dom root, NOT the
+    // host's), the entire twin subtree — including R3F's renderer — lives on ONE
+    // React instance. That is the fix for the 3-D canvas going blank under
+    // federation (React #321): with the old component-export model the host
+    // rendered our tree, so R3F hooks resolved React via `importShared` (the host's
+    // copy) while react-reconciler stayed bound to ours → two dispatchers → #321.
+    resolve: {
+      dedupe: ['react', 'react-dom', 'react-reconciler', 'scheduler'],
+    },
     plugins: [
       react(),
       federation({
         name: 'nextxrTwin',
         filename: 'remoteEntry.js',
         exposes: {
-          // the host mounts THIS one self-contained component (providers+router+routes)
+          // PRIMARY host entry: mount(el, props) spins up our own react-dom root
+          // inside a host-provided <div>, isolating our React from the host's by a
+          // DOM boundary. See src/mount.jsx.
+          './mount': './src/mount.jsx',
+          // Legacy component mount (still exported for standalone/embedding use);
+          // the hub no longer renders this directly — see the #321 note above.
           './TwinRemoteApp': './src/TwinRemoteApp.jsx',
           // kept available for finer-grained composition / a future state bridge
           './TwinRoutes': './src/TwinRoutes.jsx',
@@ -32,9 +49,13 @@ export default defineConfig(({ mode }) => {
           './ToastProvider': './src/context/ToastContext.jsx',
           './apiClient': './src/api/client.js',
         },
-        // React must be one instance across host+remote or hooks break. three /
-        // react-router live only inside this remote's tree, so it keeps its own.
-        shared: ['react', 'react-dom'],
+        // Deliberately share NOTHING. The remote owns its whole React runtime and
+        // renders itself via `./mount`; nothing React-shaped crosses the federation
+        // boundary (the host just hands us a DOM node). Sharing react here is what
+        // forced R3F's reconciler onto a different React copy than the hooks. This
+        // is a build-time change only — same `npm run build` locally and on AWS,
+        // no infra / env / hub-config change.
+        shared: [],
       }),
     ],
     server: {
