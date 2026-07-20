@@ -40,7 +40,12 @@ export function makeMats() {
     red: new THREE.MeshStandardMaterial({ color: 0xc0392b, roughness: 0.5, metalness: 0.3 }),
     solar: new THREE.MeshStandardMaterial({ color: 0x14213d, roughness: 0.25, metalness: 0.4, emissive: 0x0a1a3a, emissiveIntensity: 0.25 }),
     // ── architectural shell + site ──
-    plaster: new THREE.MeshStandardMaterial({ color: 0xeef0f4, roughness: 0.94, metalness: 0, side: THREE.DoubleSide }),
+    // Warm neutral greige — reads far better than flat white under the scene's
+    // hemisphere + directional lighting.
+    plaster: new THREE.MeshStandardMaterial({ color: 0xe4ddcf, roughness: 0.88, metalness: 0.02, side: THREE.DoubleSide }),
+    // See-through wall mode: frosted glazing that still reads as a wall plane
+    // (more opaque + more neutral than windowGlass, which is for real windows).
+    wallGlass: new THREE.MeshStandardMaterial({ color: 0xcdd8e4, roughness: 0.08, metalness: 0.1, transparent: true, opacity: 0.34, side: THREE.DoubleSide, envMapIntensity: 1.4 }),
     floorWood: new THREE.MeshStandardMaterial({ color: 0xb9895a, roughness: 0.55, metalness: 0.04 }),
     floorTile: new THREE.MeshStandardMaterial({ color: 0xd9dde3, roughness: 0.28, metalness: 0.06 }),
     floorConcrete: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.9, metalness: 0.02 }),
@@ -78,6 +83,20 @@ export const STATUS_COLOR = {
   warn: 0xf59e0b,
   crit: 0xf43f5e,
   info: 0x22d3ee,
+}
+
+// Clinical sector → colour (floor tint + HUD legend), so a building reads as
+// organised into departments at a glance. Keys match room.sector from the
+// hospital layout generator.
+export const SECTOR_COLOR = {
+  Emergency: 0xef4444,
+  Surgical: 0x3b82f6,
+  'Diagnostic Imaging': 0x8b5cf6,
+  'Critical Care': 0xf97316,
+  Wards: 0x10b981,
+  'Support Services': 0x64748b,
+  Admin: 0xeab308,
+  Circulation: 0x9ca3af,
 }
 
 export function disposeMats(M) {

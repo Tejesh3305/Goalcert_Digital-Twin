@@ -29,6 +29,7 @@ export const CATEGORIES = [
   'Hospital — Imaging',
   'Hospital — Patient Care',
   'Hospital — Surgical',
+  'Hospital — Support Services',
   'Factory / Logistics',
   'Office / Furniture',
   'Residential',
@@ -110,6 +111,7 @@ export const CATALOG = [
   { key: 'crashcart', label: 'Crash Cart', cat: 'Hospital — Patient Care', facility: ['hospital'], desc: 'Emergency code cart with colour-coded drawers, defibrillator and O₂ cylinder.' },
   { key: 'medcart', label: 'Medication Cart', cat: 'Hospital — Patient Care', facility: ['hospital'], desc: 'Automated dispensing cart (Pyxis-style) with touch-screen and locked drawers.' },
   { key: 'fridge', label: 'Medical Fridge', cat: 'Hospital — Patient Care', facility: ['hospital'], desc: 'Glass-door medical refrigerator for medicines/samples.' },
+  { key: 'bloodbank', label: 'Blood Bank / Cold Storage', cat: 'Hospital — Patient Care', facility: ['hospital'], desc: 'Twin glass-door blood-bank refrigerator with digital temperature readout and over-temp alarm.' },
   { key: 'gas', label: 'Medical Gas Panel', cat: 'Hospital — Patient Care', facility: ['hospital'], desc: 'Wall medical-gas outlet panel (O₂ / N₂O / vacuum).' },
   { key: 'nurse', label: 'Nurse Station Terminal', cat: 'Hospital — Patient Care', facility: ['hospital'], desc: 'Nurse call / monitoring terminal.' },
 
@@ -117,6 +119,10 @@ export const CATALOG = [
   { key: 'operatingtable', label: 'Operating Table', cat: 'Hospital — Surgical', facility: ['hospital'], desc: 'Articulated OR table with padded sections, arm boards and column base.' },
   { key: 'anesthesia', label: 'Anesthesia Machine', cat: 'Hospital — Surgical', facility: ['hospital'], desc: 'Anaesthesia workstation: vaporizers, flowmeters, bellows, monitor and circuit.' },
   { key: 'mayostand', label: 'Mayo Instrument Stand', cat: 'Hospital — Surgical', facility: ['hospital'], desc: 'Cantilever instrument tray stand for the sterile field.' },
+
+  /* Hospital — Support Services */
+  { key: 'autoclave', label: 'Autoclave / Steriliser', cat: 'Hospital — Support Services', facility: ['hospital'], desc: 'CSSD steam steriliser: stainless chamber, circular pressure door, temperature/pressure gauges and cycle-status LED.' },
+  { key: 'gascylinderbank', label: 'Medical Gas Cylinder Bank', cat: 'Hospital — Support Services', facility: ['hospital'], desc: 'Bulk O₂ / N₂O manifold: two banks of colour-shouldered cylinders on a frame with automatic changeover control and pressure display.' },
   { key: 'laf', label: 'Laminar Flow Unit', cat: 'Hospital — Surgical', facility: ['hospital'], desc: 'Ceiling laminar-airflow canopy for OR / clean areas.' },
 
   /* ── Factory / Logistics ────────────────────────────────────────── */

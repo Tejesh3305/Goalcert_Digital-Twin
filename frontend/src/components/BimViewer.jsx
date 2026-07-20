@@ -16,8 +16,17 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import Scene from '../three/Scene'
 import { usePolling } from '../hooks/useApi'
 import { useEventStream } from '../hooks/useEventStream'
-import { STATUS_COLOR } from '../three/materials'
+import { STATUS_COLOR, SECTOR_COLOR } from '../three/materials'
+import EquipmentInfoPanel from './EquipmentInfoPanel'
 import api from '../api/client'
+
+const WALL_MODES = [
+  { key: 'solid', label: 'Walls', icon: 'ti-wall' },
+  { key: 'glass', label: 'Glass', icon: 'ti-window' },
+  { key: 'hidden', label: 'No walls', icon: 'ti-border-none' },
+]
+
+const hex = (n) => `#${n.toString(16).padStart(6, '0')}`
 
 function deriveStatus(nodes = []) {
   const map = {}
@@ -74,6 +83,18 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
   const [visibleLevels, setVisibleLevels] = useState(null) // null = all
   const [selected, setSelected] = useState(null) // scene node
   const [showRoof, setShowRoof] = useState(false) // dollhouse (roof off) by default
+  const [wallMode, setWallMode] = useState('solid') // solid | glass | hidden
+
+  // sectors present in the scene (for the legend), in a stable order
+  const sectors = useMemo(() => {
+    const seen = []
+    for (const n of (scene?.nodes || [])) {
+      if (n.kind === 'room' && n.sector && n.sector !== 'Circulation' && !seen.includes(n.sector)) {
+        seen.push(n.sector)
+      }
+    }
+    return seen
+  }, [scene])
 
   // Live status: poll topology; nudge on new bus events.
   const { events } = useEventStream(tenant, { max: 20 })
@@ -134,7 +155,7 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
         <RoomEnv />
         <Suspense fallback={null}>
           <Scene scene={scene} statusMap={statusMap} visibleLevels={visSet}
-                 selectedId={selected?.entityId} showRoof={showRoof}
+                 selectedId={selected?.entityId} showRoof={showRoof} wallMode={wallMode}
                  onPick={(node) => setSelected(node)} />
         </Suspense>
         <ContactShadows position={[0, 0.02, 0]} opacity={0.5} scale={Math.max(60, (scene.bbox?.max?.[0] || 30) * 4)}
@@ -146,11 +167,17 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
         </EffectComposer>
       </Canvas>
 
-      {/* HUD: roof toggle + floor isolation */}
+      {/* HUD: roof + wall mode + floor isolation */}
       <div className="bim-hud">
         <div className={`chip ${showRoof ? '' : 'active'}`} onClick={() => setShowRoof((v) => !v)}>
           <i className={`ti ${showRoof ? 'ti-home' : 'ti-home-2'}`} /> {showRoof ? 'Roof on' : 'Dollhouse'}
         </div>
+        {WALL_MODES.map((wm) => (
+          <div key={wm.key} className={`chip ${wallMode === wm.key ? 'active' : ''}`}
+               onClick={() => setWallMode(wm.key)} title={`Wall view: ${wm.label}`}>
+            <i className={`ti ${wm.icon}`} /> {wm.label}
+          </div>
+        ))}
         {multi && (
           <div className={`chip ${!visibleLevels ? 'active' : ''}`} onClick={() => setVisibleLevels(null)}>All floors</div>
         )}
@@ -160,18 +187,23 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
         ))}
       </div>
 
-      {/* Legend */}
+      {/* Legend: status + (when present) clinical sectors */}
       <div className="bim-legend">
         <span><i style={{ background: '#16a34a' }} /> healthy</span>
         <span><i style={{ background: '#f59e0b' }} /> warning {counts.warn ? `· ${counts.warn}` : ''}</span>
         <span><i style={{ background: '#f43f5e' }} /> critical {counts.crit ? `· ${counts.crit}` : ''}</span>
+        {sectors.length > 0 && <span style={{ width: 1, alignSelf: 'stretch', background: 'rgba(255,255,255,0.18)', margin: '0 2px' }} />}
+        {sectors.map((s) => (
+          <span key={s}><i style={{ background: hex(SECTOR_COLOR[s] || 0x94a3b8) }} /> {s}</span>
+        ))}
       </div>
 
-      {/* Click → details drawer */}
-      {selected && (
-        <Drawer node={selected} tenant={tenant} info={nodeInfo[selected.entityId]}
-                onClose={() => setSelected(null)} />
-      )}
+      {/* Click → equipment info panel (assets) or generic drawer (rooms/structure) */}
+      {selected && (selected.kind === 'equipment'
+        ? <EquipmentInfoPanel node={selected} tenant={tenant} info={nodeInfo[selected.entityId]}
+                              onClose={() => setSelected(null)} />
+        : <Drawer node={selected} tenant={tenant} info={nodeInfo[selected.entityId]}
+                  onClose={() => setSelected(null)} />)}
     </div>
   )
 }

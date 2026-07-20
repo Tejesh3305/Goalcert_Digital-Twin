@@ -831,7 +831,68 @@ class TwinRegistry:
 
         for dep in departments:
             self._hsp_link(t, writer, actor, hospital, "hsp:hasDepartment", dep)
+
+        # Also commit a real, sector-organised 3-D BIM building (rooms + walls +
+        # placed equipment) so the twin's 3-D viewer renders an actual hospital.
+        self._seed_hospital_campus_building(twin, writer, actor)
         return hospital
+
+    def _seed_hospital_campus_building(self, twin, writer, actor) -> None:
+        """Commit a sector-organised, 2-floor BIM building for the hospital-campus
+        twin: real room + wall geometry, equipment placed by specialty and stamped
+        with asset-management metadata (manufacturer / warranty / condition), plus
+        the infra spine + functional coupling + baked faults from enrich_domain.
+
+        This makes graph_entities_to_bim_model() succeed for the tenant, so
+        GET /twin/scene/{tenant} returns the real building instead of the generic
+        office fallback. Additive alongside the ontological department graph and
+        best-effort — a failure here never blocks twin creation."""
+        try:
+            from agents import hospital_layout
+            from agents import bim_support as bs
+        except Exception:
+            return
+        t = twin.tenant_id
+        try:
+            bm = hospital_layout.synthesize_hospital_campus_bim(floors=2, name=twin.name)
+            entities, rels = bs.bim_model_to_drafts(bm, twin_name=twin.name)
+        except Exception:
+            return
+
+        # Pass 1: create every node (properties only). None of these classes require
+        # an outgoing relationship at creation, so mapping bim key -> real id first
+        # lets pass 2 add every relationship with its target already present.
+        key_to_id: dict[str, str] = {}
+        for ent in entities:
+            try:
+                res = writer.create(
+                    tenant_id=t, canonical_type=ent["canonical_type"], actor=actor,
+                    properties=dict(ent.get("properties", {})))
+            except Exception:
+                continue
+            if res.ok and ent.get("key"):
+                key_to_id[ent["key"]] = res.node_id
+
+        # Pass 2: apply the containment + functional-coupling relationships.
+        for rel in rels:
+            s = key_to_id.get(rel.get("source_key"))
+            tgt = key_to_id.get(rel.get("target_key"))
+            if s and tgt:
+                try:
+                    writer.relate(tenant_id=t, actor=actor, source_id=s,
+                                  predicate=rel["predicate"], target_id=tgt)
+                except Exception:
+                    pass
+
+        # Cache the renderable scene so the first 3-D load is instant and carries
+        # entityIds (for live status colouring) and the furniture layer.
+        try:
+            scene = bs.bim_model_to_scene(bm, id_map=dict(key_to_id))
+            scene["status"] = "ok"
+            scene["twin_id"] = t
+            bs.save_scene_cache(t, scene)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     #  EV / e-mobility seeds

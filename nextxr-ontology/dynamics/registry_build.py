@@ -22,7 +22,8 @@ from dynamics.models.water import StorageVesselModel
 from dynamics.models.sensing import BinaryEventSourceModel, DerivedObserverModel
 from dynamics.models.transport import DiscreteTransportModel
 from dynamics.models.hospital import (RefrigeratedUnitModel, GasManifoldModel,
-                                      ImagingDeviceModel)
+                                      ImagingDeviceModel, VentilatorModel,
+                                      InfusionPumpModel, AutoclaveModel)
 from dynamics.models.datacenter import ComputeRackModel
 
 
@@ -50,9 +51,12 @@ def build_dynamics_registry() -> DynamicsRegistry:
     # transport
     r.register(DiscreteTransportModel())      # DiscreteTransport (elevator/escalator)
     # domain-specific (hospital + datacenter)
-    r.register(RefrigeratedUnitModel())       # RefrigeratedUnit (cold-chain fridge)
+    r.register(RefrigeratedUnitModel())       # RefrigeratedUnit (cold-chain fridge / blood bank)
     r.register(GasManifoldModel())            # GasManifold (medical gas)
     r.register(ImagingDeviceModel())          # ImagingDevice (MRI/CT)
+    r.register(VentilatorModel())             # Ventilator (ICU / transport)
+    r.register(InfusionPumpModel())           # InfusionPump (volumetric / syringe)
+    r.register(AutoclaveModel())              # Autoclave (CSSD steriliser)
     r.register(ComputeRackModel())            # ComputeRack (data-centre rack)
     # universal fallback
     r.register(DefaultEquipmentModel())       # DefaultEquipment

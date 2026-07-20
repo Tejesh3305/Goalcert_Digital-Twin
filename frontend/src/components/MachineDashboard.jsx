@@ -122,7 +122,7 @@ export default function MachineDashboard({ tenant, domain, name }) {
 
       {/* Hospital campus: the five clinical views (own cards) */}
       {domain === 'hospital-campus' ? (
-        <div className="section-gap"><HospitalCampusViews net={net} /></div>
+        <div className="section-gap"><HospitalCampusViews net={net} tenant={tenant} /></div>
       ) : domain === 'ev-charging-network' ? (
         <div className="section-gap"><EVNetworkViews net={net} /></div>
       ) : domain === 'ev-battery-pack' ? (

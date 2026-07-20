@@ -222,19 +222,44 @@ class DynamicsEngine:
         return samples
 
     # ---- persistence (best-effort) ------------------------------------
+    @staticmethod
+    def _signal_prop(sig_iri: str) -> str:
+        """Short node-property name for a produced signal IRI (the fragment after
+        '#', else after the last '/'), e.g. hospital#coldChainTemp → coldChainTemp.
+        This is what the equipment info panel reads as a live sensor value."""
+        frag = sig_iri.rsplit("#", 1)[-1] if "#" in sig_iri else sig_iri.rsplit("/", 1)[-1]
+        return frag
+
     def persist(self, writer) -> None:
-        """Write evolving status back to the graph through the single write path.
-        Called occasionally (not every tick) — status changes flow through the
-        state-machine gate automatically; illegal transitions are skipped."""
+        """Write evolving state back to the graph through the single write path.
+        Called occasionally (not every tick): persists the entity's current
+        per-signal values as node properties (so GET /entities/{id} exposes live
+        sensor readings for the 3-D equipment panel) plus any status change (which
+        flows through the state-machine gate; illegal transitions are skipped)."""
         for nid, state in self._states.items():
             node = self._nodes.get(nid)
             if not node:
                 continue
+            sig_props: dict = {}
+            for sig_iri, val in (state.signals or {}).items():
+                try:
+                    sig_props[self._signal_prop(sig_iri)] = round(float(val), 3)
+                except (TypeError, ValueError):
+                    continue
+            # Persist sensor values FIRST, on their own: a status transition the
+            # state-machine gate rejects (e.g. running→degraded on some classes)
+            # must never also drop the live readings from that update.
+            if sig_props:
+                res = writer.update(tenant_id=self.tenant_id, node_id=nid,
+                                    actor="dynamics-engine", properties=sig_props)
+                if res.ok:
+                    node["props"].update(sig_props)
+            # Then the status change, separately (best-effort; illegal transitions
+            # are simply skipped without affecting the readings above).
             cur = node["props"].get("status")
             if state.status and state.status != cur:
                 res = writer.update(tenant_id=self.tenant_id, node_id=nid,
-                                    actor="dynamics-engine",
-                                    properties={"status": state.status})
+                                    actor="dynamics-engine", properties={"status": state.status})
                 if res.ok:
                     node["props"]["status"] = state.status
 

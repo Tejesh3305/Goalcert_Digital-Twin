@@ -564,6 +564,80 @@ function pFridge(M) {
   const l = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 0.05), M.led(0x2563eb)); l.position.set(0, 3.3, 1.01); g.add(l); return g
 }
 
+/* Blood-bank / cold-storage cabinet — taller, twin glass-door refrigerator */
+function pBloodBank(M) {
+  const g = grp()
+  const W = 4.6, H = 6.6, D = 2.6
+  g.add(box(W, H, D, M.stainless, 0, H / 2, 0))            // body
+  // two glass doors with handles
+  for (const sx of [-W / 4, W / 4]) {
+    g.add(box(W / 2 - 0.14, H - 0.7, 0.06, M.glass, sx, H / 2 + 0.1, D / 2 + 0.02))
+    g.add(cyl(0.06, 0.06, 1.6, M.chrome, sx + (sx < 0 ? 0.7 : -0.7), H / 2 + 0.1, D / 2 + 0.08))
+    // stocked shelves faintly visible through the glass
+    for (let s = 0; s < 4; s++) g.add(box(W / 2 - 0.4, 0.08, 0.4, M.medBlue, sx, 1.4 + s * 1.15, D / 2 - 0.35))
+  }
+  // digital temperature readout + alarm LED
+  g.add(box(1.1, 0.6, 0.05, M.screen, 0, H - 0.5, D / 2 + 0.03))
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.16, 0.05), M.led(0x2563eb))
+  led.position.set(0, H - 0.06, D / 2 + 0.03); led.userData.blink = true; g.add(led)
+  g.add(box(W + 0.1, 0.2, D + 0.1, M.dark, 0, 0.1, 0))    // plinth
+  return g
+}
+
+/* Autoclave / CSSD steam steriliser — stainless chamber with circular door */
+function pAutoclave(M) {
+  const g = grp()
+  const W = 3.4, H = 5.6, D = 4.0
+  g.add(box(W, H, D, M.stainless, 0, H / 2, 0))            // cabinet
+  // recessed chamber face + round pressure door
+  g.add(box(W - 0.3, H - 1.2, 0.12, M.medWhite, 0, H / 2 + 0.3, D / 2 + 0.02))
+  const door = cyl(1.25, 1.25, 0.45, M.steel, 0, H / 2 + 0.3, D / 2 + 0.05); door.rotation.x = Math.PI / 2; g.add(door)
+  g.add(torus(1.25, 0.12, M.chrome, 0, H / 2 + 0.3, D / 2 + 0.18, 10, 28))   // door rim
+  const spokeV = cyl(0.09, 0.09, 1.9, M.chrome, 0, H / 2 + 0.3, D / 2 + 0.28)   // spoke handle (cross)
+  const spokeH = cyl(0.09, 0.09, 1.9, M.chrome, 0, H / 2 + 0.3, D / 2 + 0.28); spokeH.rotation.z = Math.PI / 2
+  g.add(spokeV, spokeH)
+  // temp/pressure gauge cluster + control screen
+  for (let i = 0; i < 2; i++) g.add(torus(0.28, 0.05, M.chrome, -1.0 + i * 0.75, H - 0.7, D / 2 + 0.05, 8, 20))
+  g.add(box(1.0, 0.8, 0.05, M.screen, 0.7, H - 0.7, D / 2 + 0.04))
+  const led = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.05), M.led(0x16a34a))
+  led.position.set(1.3, H - 0.15, D / 2 + 0.04); led.userData.blink = true; g.add(led)
+  g.add(box(W + 0.1, 0.2, D + 0.1, M.dark, 0, 0.1, 0))    // plinth
+  return g
+}
+
+/* Bulk medical-gas cylinder bank — manifold room centrepiece (O2 / N2O) */
+function pGasCylinderBank(M) {
+  const g = grp()
+  const shoulderO2 = new THREE.MeshStandardMaterial({ color: 0x2f7d4f, roughness: 0.4, metalness: 0.7 })
+  const shoulderN2O = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.4, metalness: 0.7 })
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xd8dbe1, roughness: 0.5, metalness: 0.55 })
+  // support frame
+  g.add(box(6.6, 0.25, 1.6, M.steel, 0, 0.12, 0))
+  g.add(box(6.6, 3.4, 0.15, M.steel, 0, 1.9, -0.7))       // back rail
+  // two banks of 3 cylinders (left = O2, right = N2O)
+  const positions = [-2.6, -1.9, -1.2, 1.2, 1.9, 2.6]
+  positions.forEach((x, i) => {
+    const shoulder = i < 3 ? shoulderO2 : shoulderN2O
+    g.add(cyl(0.32, 0.32, 4.0, bodyMat, x, 2.25, 0))       // cylinder body
+    g.add(cyl(0.24, 0.32, 0.5, shoulder, x, 4.4, 0))        // coloured shoulder
+    g.add(cyl(0.1, 0.1, 0.35, M.chrome, x, 4.75, 0))        // valve
+    // pigtail to the header
+    g.add(cyl(0.04, 0.04, 0.7, M.chrome, x, 4.6, -0.35))
+  })
+  // manifold header pipes (horizontal) + changeover control box
+  for (const hx of [-1.9, 1.9]) {
+    const header = cyl(0.12, 0.12, 3.2, M.chrome, hx, 4.9, -0.35); header.rotation.z = Math.PI / 2; g.add(header)
+  }
+  g.add(box(1.2, 1.8, 0.6, M.white, 0, 2.6, -0.75))        // control panel
+  g.add(box(0.9, 0.7, 0.05, M.screen, 0, 3.1, -0.42))      // pressure display
+  for (let i = 0; i < 2; i++) {
+    const led = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.05),
+      M.led(i === 0 ? 0x16a34a : 0x2563eb))
+    led.position.set(-0.25 + i * 0.5, 2.3, -0.42); led.userData.blink = i === 0; g.add(led)
+  }
+  return g
+}
+
 /* Operating table — more detailed */
 function pOperatingTable(M) {
   const g = grp()
@@ -1347,6 +1421,7 @@ const PROP_FOR = {
   mri: pMRI, ctscanner: pCTScanner, xray: pXray,
   // hospital — equipment
   gas: pGas, laf: pLAF, nurse: pNurse, fridge: pFridge,
+  bloodbank: pBloodBank, autoclave: pAutoclave, gascylinderbank: pGasCylinderBank,
   hospitalbed: pHospitalBed, bed: pBed, stretcher: pStretcher,
   wheelchair: pWheelchair, ivstand: pIVStand, patientmonitor: pPatientMonitor,
   operatingtable: pOperatingTable, crashcart: pCrashCart, medcart: pMedCart,

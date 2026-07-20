@@ -275,15 +275,42 @@ def twin_scene_by_tenant(tenant: str):
     except Exception:
         locations, assets = [], []
 
+    # Resolve the twin's domain so a geometry-less twin still synthesizes onto the
+    # RIGHT facility template (not a hardcoded office).
+    twin_domain = ""
+    try:
+        from twins import TwinRegistry
+        tw = TwinRegistry().get(tenant)
+        twin_domain = (tw.domain if tw else "") or ""
+    except Exception:
+        pass
+
     bm = bs.graph_entities_to_bim_model(locations, assets)
     if not bm:
-        # Non-BIM twin (or geometry missing): synthesize from the asset list.
+        # Hospital-campus with no committed geometry → build the dedicated
+        # sector-organised hospital instead of a generic grid.
+        if twin_domain == "hospital-campus":
+            from agents import hospital_layout
+            bm = hospital_layout.synthesize_hospital_campus_bim(floors=2)
+            id_map = {}
+            for r in bm.get("rooms", []):
+                id_map[r["id"]] = r["id"]
+            for eq in bm.get("equipment", []):
+                id_map[eq["id"]] = eq["id"]
+            scene = bs.bim_model_to_scene(bm, id_map=id_map)
+            scene["status"] = "ok"
+            scene["twin_id"] = tenant
+            bs.save_scene_cache(tenant, scene)
+            return {"tenant": tenant, "scene_result": scene}
+        # Non-BIM twin (or geometry missing): synthesize from the asset list onto
+        # the facility inferred from the twin's domain/name.
         if not assets:
             return {"tenant": tenant, "scene_result": {
                 "format": "nxr-scene/1", "status": "empty", "nodes": [],
                 "message": "No assets to visualize for this twin."}}
         hints = [{"label": a.get("displayName", "Equipment"), "count": 1} for a in assets]
-        bm = bs.synthesize_bim_model("office", 1, equipment_hints=hints)
+        facility = bs.infer_facility(f"{twin_domain} {tenant}")
+        bm = bs.synthesize_bim_model(facility, 1, equipment_hints=hints)
         by_name = {a.get("displayName"): a.get("id") for a in assets}
         id_map = {eq["id"]: by_name.get(eq["label"]) for eq in bm.get("equipment", [])}
     else:

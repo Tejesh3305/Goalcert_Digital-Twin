@@ -7,19 +7,27 @@
  */
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
+import BimViewer from './BimViewer'
 import HospitalBedBoard from './HospitalBedBoard'
 import HospitalORCalendar from './HospitalORCalendar'
 import HospitalPatientFlow from './HospitalPatientFlow'
 import HospitalInfectionMap from './HospitalInfectionMap'
 import HospitalMedicalGasSchematic from './HospitalMedicalGasSchematic'
 
-export default function HospitalCampusViews({ net }) {
+export default function HospitalCampusViews({ net, tenant }) {
   if (!net) return <Empty label="Loading campus…" icon="ti-loader" />
   const gasCrit = (net.medical_gas?.zones || []).some((z) => z.status === 'critical')
   const closures = (net.zones || []).filter((z) => z.recommend_closure).length
 
   return (
     <>
+      {/* 3-D hospital building — sector-organised, click equipment to inspect */}
+      <Card title={<><i className="ti ti-building-hospital" /> 3-D Hospital Twin</>}
+        action={<span className="pill pill-surface">click equipment to inspect</span>}
+        className="section-gap">
+        {tenant ? <BimViewer tenant={tenant} /> : <Empty label="Loading building…" icon="ti-loader" />}
+      </Card>
+
       <div className="grid-2 section-gap" style={{ alignItems: 'start' }}>
         <Card title={<><i className="ti ti-map-2" /> Infection Spread Map</>}
           action={closures ? <span className="pill pill-red">{closures} closure</span> : <span className="pill pill-green">● contained</span>}>

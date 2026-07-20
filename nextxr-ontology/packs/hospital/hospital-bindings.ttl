@@ -42,6 +42,43 @@ hsp:ColdChainFridge
       {"behavior_id":"hsp.coldchain_over_temp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#coldChainTemp","bound":8,"duration_minutes":3,"direction":"above","severity":"critical","message":"Cold-chain over-temperature — stock at risk"}
     ]""" .
 
+### Blood bank — refrigerated store held tighter than a general fridge ###
+hsp:BloodBank
+    nxr:dynamicsArchetype "RefrigeratedUnit" ;
+    nxr:archetypeParams """{"setpointC":4,"bandC":1,"alarmAboveC":6,"compressorKW":0.9,"idleKW":0.1,"coolKperMin":0.6,"uaLeak":0.02}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.bloodbank_over_temp","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#coldChainTemp","bound":6,"duration_minutes":2,"direction":"above","severity":"critical","message":"Blood-bank over-temperature — units at risk of disposal"}
+    ]""" .
+
+### Cold storage (pharmacy / lab) — general refrigerated store ###
+hsp:ColdStorage
+    nxr:dynamicsArchetype "RefrigeratedUnit" ;
+    nxr:archetypeParams """{"setpointC":4,"bandC":2,"alarmAboveC":8,"compressorKW":0.8,"idleKW":0.08,"coolKperMin":0.6,"uaLeak":0.02}""" .
+
+### Ventilator — breath pattern + O2 flow + internal battery ###
+hsp:Ventilator
+    nxr:dynamicsArchetype "Ventilator" ;
+    nxr:archetypeParams """{"respRateBpm":14,"tidalVolumeMl":450,"fiO2Pct":40,"peepCmH2O":5,"idleKW":0.12,"battAlarmPct":15}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.ventilator_low_battery","kind":"threshold","watches":"https://ontology.nextxr.io/v3/hospital#batteryLevel","bound":15,"direction":"below","severity":"critical","message":"Ventilator battery critically low"}
+    ]""" .
+
+### Infusion pump — programmed delivery + occlusion back-pressure ###
+hsp:InfusionPump
+    nxr:dynamicsArchetype "InfusionPump" ;
+    nxr:archetypeParams """{"flowRateMlPerH":120,"bagVolumeMl":500,"baseOcclusionKpa":12,"occlusionAlarmKpa":40,"idleKW":0.02}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.infusion_occlusion","kind":"sustained_threshold","watches":"https://ontology.nextxr.io/v3/hospital#occlusionPressure","bound":40,"duration_minutes":1,"direction":"above","severity":"warning","message":"Infusion line occlusion pressure high"}
+    ]""" .
+
+### Autoclave — sterilisation cycle temperature/pressure + F0 lethality ###
+# No threshold monitor: the chamber is legitimately cool between cycles, so a
+# simple under-temperature rule would false-fire. A failed cycle is instead
+# visible as a low cycleF0 / low peak chamberTemp on the live sensor panel.
+hsp:Autoclave
+    nxr:dynamicsArchetype "Autoclave" ;
+    nxr:archetypeParams """{"holdTempC":134,"holdMinutes":15,"cyclePeriodMin":45,"heatKW":9,"holdKW":3,"idleKW":0.2,"f0FloorMin":15}""" .
+
 ### Nurse call — discrete event source ###
 hsp:NurseCallSystem
     nxr:dynamicsArchetype "BinaryEventSource" ;

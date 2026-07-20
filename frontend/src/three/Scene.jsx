@@ -10,12 +10,12 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
-import { makeMats, STATUS_COLOR, disposeMats, floorMaterial } from './materials'
+import { makeMats, STATUS_COLOR, SECTOR_COLOR, disposeMats, floorMaterial } from './materials'
 import { buildProp, buildGreen, pStatusPin } from './props'
 import { PROP_SCALE } from './catalog'
 
 export default function Scene({ scene, statusMap = {}, visibleLevels = null,
-                               onPick, selectedId, showRoof = false }) {
+                               onPick, selectedId, showRoof = false, wallMode = 'solid' }) {
   const M = useMemo(() => makeMats(), [])
   const rootRef = useRef()
 
@@ -27,7 +27,21 @@ export default function Scene({ scene, statusMap = {}, visibleLevels = null,
     return { warn: mk(STATUS_COLOR.warn), crit: mk(STATUS_COLOR.crit) }
   }, [])
 
-  useEffect(() => () => { disposeMats(M); roomMats.warn.dispose(); roomMats.crit.dispose() }, [M, roomMats])
+  // Faint per-sector floor tints (base neutral lerped toward the sector hue) so
+  // the building reads as organised into departments.
+  const sectorMats = useMemo(() => {
+    const out = {}
+    for (const [k, hex] of Object.entries(SECTOR_COLOR)) {
+      const c = new THREE.Color(hex).lerp(new THREE.Color(0xf2f4f7), 0.62)
+      out[k] = new THREE.MeshStandardMaterial({ color: c, roughness: 0.7, metalness: 0.05 })
+    }
+    return out
+  }, [])
+
+  useEffect(() => () => {
+    disposeMats(M); roomMats.warn.dispose(); roomMats.crit.dispose()
+    Object.values(sectorMats).forEach((m) => m.dispose())
+  }, [M, roomMats, sectorMats])
 
   useFrame((state, dt) => {
     const t = state.clock.elapsedTime
@@ -85,14 +99,17 @@ export default function Scene({ scene, statusMap = {}, visibleLevels = null,
           return <Box key={node.id} pos={pos} rotY={rotY} size={g.size} mat={M.woodDark} />
         if (node.kind === 'slab')
           return <Box key={node.id} pos={pos} rotY={rotY} size={g.size} mat={M.slab} receive />
-        if (node.kind === 'wall')
-          return <Box key={node.id} pos={pos} rotY={rotY} size={g.size} mat={M.plaster} shadow receive />
+        if (node.kind === 'wall') {
+          if (wallMode === 'hidden') return null
+          const wm = wallMode === 'glass' ? M.wallGlass : M.plaster
+          return <Box key={node.id} pos={pos} rotY={rotY} size={g.size} mat={wm} shadow receive />
+        }
 
-        // room floor — material by room type, tinted on warn/crit
+        // room floor — sector tint (or type material), overridden on warn/crit
         if (node.kind === 'room') {
           const st = statusOf(node)
           const mat = st === 'crit' ? roomMats.crit : st === 'warn' ? roomMats.warn
-            : floorMaterial(M, node.material)
+            : (node.sector && sectorMats[node.sector]) || floorMaterial(M, node.material)
           const click = (e) => { e.stopPropagation(); onPick && onPick(node) }
           if (g.kind === 'floorpoly')
             return <FloorPoly key={node.id} footprint={g.footprint} y={g.y || pos[1]}

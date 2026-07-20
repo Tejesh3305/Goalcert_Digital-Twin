@@ -75,6 +75,18 @@ def load_scene_cache(tenant: str) -> dict | None:
 # before "table", "forklift" before "lift", "fire panel" before "panel").
 _ITEM_RULES: list[tuple[str, str | None, str, bool]] = [
     # — collision disambiguation (must precede the generic keywords) —
+    # Compact catalog keys (no spaces) resolved first so an asset's assetType key
+    # always wins over a generic keyword substring (e.g. "infusion pump" would
+    # otherwise hit "pump"; "patientmonitor" would hit the office "monitor").
+    ("infusion pump", "FacilityEquipment", "infusionpump", False),
+    ("infusionpump", "FacilityEquipment", "infusionpump", False),
+    ("syringe pump", "FacilityEquipment", "infusionpump", False),
+    ("patientmonitor", "FacilityEquipment", "patientmonitor", False),
+    ("hospitalbed", "FacilityEquipment", "hospitalbed", False),
+    ("operatingtable", "FacilityEquipment", "operatingtable", False),
+    ("gascylinderbank", "FacilityEquipment", "gascylinderbank", False),
+    ("medcart", None, "medcart", True),
+    ("dispensing cart", None, "medcart", True),
     ("coffee table", None, "coffeetable", True),
     ("operating table", "FacilityEquipment", "operatingtable", False),
     ("patient monitor", "FacilityEquipment", "patientmonitor", False),
@@ -144,7 +156,10 @@ _ITEM_RULES: list[tuple[str, str | None, str, bool]] = [
     ("smoke", None, "smoke", True),   # detectors are Sensors → render only
     ("camera", "VideoRecorder", "camera", False),
     ("cctv", "VideoRecorder", "camera", False),
-    # — lighting —
+    # — lighting — (surgical/OR light before the generic "light" keyword) —
+    ("surgical light", None, "surgicallight", True),
+    ("operating light", None, "surgicallight", True),
+    ("or light", None, "surgicallight", True),
     ("light", "FacilityEquipment", "light", False),
     ("lumin", "FacilityEquipment", "light", False),
     # — hospital —
@@ -155,10 +170,21 @@ _ITEM_RULES: list[tuple[str, str | None, str, bool]] = [
     ("scanner", "FacilityEquipment", "ctscanner", False),
     ("x-ray", "FacilityEquipment", "xray", False),
     ("xray", "FacilityEquipment", "xray", False),
+    # bulk gas storage / manifold (before the generic wall "gas" panel below)
+    ("cylinder bank", "FacilityEquipment", "gascylinderbank", False),
+    ("gas manifold", "FacilityEquipment", "gascylinderbank", False),
+    ("gas cylinder", "FacilityEquipment", "gascylinderbank", False),
     ("gas", "FacilityEquipment", "gas", False),
     ("laminar", "FacilityEquipment", "laf", False),
     ("clean air", "FacilityEquipment", "laf", False),
     ("nurse", "FacilityEquipment", "nurse", False),
+    ("autoclave", "FacilityEquipment", "autoclave", False),
+    ("steriliser", "FacilityEquipment", "autoclave", False),
+    ("sterilizer", "FacilityEquipment", "autoclave", False),
+    ("blood bank", "FacilityEquipment", "bloodbank", False),
+    ("bloodbank", "FacilityEquipment", "bloodbank", False),
+    ("blood fridge", "FacilityEquipment", "bloodbank", False),
+    ("cold storage", "FacilityEquipment", "bloodbank", False),
     ("fridge", "FacilityEquipment", "fridge", False),
     ("cold", "FacilityEquipment", "fridge", False),
     ("freezer", "FacilityEquipment", "fridge", False),
@@ -167,6 +193,21 @@ _ITEM_RULES: list[tuple[str, str | None, str, bool]] = [
     ("wheelchair", None, "wheelchair", True),
     ("iv stand", None, "ivstand", True),
     ("iv pole", None, "ivstand", True),
+    # monitored clinical equipment (before the generic office/furniture keywords)
+    ("ventilator", "FacilityEquipment", "ventilator", False),
+    ("ultrasound", "FacilityEquipment", "ultrasound", False),
+    ("dialysis", "FacilityEquipment", "dialysis", False),
+    # clinical accessories (render-only fit-out)
+    ("anaesthesia", None, "anesthesia", True),
+    ("anesthesia", None, "anesthesia", True),
+    ("mayo", None, "mayostand", True),
+    ("crash cart", None, "crashcart", True),
+    ("crashcart", None, "crashcart", True),
+    ("code cart", None, "crashcart", True),
+    ("medication cart", None, "medcart", True),
+    ("med cart", None, "medcart", True),
+    ("exam table", None, "examtable", True),
+    ("examination", None, "examtable", True),
     # — factory / logistics —
     ("robot", "FacilityEquipment", "robot", False),
     ("conveyor", "FacilityEquipment", "conveyor", False),
@@ -484,7 +525,10 @@ def graph_entities_to_bim_model(locations: list[dict], assets: list[dict]) -> di
 
     buildings = [l for l in locations if ct(l) == "Building"]
     floors_in = [l for l in locations if ct(l) == "Floor"]
-    rooms_in = [l for l in locations if ct(l) in ("Room", "Zone")]
+    # Any other Location that carries room geometry is a room — including domain
+    # room subclasses (hospital ICU/Ward/EmergencyDept, datacenter DataHall, …),
+    # not just the base cfp:Room/Zone classes.
+    rooms_in = [l for l in locations if ct(l) not in ("Building", "Floor", "Site")]
     if not buildings or not rooms_in:
         return None
 
@@ -828,10 +872,16 @@ def _to_wkt(footprint: list) -> str:
 # ── APPLY-TO-PLAN domain auto-wiring ─────────────────────────────────────
 _DC_CLASS = {"rack": DC + "ComputeRack", "crac": DC + "CRAHUnit"}
 _HSP_CLASS = {"mri": HSP + "MRIScanner", "ctscanner": HSP + "CTScanner",
-              "gas": HSP + "MedicalGasManifold", "fridge": HSP + "ColdChainFridge",
-              "nurse": HSP + "NurseCallSystem", "patientmonitor": HSP + "PatientMonitor"}
+              "xray": HSP + "ImagingDevice", "ultrasound": HSP + "ImagingDevice",
+              "gas": HSP + "MedicalGasManifold", "gascylinderbank": HSP + "MedicalGasManifold",
+              "fridge": HSP + "ColdChainFridge", "bloodbank": HSP + "BloodBank",
+              "nurse": HSP + "NurseCallSystem", "patientmonitor": HSP + "PatientMonitor",
+              "ventilator": HSP + "Ventilator", "infusionpump": HSP + "InfusionPump",
+              "autoclave": HSP + "Autoclave", "hospitalbed": HSP + "Bed"}
 _ELECTRICAL_LOADS = {"rack", "crac", "ahu", "vav", "ups", "network", "pump",
-                     "mri", "ctscanner", "fridge", "gas", "nurse", "patientmonitor",
+                     "mri", "ctscanner", "xray", "ultrasound", "fridge", "bloodbank",
+                     "gas", "gascylinderbank", "nurse", "patientmonitor", "ventilator",
+                     "infusionpump", "autoclave", "hospitalbed",
                      "light", "meter", "boiler"}
 _AIR_MOVERS = {"crac", "ahu", "vav"}
 _IMAGING = {"mri", "ctscanner"}
@@ -970,12 +1020,24 @@ def enrich_domain(bm: dict, facility: str) -> dict:
                 r["canonicalType"] = DC + "DataHall"
                 r["setpoint"] = 24.0
         else:
-            if "theatre" in fn or "operating" in fn or fn == "or":
+            if "theatre" in fn or "operating" in fn or fn == "or" or "surgical" in fn:
                 r["canonicalType"] = HSP + "OperatingRoom"; r["setpoint"] = 21.0
-            elif "icu" in fn or "intensive" in fn:
+            elif "icu" in fn or "intensive" in fn or "critical care" in fn:
                 r["canonicalType"] = HSP + "ICU"; r["setpoint"] = 23.0
             elif "isolation" in fn:
                 r["canonicalType"] = HSP + "IsolationRoom"; r["setpoint"] = 22.0
+            elif "emergency" in fn or fn == "ed" or "triage" in fn or "resus" in fn or "trauma" in fn:
+                r["canonicalType"] = HSP + "EmergencyDept"; r["setpoint"] = 23.0
+            elif "imaging" in fn or "radiology" in fn or "mri" in fn or "ct " in fn or "x-ray" in fn:
+                r["canonicalType"] = HSP + "RadiologyRoom"; r["setpoint"] = 21.0
+            elif "pharmacy" in fn:
+                r["canonicalType"] = HSP + "Pharmacy"; r["setpoint"] = 22.0
+            elif "laborator" in fn or fn == "lab":
+                r["canonicalType"] = HSP + "Laboratory"; r["setpoint"] = 22.0
+            elif "ward" in fn:
+                r["canonicalType"] = HSP + "Ward"; r["setpoint"] = 24.0
+            elif "gas" in fn or "manifold" in fn:
+                r["canonicalType"] = HSP + "MedicalGasZone"; r["setpoint"] = 24.0
 
     # 3. inject the infrastructure spine (placed along the bottom plant strip)
     spine: list[dict] = []
@@ -1181,6 +1243,7 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
             "id": f"room-{room['id']}", "entityId": eid, "kind": "room",
             "type": CFP + "Room", "label": room.get("name") or room["id"],
             "level": idx, "roomType": rtyp, "material": _FLOOR_MAT.get(rtyp, "wood"),
+            "sector": room.get("sector"),   # clinical department → floor tint + legend
             "transform": {"pos": [cx(x + w / 2), round(e + 0.04, 3), cz(y + l / 2)],
                           "rotY": 0, "scale": [1, 1, 1]},
             "status": _status(eid),
