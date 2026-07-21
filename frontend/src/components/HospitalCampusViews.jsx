@@ -7,7 +7,7 @@
  */
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
-import BimViewer from './BimViewer'
+import EquipmentGallery from './EquipmentGallery'
 import HospitalBedBoard from './HospitalBedBoard'
 import HospitalORCalendar from './HospitalORCalendar'
 import HospitalPatientFlow from './HospitalPatientFlow'
@@ -21,11 +21,11 @@ export default function HospitalCampusViews({ net, tenant }) {
 
   return (
     <>
-      {/* 3-D hospital building — sector-organised, click equipment to inspect */}
-      <Card title={<><i className="ti ti-building-hospital" /> 3-D Hospital Twin</>}
-        action={<span className="pill pill-surface">click equipment to inspect</span>}
+      {/* Equipment gallery — every asset in 3-D, grouped by sector, live health */}
+      <Card title={<><i className="ti ti-stethoscope" /> Equipment · 3-D Assets & Health</>}
+        action={<span className="pill pill-surface">click an asset to inspect</span>}
         className="section-gap">
-        {tenant ? <BimViewer tenant={tenant} /> : <Empty label="Loading building…" icon="ti-loader" />}
+        {tenant ? <EquipmentGallery tenant={tenant} /> : <Empty label="Loading equipment…" icon="ti-loader" />}
       </Card>
 
       <div className="grid-2 section-gap" style={{ alignItems: 'start' }}>

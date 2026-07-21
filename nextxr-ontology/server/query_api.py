@@ -92,6 +92,70 @@ def get_entity(node_id: str, tenant: str):
     return {"node": node, "relationships": neighbors}
 
 
+# ── Live per-asset telemetry (on-demand, no feed required) ──────────────
+# A read-only DynamicsEngine is kept per tenant and advanced by wall-clock on
+# each poll, so any asset's sensor values are always available and evolve over
+# time — the equipment info panel reads this. Independent of the scripted/live
+# feed (which persists to the graph); this never writes.
+import threading as _threading
+import time as _time
+
+_tele_engines: dict = {}          # tenant -> [engine, last_wall_time]
+_tele_lock = _threading.Lock()
+_TELE_MAX = 8                      # cap cached engines (evict least-recently-used)
+
+
+def _tele_engine(tenant: str):
+    """Get/create the tenant's telemetry engine and advance it to 'now'."""
+    from dynamics import build_dynamics_registry, DynamicsEngine
+    now = _time.time()
+    entry = _tele_engines.get(tenant)
+    if entry is None:
+        eng = DynamicsEngine(tenant, build_dynamics_registry(), _get_query(), speed=60.0)
+        eng.load_topology()
+        for _ in range(20):
+            eng.tick(30.0)                     # warm to a plausible mid-run state
+        if len(_tele_engines) >= _TELE_MAX:
+            oldest = min(_tele_engines, key=lambda t: _tele_engines[t][1])
+            _tele_engines.pop(oldest, None)
+        _tele_engines[tenant] = [eng, now]
+        return eng
+    eng, last = entry
+    sim = min(30.0, max(0.0, now - last)) * eng.speed   # cap catch-up per poll
+    while sim > 0:                                       # sub-step so dt stays small
+        d = min(120.0, sim)
+        eng.tick(d)
+        sim -= d
+    entry[1] = now
+    return eng
+
+
+@router.get("/entities/{node_id}/telemetry")
+def entity_telemetry(node_id: str, tenant: str):
+    """Live, physics-computed telemetry for one asset — always available, no feed
+    required. Returns the asset's current signals (short name + value) + status."""
+    try:
+        with _tele_lock:
+            eng = _tele_engine(tenant)
+            st = eng._states.get(node_id)
+        if st is None:
+            return {"node_id": node_id, "signals": [], "status": None, "available": False}
+        sigs = []
+        for iri, val in (st.signals or {}).items():
+            try:
+                name = iri.rsplit("#", 1)[-1] if "#" in iri else iri.rsplit("/", 1)[-1]
+                sigs.append({"signal": iri, "name": name, "value": round(float(val), 3)})
+            except (TypeError, ValueError):
+                continue
+        return {"node_id": node_id, "signals": sigs, "status": st.status, "available": True}
+    except Exception as e:
+        if _is_conn_error(e):
+            return {"node_id": node_id, "signals": [], "status": None,
+                    "available": False, "degraded": True}
+        return {"node_id": node_id, "signals": [], "status": None,
+                "available": False, "error": str(e)[:160]}
+
+
 # ── Findings ────────────────────────────────────────────────────────
 
 @router.get("/findings")

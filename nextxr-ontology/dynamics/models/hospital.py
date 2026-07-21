@@ -56,6 +56,12 @@ SIG_OCCL = HSP + "occlusionPressure"  # kPa line pressure (occlusion alarm)
 SIG_CHTEMP = HSP + "chamberTemp"      # °C sterilisation chamber temperature
 SIG_CHPRES = HSP + "chamberPressure"  # bar chamber pressure
 SIG_F0 = HSP + "cycleF0"              # min accumulated F0 lethality
+# smart bed
+SIG_BED_OCC = HSP + "bedOccupied"     # 0/1 occupancy (load cells)
+SIG_BED_ANGLE = HSP + "backrestAngle"  # deg backrest elevation
+SIG_BED_WEIGHT = HSP + "patientWeight"  # kg (load cells)
+SIG_BED_BRAKE = HSP + "brakeEngaged"  # 0/1 castor brake
+SIG_BED_EXIT = HSP + "bedExitRisk"    # 0/1 bed-exit alarm
 
 
 class RefrigeratedUnitModel(DynamicsModel):
@@ -308,4 +314,39 @@ class AutoclaveModel(DynamicsModel):
         state.signals = {
             SIG_CHTEMP: round(T, 1), SIG_CHPRES: round(pressure, 2), SIG_F0: round(f0, 1),
             SIG_PWR: round(power, 2), SIG_HEAT: round(power * 1000.0 * 0.85, 1)}
+        return state
+
+
+class BedModel(DynamicsModel):
+    """Smart hospital bed: load-cell occupancy + patient weight, backrest angle,
+    castor brake and a bed-exit alarm (occupied + steep backrest + brake released).
+    Occupancy is stable per bed (deterministic per-entity RNG); the backrest drifts
+    slowly as the patient repositions. -> hsp:bedOccupied, backrestAngle,
+    patientWeight, brakeEngaged, bedExitRisk."""
+    archetype = "Bed"
+    produces = [SIG_BED_OCC, SIG_BED_ANGLE, SIG_BED_WEIGHT, SIG_BED_BRAKE, SIG_BED_EXIT, SIG_PWR]
+    consumes = []
+
+    def init_state(self, ctx):
+        occ = 1.0 if ctx.rng.random() < ctx.fnum("occupancyProb", 0.78) else 0.0
+        wt = round(ctx.rng.uniform(55.0, 95.0), 1) if occ else 0.0
+        angle = ctx.rng.uniform(15.0, 45.0) if occ else 3.0
+        return EntityState(status="running", internal={"occ": occ, "wt": wt, "angle": angle})
+
+    def step(self, ctx, state):
+        occ = state.internal.get("occ", 0.0)
+        wt = state.internal.get("wt", 0.0)
+        angle = state.internal.get("angle", 3.0)
+        if occ:
+            angle += ctx.rng.gauss(0.0, 0.6) * ctx.dt / 60.0     # slow repositioning
+            angle = max(0.0, min(70.0, angle))
+        state.internal["angle"] = angle
+        brake = 0.0 if ctx.rng.random() < 0.02 else 1.0          # occasionally released
+        exit_risk = 1.0 if (occ and angle > 55.0 and brake < 0.5) else 0.0
+        pw = round(max(0.0, wt + (ctx.rng.gauss(0.0, 0.3) if occ else 0.0)), 1)
+        state.status = "degraded" if exit_risk else "running"
+        state.signals = {
+            SIG_BED_OCC: occ, SIG_BED_ANGLE: round(angle, 1), SIG_BED_WEIGHT: pw,
+            SIG_BED_BRAKE: brake, SIG_BED_EXIT: exit_risk,
+            SIG_PWR: round(ctx.fnum("idleKW", 0.03), 3)}
         return state

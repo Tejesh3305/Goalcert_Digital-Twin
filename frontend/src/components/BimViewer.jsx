@@ -201,7 +201,7 @@ export default function BimViewer({ scene: sceneProp, tenant }) {
       {/* Click → equipment info panel (assets) or generic drawer (rooms/structure) */}
       {selected && (selected.kind === 'equipment'
         ? <EquipmentInfoPanel node={selected} tenant={tenant} info={nodeInfo[selected.entityId]}
-                              onClose={() => setSelected(null)} />
+                              propKey={selected.geometry?.prop} onClose={() => setSelected(null)} />
         : <Drawer node={selected} tenant={tenant} info={nodeInfo[selected.entityId]}
                   onClose={() => setSelected(null)} />)}
     </div>

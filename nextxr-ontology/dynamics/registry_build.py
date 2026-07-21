@@ -23,7 +23,7 @@ from dynamics.models.sensing import BinaryEventSourceModel, DerivedObserverModel
 from dynamics.models.transport import DiscreteTransportModel
 from dynamics.models.hospital import (RefrigeratedUnitModel, GasManifoldModel,
                                       ImagingDeviceModel, VentilatorModel,
-                                      InfusionPumpModel, AutoclaveModel)
+                                      InfusionPumpModel, AutoclaveModel, BedModel)
 from dynamics.models.datacenter import ComputeRackModel
 
 
@@ -57,6 +57,7 @@ def build_dynamics_registry() -> DynamicsRegistry:
     r.register(VentilatorModel())             # Ventilator (ICU / transport)
     r.register(InfusionPumpModel())           # InfusionPump (volumetric / syringe)
     r.register(AutoclaveModel())              # Autoclave (CSSD steriliser)
+    r.register(BedModel())                    # Bed (smart hospital bed)
     r.register(ComputeRackModel())            # ComputeRack (data-centre rack)
     # universal fallback
     r.register(DefaultEquipmentModel())       # DefaultEquipment

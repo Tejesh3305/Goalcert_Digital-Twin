@@ -566,6 +566,7 @@ def graph_entities_to_bim_model(locations: list[dict], assets: list[dict]) -> di
             "id": r.get("id"), "level": lvl,
             "name": r.get("displayName") or r.get("id"),
             "function": r.get("roomFunction") or "room",
+            "sector": r.get("sector"),
             "footprint": [[x, y], [x + w, y], [x + w, y + l], [x, y + l]],
             "bbox": {"x": x, "y": y, "w": w, "l": l},
             "areaM2": _f(r.get("areaM2")) or round(w * l, 1),
@@ -587,6 +588,7 @@ def graph_entities_to_bim_model(locations: list[dict], assets: list[dict]) -> di
             "id": a.get("id"), "label": a.get("displayName") or "Equipment",
             "assetType": a.get("assetKind") or ct(a),
             "level": int(_f(a.get("levelIndex"))),
+            "sector": a.get("sector"),
             "x": _f(x), "y": _f(y), "rotationDeg": _f(a.get("rotationDeg")),
         })
 
@@ -809,6 +811,10 @@ def bim_model_to_drafts(bm: dict, twin_name: str | None = None,
         })
         rels.append({"source_key": fkey, "predicate": "nxr:containedIn", "target_key": "building"})
 
+    # room id → clinical sector (persisted so the equipment gallery can group
+    # even when the scene is rebuilt from the graph, cache-miss).
+    room_sector = {r["id"]: r.get("sector") for r in bm.get("rooms", [])}
+
     # Rooms
     for room in bm.get("rooms", []):
         rkey = room["id"]
@@ -820,6 +826,7 @@ def bim_model_to_drafts(bm: dict, twin_name: str | None = None,
             "levelIndex": room.get("level", 0),
             "originX": bb.get("x"), "originY": bb.get("y"),
             "widthM": bb.get("w"), "lengthM": bb.get("l"),
+            "sector": room.get("sector"),        # clinical department (gallery grouping)
             "setpoint": room.get("setpoint"),    # target temp for space over-temp monitors
         }
         if room.get("footprint"):
@@ -845,6 +852,7 @@ def bim_model_to_drafts(bm: dict, twin_name: str | None = None,
             "originX": eq.get("x"), "originY": eq.get("y"), "originZ": elev,
             "levelIndex": lvl, "assetKind": prop,
             "rotationDeg": eq.get("rotationDeg", 0),
+            "sector": eq.get("sector") or room_sector.get(eq.get("room")),
             **(eq.get("params") or {}),             # per-instance physics overrides
         }
         entities.append({"key": ekey, "canonical_type": ct,
@@ -1257,6 +1265,7 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
 
     # Equipment + furniture props (ceiling fixtures lifted to the ceiling)
     _CEILING = {"ceilinglight", "splitac", "sprinkler", "smoke"}
+    _sector_of_room = {r["id"]: r.get("sector") for r in bm.get("rooms", [])}
     for eq in bm.get("equipment", []):
         ct, prop, decor = classify_item(eq.get("label", ""), eq.get("assetType", ""))
         idx = eq.get("level", 0)
@@ -1268,6 +1277,7 @@ def bim_model_to_scene(bm: dict, id_map: dict | None = None,
             "id": f"eq-{eq['id']}", "entityId": eid,
             "kind": "decor" if decor else "equipment",
             "type": ct or "fit-out", "label": eq.get("label") or eq["id"], "level": idx,
+            "sector": eq.get("sector") or _sector_of_room.get(eq.get("room")),   # gallery grouping
             "transform": {"pos": [cx(eq.get("x", W / 2)), py, cz(eq.get("y", L / 2))],
                           "rotY": round(math.radians(eq.get("rotationDeg", 0) or 0), 4),
                           "scale": [1, 1, 1]},

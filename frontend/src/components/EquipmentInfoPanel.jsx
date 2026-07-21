@@ -1,22 +1,21 @@
 /**
  * EquipmentInfoPanel — the click-an-asset detail panel for the 3-D twin.
  *
- * Shown (instead of BimViewer's generic property Drawer) when the picked scene
- * node is a piece of equipment. Three sections:
+ * Three sections:
  *   • Health   — status + condition index + active findings (from /topology)
- *   • Live sensors — the per-instance signal values the dynamics engine persists
- *                    onto the node (fridge temp, gas pressure, ventilator O₂ flow…)
+ *   • Live sensors — physics-computed telemetry from GET /entities/{id}/telemetry
+ *                    (always available, no feed required; evolves as it polls)
  *   • Asset info — manufacturer / model / serial / install + warranty / runtime
  *
- * All fields come from the SAME api.getEntity(id) call BimViewer's Drawer used —
- * no new endpoint. The live-sensor values update as the panel re-fetches while
- * the dynamics feed runs.
+ * Metadata + condition come from api.getEntity; the live sensor values come from
+ * api.entityTelemetry (the on-demand per-tenant dynamics engine).
  */
 import { useEffect, useState } from 'react'
+import AssetPreview from '../three/AssetPreview'
 import api from '../api/client'
 
-// short node-property name → (label, unit). Matches the fragments the dynamics
-// engine writes (DynamicsEngine._signal_prop) for the hospital equipment models.
+// signal short-name → [label, unit, binaryLabels?]. binaryLabels "true|false"
+// renders 0/1 signals as words instead of numbers.
 const SENSOR_META = {
   coldChainTemp: ['Internal Temperature', '°C'],
   gasPressure: ['Line Pressure', 'bar'],
@@ -35,12 +34,41 @@ const SENSOR_META = {
   chamberPressure: ['Chamber Pressure', 'bar'],
   cycleF0: ['Sterilisation F₀', 'min'],
   activePower: ['Active Power', 'kW'],
-  heatOutputW: ['Heat Output', 'W'],
-  nurseCall: ['Nurse Call', ''],
   temperature: ['Temperature', '°C'],
+  nurseCall: ['Nurse Call', '', 'active|idle'],
+  bedOccupied: ['Occupancy', '', 'occupied|vacant'],
+  backrestAngle: ['Backrest Angle', '°'],
+  patientWeight: ['Patient Weight', 'kg'],
+  brakeEngaged: ['Castor Brake', '', 'engaged|released'],
+  bedExitRisk: ['Bed-Exit Alarm', '', 'ALARM|clear'],
+  // generic electrical / thermal / hvac signals the shared archetypes emit
+  supplyAirTemp: ['Supply Air Temp', '°C'],
+  filterDeltaP: ['Filter ΔP', 'Pa'],
+  coolingDemandKW: ['Cooling Demand', 'kW'],
+  chillerCOP: ['Coeff. of Performance', ''],
+  chwSupplyTemp: ['Chilled-Water Supply', '°C'],
+  fuelLevel: ['Fuel Level', '%'],
+  frequency: ['Frequency', 'Hz'],
+  runHours: ['Run Hours', 'h'],
+  cpuLoad: ['CPU Load', '%'],
+  voltage: ['Voltage', 'V'],
+  electricCurrent: ['Current', 'A'],
+  oilTemperature: ['Oil Temperature', '°C'],
+  powerFactor: ['Power Factor', ''],
+  upsSoC: ['State of Charge', '%'],
+  available: ['Available', '', 'yes|no'],
+  // flowRate unit depends on asset (see flowRateUnit below); label only here
+  flowRate: ['Flow Rate', ''],
 }
 
-// asset-management fields (static) → label.
+// per-asset unit override for signals whose unit is context-dependent.
+function flowRateUnit(modelKey) {
+  return modelKey === 'infusionpump' ? 'mL/h' : 'L/s'
+}
+
+// derived/coupling/liveness signals not worth showing as a sensor tile.
+const HIDE = new Set(['heatOutputW', 'heartbeat'])
+
 const ASSET_FIELDS = [
   ['manufacturer', 'Manufacturer'],
   ['modelNumber', 'Model'],
@@ -57,46 +85,79 @@ const STATUS = {
   ok: { color: '#5fd08a', label: 'Healthy' },
 }
 
-export default function EquipmentInfoPanel({ node, tenant, info, onClose }) {
+export default function EquipmentInfoPanel({ node, tenant, info, onClose, propKey, embedded,
+                                             unitCount, typeDesc }) {
   const [entity, setEntity] = useState(null)
+  const [tele, setTele] = useState(null)
+
   useEffect(() => {
-    if (!node.entityId || !tenant) { setEntity(null); return }
+    if (!node.entityId || !tenant) { setEntity(null); setTele(null); return }
     let alive = true
-    const load = () => api.getEntity(node.entityId, tenant)
+    const loadMeta = () => api.getEntity(node.entityId, tenant)
       .then((e) => { if (alive) setEntity(e) }).catch(() => {})
-    load()
-    const id = setInterval(load, 3000) // refresh live sensor values while the feed runs
-    return () => { alive = false; clearInterval(id) }
+    const loadTele = () => api.entityTelemetry(node.entityId, tenant)
+      .then((t) => { if (alive) setTele(t) }).catch(() => { if (alive) setTele({ available: false }) })
+    loadMeta(); loadTele()
+    const t1 = setInterval(loadTele, 3000)  // live telemetry
+    const t2 = setInterval(loadMeta, 8000)  // condition / metadata
+    return () => { alive = false; clearInterval(t1); clearInterval(t2) }
   }, [node.entityId, tenant])
 
   const props = entity?.node || {}
   const typeShort = (node.type || props.canonicalType || '').split('#').pop()
 
-  // health status from findings (falls back to healthy when tracked, unknown otherwise)
   const fc = info?.findings
   let sev = 'ok'
   if (fc?.critical > 0 || info?.severity === 'critical') sev = 'crit'
   else if (fc?.warning > 0 || info?.severity === 'warning') sev = 'warn'
+  // reflect the live telemetry status too, so health matches the sensor readings
+  // even when the findings feed isn't running
+  if (sev === 'ok' && tele?.status === 'fault') sev = 'crit'
+  else if (sev === 'ok' && tele?.status === 'degraded') sev = 'warn'
   const tracked = !!node.entityId
   const cond = num(props.conditionIndex)
 
-  // live sensor rows: any known sensor property present on the node
-  const sensors = Object.entries(props)
-    .filter(([k, v]) => SENSOR_META[k] && v != null && typeof v !== 'object')
-    .map(([k, v]) => ({ key: k, label: SENSOR_META[k][0], unit: SENSOR_META[k][1], value: v }))
+  const modelKey = propKey || node.geometry?.prop
+
+  // live sensors from the telemetry endpoint
+  const sensors = (tele?.signals || [])
+    .filter((s) => !HIDE.has(s.name) && s.value != null)
+    .map((s) => {
+      const m = SENSOR_META[s.name]
+      return {
+        key: s.name,
+        label: m ? m[0] : prettyType(s.name),
+        unit: s.name === 'flowRate' ? flowRateUnit(modelKey) : (m ? m[1] : ''),
+        bin: m ? m[2] : undefined,
+        value: s.value,
+      }
+    })
 
   const assetRows = ASSET_FIELDS
     .filter(([k]) => props[k] != null && props[k] !== '')
     .map(([k, label]) => ({ key: k, label, value: props[k] }))
 
+  const teleLoading = tele == null
+
   return (
-    <div className="bim-drawer">
-      <i className="ti ti-x close" onClick={onClose} />
+    <div className={embedded ? 'equip-panel' : 'bim-drawer'}>
+      {onClose && <i className="ti ti-x close" onClick={onClose} />}
+      {modelKey && (
+        <div style={{ marginBottom: 12, height: 200, borderRadius: 10, overflow: 'hidden', background: '#0c0f16' }}>
+          <AssetPreview assetKey={modelKey} interactive showHuman showGrid background="#0c0f16" />
+        </div>
+      )}
       <h4>{node.label || typeShort}</h4>
       <div className="sub">{prettyType(typeShort)}{node.sector ? ` · ${node.sector}` : ''}</div>
+      {typeDesc && <p style={{ fontSize: 11.5, color: '#9aa3d6', margin: '8px 0 0', lineHeight: 1.4 }}>{typeDesc}</p>}
+      {unitCount > 1 && (
+        <div style={{ fontSize: 11, color: '#9aa3d6', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <i className="ti ti-stack-2" /> {unitCount} units in this hospital · showing the least-healthy
+        </div>
+      )}
 
       {/* Health */}
-      {tracked ? (
+      {tracked && (
         <div style={{ margin: '12px 0' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: cond == null ? 0 : 8 }}>
             <span style={{ width: 9, height: 9, borderRadius: '50%', background: STATUS[sev].color }} />
@@ -106,30 +167,29 @@ export default function EquipmentInfoPanel({ node, tenant, info, onClose }) {
           </div>
           {cond != null && <HealthBar value={cond} />}
         </div>
-      ) : (
-        <div className="sub" style={{ margin: '12px 0' }}>Structural element — not a tracked asset.</div>
       )}
 
       {/* Live sensors */}
-      {sensors.length > 0 && (
-        <Section title="Live sensors">
+      <Section title="Live sensors">
+        {sensors.length > 0 ? (
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             {sensors.map((s) => (
               <div key={s.key} style={{ background: 'rgba(255,255,255,0.04)', borderRadius: 8, padding: '7px 9px' }}>
                 <div style={{ fontSize: 10.5, opacity: 0.65 }}>{s.label}</div>
                 <div style={{ fontSize: 15, fontWeight: 600 }}>
-                  {fmt(s.value)}<span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>{s.unit}</span>
+                  {s.bin
+                    ? binLabel(s.value, s.bin)
+                    : <>{fmt(s.value)}<span style={{ fontSize: 10, opacity: 0.6, marginLeft: 3 }}>{s.unit}</span></>}
                 </div>
               </div>
             ))}
           </div>
-        </Section>
-      )}
-      {tracked && sensors.length === 0 && (
-        <div className="sub" style={{ marginTop: 8, fontSize: 11 }}>
-          No live sensor stream — start the dynamics feed to see readings.
-        </div>
-      )}
+        ) : (
+          <div className="sub" style={{ fontSize: 11 }}>
+            {teleLoading ? 'Reading sensors…' : 'This asset type has no sensors.'}
+          </div>
+        )}
+      </Section>
 
       {/* Asset info */}
       {assetRows.length > 0 && (
@@ -177,8 +237,14 @@ const num = (v) => (v == null || v === '' || isNaN(Number(v)) ? null : Number(v)
 const fmt = (v) => (typeof v === 'number' || !isNaN(Number(v))
   ? (Math.round(Number(v) * 100) / 100).toLocaleString() : String(v))
 
+function binLabel(v, bin) {
+  const [t, f] = bin.split('|')
+  const on = Number(v) >= 0.5
+  return <span style={{ color: on && /alarm/i.test(t) ? '#f43f5e' : undefined }}>{on ? t : f}</span>
+}
+
 function prettyType(t) {
-  return (t || 'Equipment').replace(/([a-z])([A-Z])/g, '$1 $2')
+  return (t || 'Equipment').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase())
 }
 
 function warrantyTag(dateStr) {

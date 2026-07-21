@@ -95,6 +95,7 @@ export const SECTOR_COLOR = {
   'Critical Care': 0xf97316,
   Wards: 0x10b981,
   'Support Services': 0x64748b,
+  Facilities: 0x0891b2,
   Admin: 0xeab308,
   Circulation: 0x9ca3af,
 }

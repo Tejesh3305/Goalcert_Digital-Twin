@@ -96,6 +96,7 @@ export const api = {
   listEntities: (tenant, label = 'PhysicalAsset', limit = 100) =>
     request(`/entities?${qs({ tenant, label, limit })}`),
   getEntity: (id, tenant) => request(`/entities/${id}?${qs({ tenant })}`),
+  entityTelemetry: (id, tenant) => request(`/entities/${id}/telemetry?${qs({ tenant })}`),
   topology: (tenant) => request(`/topology?${qs({ tenant })}`),
   stats: (tenant) => request(`/stats?${qs({ tenant })}`),
   findings: (tenant, limit = 50) => request(`/findings?${qs({ tenant, limit })}`),

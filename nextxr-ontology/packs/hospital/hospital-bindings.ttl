@@ -89,6 +89,14 @@ hsp:PatientMonitor
     nxr:dynamicsArchetype "ComputeLoad" ;
     nxr:archetypeParams """{"idlePowerKW":0.05,"maxPowerKW":0.12}""" .
 
+### Smart bed — load-cell occupancy/weight + backrest + brake + exit alarm ###
+hsp:Bed
+    nxr:dynamicsArchetype "Bed" ;
+    nxr:archetypeParams """{"occupancyProb":0.78,"idleKW":0.03}""" ;
+    nxr:monitoringRules """[
+      {"behavior_id":"hsp.bed_exit_risk","kind":"threshold","watches":"https://ontology.nextxr.io/v3/hospital#bedExitRisk","bound":0.5,"direction":"above","severity":"warning","message":"Bed-exit risk — check rails and brake"}
+    ]""" .
+
 ### Critical-care spaces — tighter thermal targets than a generic room ###
 hsp:OperatingRoom
     nxr:dynamicsArchetype "SpaceThermal" ;
