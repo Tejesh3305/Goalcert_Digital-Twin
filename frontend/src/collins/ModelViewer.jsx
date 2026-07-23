@@ -1,13 +1,27 @@
 // ModelViewer.jsx — a generic glTF/GLB viewer for the reconstructed 3-D models
 // (RunPod/TRELLIS output). Loads any .glb, normalises + auto-frames it, orbit
 // controls, studio lighting, and optional live sensor hotspots pinned around it.
-import React, { Suspense, useMemo } from 'react'
-import { Canvas } from '@react-three/fiber'
+import React, { Suspense, useEffect, useMemo } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Html, Bounds, ContactShadows } from '@react-three/drei'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { SIG, sevClass, fmt } from './lib.jsx'
 
 const HOT_COLOR = { '': '#16a34a', warn: '#d97706', crit: '#e11d48' }
+
+/** Offline image-based lighting (procedural RoomEnvironment) so reconstructed
+ *  metal/PBR meshes render bright and natural rather than flat/dim. */
+function NeutralEnv() {
+  const { gl, scene } = useThree()
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const env = pmrem.fromScene(new RoomEnvironment(), 0.04)
+    scene.environment = env.texture
+    return () => { env.texture.dispose(); pmrem.dispose(); scene.environment = null }
+  }, [gl, scene])
+  return null
+}
 
 function Model({ url }) {
   const { scene } = useGLTF(url)
@@ -20,7 +34,12 @@ function Model({ url }) {
     const scale = 3 / (Math.max(size.x, size.y, size.z) || 1)
     s.position.sub(center)
     s.scale.setScalar(scale)
-    s.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+    s.traverse(o => {
+      if (!o.isMesh) return
+      o.castShadow = true; o.receiveShadow = true
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      mats.forEach((m) => { if (m && 'envMapIntensity' in m) { m.envMapIntensity = 1.3; m.needsUpdate = true } })
+    })
     return s
   }, [scene])
   return <primitive object={cloned} />
@@ -57,14 +76,16 @@ function Fallback({ label }) {
 
 export default function ModelViewer({ url, height = 320, autoRotate = true, hotspots = [], latest = {}, badge }) {
   return (
-    <div style={{ height, borderRadius: 18, overflow: 'hidden', background: '#0b0d18', position: 'relative' }}>
-      <Canvas shadows camera={{ position: [3.2, 2, 3.6], fov: 46 }} dpr={[1, 2]}>
-        <color attach="background" args={['#0b0d18']} />
-        {/* local lights only — no CDN environment map, so the viewer is fully offline-safe */}
-        <hemisphereLight args={['#e6ecff', '#1a2038', 0.7]} />
+    <div style={{ height, borderRadius: 18, overflow: 'hidden', position: 'relative',
+      background: 'radial-gradient(circle at 50% 34%, #33405f 0%, #141a2c 52%, #0a0c16 100%)' }}>
+      <Canvas shadows camera={{ position: [3.2, 2, 3.6], fov: 46 }} dpr={[1, 2]}
+        gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }}>
+        <NeutralEnv />
+        <hemisphereLight args={['#eef3ff', '#26304a', 1.0]} />
         <ambientLight intensity={0.5} />
-        <directionalLight position={[5, 8, 5]} intensity={1.25} castShadow />
-        <directionalLight position={[-5, 3, -4]} intensity={0.4} color="#9ec9ff" />
+        <directionalLight position={[5, 8, 5]} intensity={1.9} castShadow />
+        <directionalLight position={[-5, 3, -4]} intensity={0.7} color="#a8cbff" />
+        <directionalLight position={[0, 2, -6]} intensity={0.6} color="#ffd9a8" />
         <Suspense fallback={<Fallback label="Loading 3D model…" />}>
           <Bounds fit clip observe margin={1.2}>
             <Model url={url} />

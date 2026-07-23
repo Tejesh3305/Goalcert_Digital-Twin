@@ -32,7 +32,18 @@ function Model({ url }) {
   const { scene } = useGLTF(url)
   const cloned = useMemo(() => {
     const s = scene.clone(true)
-    s.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+    s.traverse((o) => {
+      if (!o.isMesh) return
+      o.castShadow = true; o.receiveShadow = true
+      // Let the environment map light the reconstructed mesh so it reads bright
+      // and natural rather than flat/dim.
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      mats.forEach((m) => {
+        if (!m) return
+        if ('envMapIntensity' in m) m.envMapIntensity = 1.3
+        m.needsUpdate = true
+      })
+    })
     return s
   }, [scene])
   return <primitive object={cloned} />
@@ -60,15 +71,16 @@ export default function GlbViewer({ url, height = 420, label = 'TRELLIS reconstr
     </div>
   )
   return (
-    <div style={{ height, borderRadius: 12, overflow: 'hidden', background: '#0b0d18', position: 'relative' }}>
+    <div style={{ height, borderRadius: 12, overflow: 'hidden', position: 'relative',
+      background: 'radial-gradient(circle at 50% 34%, #33405f 0%, #141a2c 52%, #0a0c16 100%)' }}>
       <Canvas shadows camera={{ position: [4, 2.5, 4.5], fov: 48 }} dpr={[1, 2]}
-              gl={{ antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.0 }}>
-        <color attach="background" args={['#0b0d18']} />
+              gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }}>
         <NeutralEnv />
-        <hemisphereLight args={['#e6ecff', '#1a2038', 0.5]} />
-        <ambientLight intensity={0.3} />
-        <directionalLight position={[5, 8, 5]} intensity={1.1} castShadow />
-        <directionalLight position={[-5, 3, -4]} intensity={0.35} color="#9ec9ff" />
+        <hemisphereLight args={['#eef3ff', '#26304a', 1.0]} />
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[5, 8, 5]} intensity={1.9} castShadow />
+        <directionalLight position={[-5, 3, -4]} intensity={0.7} color="#a8cbff" />
+        <directionalLight position={[0, 2, -6]} intensity={0.6} color="#ffd9a8" />
         <GlbErrorBoundary>
           <Suspense fallback={<Center>Loading 3-D model…</Center>}>
             <Bounds fit clip margin={1.2}>
