@@ -14,10 +14,11 @@ Every agent follows the same contract:
   * whether a call actually reached Claude is recorded on `agent_trace()`, so a
     stub answer is never silently presented as real reasoning.
 
-Model policy: Claude Opus 4.8 with adaptive thinking on the heavy reasoning
-agents (diagnosis, analysis, cascade, work orders, procedures, reports) and
-thinking off for the short latency-sensitive ones (narration, asset status,
-alerts, chat) where a one-paragraph answer must come back fast.
+Model policy: Claude Sonnet 5 (see copilot/config.py for why, and for how to
+put it back on Opus) with adaptive thinking on the heavy reasoning agents
+(diagnosis, analysis, cascade, work orders, procedures, reports) and thinking
+explicitly disabled for the short latency-sensitive ones (narration, asset
+status, alerts, chat) where a one-paragraph answer must come back fast.
 """
 from __future__ import annotations
 
@@ -151,8 +152,20 @@ def _anthropic():
 # Effort profiles. QUICK/CHAT run without thinking so a console observation
 # comes back in about a second; DEEP turns on adaptive thinking because those
 # outputs are documentation a technician acts on.
+#
+# The non-deep path must say {"type": "disabled"} rather than omit `thinking`.
+# Omitting it is not model-independent: on Opus 4.8 an absent field means no
+# thinking, but on Sonnet 5 it means ADAPTIVE. Leaving it out would silently
+# make the latency-sensitive agents think — the ~1s console reply becomes
+# several seconds and bills thinking tokens on our highest-frequency calls —
+# and _note(thinking=deep) would report False while the model was thinking.
 QUICK = "low"
 CHAT = "medium"
+
+# Explicit per-call thinking config; see the note above on why "disabled" is
+# spelled out instead of omitted.
+_THINKING_ON = {"type": "adaptive"}
+_THINKING_OFF = {"type": "disabled"}
 
 
 def _text(*, system: str, messages: list, max_tokens: int,
@@ -169,9 +182,8 @@ def _text(*, system: str, messages: list, max_tokens: int,
             "system": system,
             "messages": messages,
             "output_config": {"effort": config.DEEP_EFFORT if deep else effort},
+            "thinking": _THINKING_ON if deep else _THINKING_OFF,
         }
-        if deep:
-            kwargs["thinking"] = {"type": "adaptive"}
         resp = _anthropic().messages.create(**kwargs)
         if getattr(resp, "stop_reason", None) == "refusal":
             _note(backend="stub", error="model declined the request")
@@ -210,9 +222,8 @@ def _parse(*, system, messages: list, max_tokens: int, output_format,
             "system": system,
             "messages": messages,
             "output_format": output_format,
+            "thinking": _THINKING_ON if deep else _THINKING_OFF,
         }
-        if deep:
-            kwargs["thinking"] = {"type": "adaptive"}
         resp = _anthropic().messages.parse(**kwargs)
         if getattr(resp, "stop_reason", None) == "refusal":
             _note(backend="stub", error="model declined the request")

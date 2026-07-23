@@ -67,7 +67,7 @@ deterministic stub rather than failing. That is good for uptime and dangerous fo
 trust — a stubbed work order looks like a real one. So every response carries:
 
 ```json
-"ai": { "backend": "claude", "model": "claude-opus-4-8", "thinking": true,
+"ai": { "backend": "claude", "model": "claude-sonnet-5", "thinking": true,
         "usage": {"input": 916, "output": 831}, "error": null }
 ```
 
@@ -86,7 +86,7 @@ trust — a stubbed work order looks like a real one. So every response carries:
 | Variable | Default | Purpose |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | Enables real reasoning. Unset ⇒ everything stubs. |
-| `NXR_CLAUDE_MODEL` | `claude-opus-4-8` | Model override. |
+| `NXR_CLAUDE_MODEL` | `claude-sonnet-5` | Model override — e.g. `claude-opus-4-8` where deep-agent output quality matters more than the token bill. |
 | `NXR_COPILOT_EFFORT` | `high` | Effort for the deep agents (`low`…`max`). |
 | `NXR_DATA_DIR` | `nextxr-ontology/data` | Where `knowledge/knowledge.json` persists. |
 

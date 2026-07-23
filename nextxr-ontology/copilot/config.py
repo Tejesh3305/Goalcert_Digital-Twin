@@ -6,7 +6,7 @@ automatically, same as agents/gateway.py does). Nothing here is required: with
 no key set every agent falls back to a deterministic stub.
 
   ANTHROPIC_API_KEY   the Claude key. Set it to light up real reasoning.
-  NXR_CLAUDE_MODEL    override the model (default: claude-opus-4-8).
+  NXR_CLAUDE_MODEL    override the model (default: claude-sonnet-5).
   NXR_COPILOT_EFFORT  override the default effort for the "deep" agents.
 
 Values are read from os.environ on every access rather than snapshotted at
@@ -27,9 +27,18 @@ try:
 except Exception:  # noqa: BLE001 — dotenv is optional
     pass
 
-# The most capable Claude model. Overridable, but do not downgrade by default:
-# these agents produce maintenance documentation people act on.
-DEFAULT_MODEL = "claude-opus-4-8"
+# Sonnet 5 — near-Opus quality on this workload at $3/$15 per MTok instead of
+# Opus 4.8's $5/$25. The trigger was the public demo deployment: with the API
+# open, copilot traffic bills to our key from anyone who finds the URL, and the
+# quality gap here does not justify paying Opus rates for it.
+#
+# The earlier default was Opus 4.8 with a "do not downgrade" note, on the
+# grounds that these agents produce maintenance documentation a technician acts
+# on. That reasoning still holds for the DEEP agents (diagnosis, work orders,
+# procedures) — which is why they keep adaptive thinking at NXR_COPILOT_EFFORT
+# (default "high"). Raise this back with NXR_CLAUDE_MODEL=claude-opus-4-8 for a
+# deployment where those outputs matter more than the token bill.
+DEFAULT_MODEL = "claude-sonnet-5"
 
 
 class CopilotConfig:
