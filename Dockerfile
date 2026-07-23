@@ -1,8 +1,11 @@
-# NextXR Digital Twin — API image (ECS Fargate, PRIVATE subnet).
+# NextXR Digital Twin — image.
 #
-# API ONLY. The federated UI (remoteEntry.js + style.css) is published to S3/CloudFront by
-# CI — see AWS_DEPLOYMENT.md §5. server/main.py serves frontend/dist at "/" when present;
-# it is deliberately absent here, and main.py handles that.
+# Bakes the built React app (frontend/dist) into the image so single-URL hosts (e.g.
+# Render) serve both the API and the UI from one process — see the "Frontend serving"
+# section of server/main.py, which serves frontend/dist at "/" when present. On AWS ECS
+# the federated UI is ALSO published to S3/CloudFront by CI (AWS_DEPLOYMENT.md §5); the
+# copy baked in here just goes unused there, since traffic to the ECS task's "/" isn't
+# what serves the AWS frontend.
 #
 # STATE LIVES ON A VOLUME, NOT IN THIS IMAGE.
 # The twin keeps its twin registry, change log, agent bundles, checkpoints and the
@@ -10,6 +13,13 @@
 # `COPY nextxr-ontology/` did, .db files and all) is worse than losing them: every redeploy
 # would RESET the live twin registry to whatever snapshot was committed to git. .dockerignore
 # keeps them out; NXR_DATA_DIR points at the EFS mount instead.
+
+FROM node:20-slim AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm install
+COPY frontend/ ./
+RUN npm run build
 
 FROM python:3.12-slim AS base
 
@@ -27,6 +37,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY nextxr-ontology/ ./nextxr-ontology/
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 WORKDIR /app/nextxr-ontology
 
