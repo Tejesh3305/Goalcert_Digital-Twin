@@ -19,8 +19,10 @@ Five disciplines keep the seams invisible:
 
 Built on an in-house, LangGraph-compatible engine (engine.py) so the code reads
 exactly like the spec and can swap to real LangGraph by changing one import.
-The LLM layer (gateway.py) uses OpenAI when a key is present, else deterministic
-stubs — so the whole flow and demo run with or without a key.
+The LLM layer (gateway.py) uses Claude when ANTHROPIC_API_KEY is present, else
+deterministic stubs — so the whole flow and demo run with or without a key.
+That is the platform's ONLY LLM: these agent graphs and the embedded agent layer
+(copilot/) share one key, one model policy, one failure mode.
 """
 
 from .state import TwinBuildState, BundleAuthorState

@@ -50,6 +50,7 @@ def graph_writer(state: dict) -> dict:
     On a connection error it RAISES (per spec) so the workflow can retry the
     same idempotent op — it does NOT loop back to Concierge."""
     from graph.writer import GraphWriter, Rel
+    from graph.sensor_defaults import inject_observes
     from changelog.service import ChangeLog
     from twins import TwinRegistry
 
@@ -86,29 +87,77 @@ def graph_writer(state: dict) -> dict:
         if src and tgt:
             out_rels.setdefault(src, []).append(Rel(predicate=rel["predicate"], target_id=tgt))
 
-    # Create targets-before-sources: entities that are pure targets (no outgoing
-    # rels) first, so a source's relationship target already exists.
-    def _has_outgoing(ent):
-        return bool(out_rels.get(ent["_draft_id"]))
-    ordered = sorted(drafts, key=_has_outgoing)  # False (no rels) first
+    # Create targets before the sources that point at them, so a relationship's
+    # target already exists when its source is written.
+    #
+    # This is a real topological sort, not a "does it have any outgoing edge"
+    # split. That earlier heuristic only worked while leaf entities happened to
+    # have no relationships; as soon as every entity has one (e.g. each sensor
+    # monitors the machine), nothing sorted first and the commit failed with
+    # "Relationship target(s) not found".
+    by_id = {e["_draft_id"]: e for e in drafts}
+    deps: dict[str, set] = {nid: set() for nid in by_id}
+    for nid, rels in out_rels.items():
+        for r in rels:
+            if r.target_id in by_id and r.target_id != nid:
+                deps.setdefault(nid, set()).add(r.target_id)
+
+    ordered_ids: list[str] = []
+    created: set[str] = set()
+    remaining = {n: set(d) for n, d in deps.items()}
+    while remaining:
+        ready = sorted(n for n, d in remaining.items() if d <= created)
+        if not ready:
+            # A dependency cycle (A serves B, B monitors A). Nothing can be
+            # created edges-intact, so break it at the node with the fewest
+            # unmet deps; its back-edges are added after every node exists.
+            ready = [min(remaining, key=lambda k: (len(remaining[k] - created), k))]
+        for n in ready:
+            ordered_ids.append(n)
+            created.add(n)
+            remaining.pop(n, None)
 
     primary_id = None
     errors = []
-    for ent in ordered:
-        nid = ent["_draft_id"]
+    deferred: list[tuple[str, object]] = []   # (source_id, Rel) applied after
+    done: set[str] = set()
+    for nid in ordered_ids:
+        ent = by_id[nid]
+        # Hold back only edges whose target is a draft we haven't written yet
+        # (cycle back-edges). Ontology refs like sosa:observes have non-draft
+        # targets and must stay on the create call — some shapes require them.
+        now, later = [], []
+        for r in out_rels.get(nid) or []:
+            (later if (r.target_id in by_id and r.target_id not in done) else now).append(r)
+        deferred.extend((nid, r) for r in later)
+
+        # Same sosa:observes injection the Validator applied, so what commits is
+        # exactly what passed the gate.
+        rels = inject_observes(ent["canonical_type"], now)
         res = writer.create(
             tenant_id=tenant_id,
             canonical_type=ent["canonical_type"],
             actor="agent:graph_writer",
             properties=dict(ent.get("properties", {})),
-            relationships=out_rels.get(nid) or None,
+            relationships=rels or None,
             node_id=nid,
         )
         if not res.ok:
             errors.append(f"{ent.get('canonical_type','?').split('#')[-1]}: {res.error}")
             continue
+        done.add(nid)
         if primary_id is None and res.label == "PhysicalAsset":
             primary_id = res.node_id
+
+    # Now that every node exists, close the cycle edges.
+    for src, r in deferred:
+        if src not in done or r.target_id not in done:
+            continue
+        rr = writer.relate(tenant_id=tenant_id, actor="agent:graph_writer",
+                           source_id=src, predicate=r.predicate,
+                           target_id=r.target_id)
+        if not rr.ok:
+            errors.append(f"relationship {r.predicate}: {rr.error}")
 
     committed_count = len(drafts) - len(errors)
     if errors and committed_count == 0:
@@ -158,6 +207,7 @@ def validator(state: dict) -> dict:
     import gate  # tools/gate.py
     from graph.writer import GraphWriter, Rel
     from graph.crud import _new_id
+    from graph.sensor_defaults import inject_observes
 
     drafts = state.get("draft_entities", [])
     rel_drafts = state.get("draft_relationships", [])
@@ -197,8 +247,16 @@ def validator(state: dict) -> dict:
                 tgt = key_to_id.get(r.get("target_key"), r.get("target_id"))
                 if tgt:
                     rels.append(Rel(predicate=r["predicate"], target_id=tgt))
-        ttl = w._render_node_ttl(node_id, ct, props, rels)
+        # A Sensor must declare sosa:observes. That is an ontology fact the
+        # drafting model shouldn't have to know, so inject it here exactly as the
+        # REST write path does — otherwise every sensor the agent drafts fails
+        # the shape and the twin can never be built.
+        rels = inject_observes(ct, rels)
         try:
+            # Rendering must be inside the guard: `rels` carries LLM-drafted
+            # predicates, so a malformed one has to surface as a validation
+            # error the agent can report and correct — not a 500.
+            ttl = w._render_node_ttl(node_id, ct, props, rels)
             result = gate.validate(ttl)
             if not result.ok:
                 for v in result.violations:
@@ -671,6 +729,15 @@ def schema_mapper(state: dict) -> dict:
                  f"location: {f.get('location', 'unknown')})" for f in vision]
         vision_text = "\nVision findings:\n" + "\n".join(items)
 
+    # Show the model the WHOLE instantiable vocabulary. This used to be
+    # `legal_types[:30]`, an alphabetical slice of ~212 types — so 'Air Quality
+    # Sensor' was the only sensor class the mapper could ever see, and every
+    # twin got air-quality sensors regardless of what the user described.
+    # The list is a few thousand tokens; correctness is worth it.
+    type_lines = "\n".join(
+        f"  {t['iri']}  ({t.get('label') or t['iri'].split('#')[-1]})"
+        for t in legal_types)
+
     result = gw.complete_json(
         tenant_id=state["tenant_id"], session_id=state["session_id"],
         system=("You map facility descriptions to concrete NextXR ontology entities. "
@@ -678,14 +745,20 @@ def schema_mapper(state: dict) -> dict:
                 "\"canonical_type\" (full IRI from the legal types list), "
                 "and \"properties\" (dict with at least displayName). "
                 "Also produce relationships: [{\"source_key\", \"predicate\", \"target_key\"}]. "
+                "Predicates must be prefixed CURIEs (e.g. 'nxr:hasPart', "
+                "'nxr:monitors', 'cfp:servesSpace'), never a bare name. "
+                "Every Sensor MUST have an outgoing 'nxr:monitors' relationship to "
+                "the thing it watches — a sensor that monitors nothing is rejected. "
                 "Return JSON {\"entities\": [...], \"relationships\": [...]}. "
-                "Use ONLY canonical_type IRIs from the legal types provided."),
+                "Use ONLY canonical_type IRIs from the legal types provided — pick "
+                "the CLOSEST match to what the user actually described; do not "
+                "substitute an unrelated class just because it appears first."),
         user=f"Domain: {domain}\n"
              f"Conversation:\n{convo}\n{vision_text}\n\n"
-             f"Legal types (use these IRIs): {legal_types[:30]}\n\n"
+             f"Legal types (use these IRIs):\n{type_lines}\n\n"
              f"Bundle templates (for reference): {bundle_templates}",
         stub=_stub(),
-        max_tokens=1200,
+        max_tokens=4000,
     )
 
     entities = result.get("entities") or _stub()["entities"]

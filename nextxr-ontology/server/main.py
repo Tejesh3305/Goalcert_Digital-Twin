@@ -71,6 +71,7 @@ from server.schema_routes import router as schema_router
 from server.twins_routes import router as twins_router
 from server.twin_runtime_routes import router as twin_runtime_router
 from server.agent_routes import router as agent_router
+from server.copilot_routes import router as copilot_router
 from server.hub_routes import router as hub_router
 from server.threed_platform.app.main import app as threed_platform_app
 
@@ -98,6 +99,10 @@ app.include_router(schema_router)
 app.include_router(twin_runtime_router)
 app.include_router(twins_router)
 app.include_router(agent_router)
+# Embedded agent layer: diagnosis, work orders, procedures, narration, chat.
+# These run IN THIS PROCESS against twins/runtime.py — a native twin feature,
+# not a proxy to an external agent service. See copilot/README.md.
+app.include_router(copilot_router)
 app.include_router(hub_router)
 
 # 3-D generation platform (photo-of-an-object → TRELLIS/RunPod → GLB; floor-plan

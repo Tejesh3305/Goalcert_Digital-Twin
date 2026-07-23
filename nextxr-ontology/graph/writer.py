@@ -117,15 +117,28 @@ def _camel_to_upper_snake(name: str) -> str:
 
 
 def _resolve_predicate(curie_or_iri: str) -> tuple[str, str]:
-    """Return (full_iri, neo4j_rel_type) for a predicate CURIE or IRI."""
+    """Return (full_iri, neo4j_rel_type) for a predicate CURIE or IRI.
+
+    A bare local name ('hasPart') is treated as living in the platform's own
+    namespace, i.e. 'nxr:hasPart'. Predicates reach here from LLM-drafted
+    relationships, and a model that omits the prefix used to raise an unpacking
+    ValueError from str.split — a 500 with an opaque message rather than a
+    validation error the agent could report and correct.
+    """
+    if not curie_or_iri or not str(curie_or_iri).strip():
+        raise ValueError("Empty predicate")
+    curie_or_iri = str(curie_or_iri).strip()
     if curie_or_iri.startswith("http"):
         iri = curie_or_iri
         local = iri.split("#")[-1].split("/")[-1]
-    else:
+    elif ":" in curie_or_iri:
         pfx, local = curie_or_iri.split(":", 1)
         if pfx not in PREFIXES:
             raise ValueError(f"Unknown predicate prefix '{pfx}:'")
         iri = PREFIXES[pfx] + local
+    else:
+        local = curie_or_iri
+        iri = PREFIXES["nxr"] + local
     return iri, _camel_to_upper_snake(local)
 
 

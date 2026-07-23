@@ -222,6 +222,53 @@ export const api = {
   accelMessage: (session_id, message) =>
     request('/agents/accelerator/message', { method: 'POST', body: JSON.stringify({ session_id, message }) }),
   accelState: (session_id) => request(`/agents/accelerator/${session_id}`),
+
+  // ── Copilot: the embedded agent layer (/api/v1/copilot) ──────────────
+  //
+  // These agents run IN the twin process against the machine-twin runtime, so
+  // they reason over the same live physics the 3-D scene renders.
+  //
+  // Every call takes a TwinContext: pass `{ tenant }` to run against a live
+  // twin, or `{ machine, domain, latest, findings }` to run the identical agent
+  // on a telemetry snapshot. The response echoes `source` ('live'|'snapshot')
+  // and an `ai` block — ALWAYS surface `ai.backend`, because a stubbed answer
+  // looks exactly like a real one otherwise. See <AiBadge>.
+  copilot: {
+    health: () => request('/copilot/health'),
+
+    // Live monitoring
+    narrateLive: (tenant, machine) =>
+      request(`/copilot/narrate/${encodeURIComponent(tenant)}?${qs({ machine })}`),
+    narrate: (ctx) => request('/copilot/narrate', { method: 'POST', body: JSON.stringify(ctx) }),
+    asset: (ctx) => request('/copilot/asset', { method: 'POST', body: JSON.stringify(ctx) }),
+    predictAlert: (ctx) => request('/copilot/predict-alert', { method: 'POST', body: JSON.stringify(ctx) }),
+
+    // Diagnosis & prediction
+    diagnosis: (ctx) => request('/copilot/diagnosis', { method: 'POST', body: JSON.stringify(ctx) }),
+    analysis: (ctx) => request('/copilot/analysis', { method: 'POST', body: JSON.stringify(ctx) }),
+    cascade: (ctx) => request('/copilot/cascade', { method: 'POST', body: JSON.stringify(ctx) }),
+
+    // Maintenance & compliance output
+    workOrder: (ctx) => request('/copilot/work-order', { method: 'POST', body: JSON.stringify(ctx) }),
+    procurement: (ctx) => request('/copilot/procurement', { method: 'POST', body: JSON.stringify(ctx) }),
+    incidentReport: (ctx) => request('/copilot/incident-report', { method: 'POST', body: JSON.stringify(ctx) }),
+    procedure: (body) => request('/copilot/procedure', { method: 'POST', body: JSON.stringify(body) }),
+
+    // Conversational
+    troubleshoot: (body) => request('/copilot/troubleshoot', { method: 'POST', body: JSON.stringify(body) }),
+    dashboardChat: (body) => request('/copilot/dashboard-chat', { method: 'POST', body: JSON.stringify(body) }),
+
+    // Twin provisioning
+    buildTwinMessage: (history, message) =>
+      request('/copilot/build-twin/message', { method: 'POST', body: JSON.stringify({ history, message }) }),
+    buildTwinSpec: (body) =>
+      request('/copilot/build-twin/spec', { method: 'POST', body: JSON.stringify(body) }),
+
+    // Knowledge / learning loop
+    knowledgeSearch: (query, { domain, category, top_k = 5 } = {}) =>
+      request(`/copilot/knowledge/search?${qs({ query, domain, category, top_k })}`),
+    remember: (body) => request('/copilot/knowledge/remember', { method: 'POST', body: JSON.stringify(body) }),
+  },
 }
 
 export default api

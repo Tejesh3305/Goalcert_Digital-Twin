@@ -2,9 +2,14 @@
  * nav.js — sidebar navigation config.
  *
  * Trimmed to the core twin workflow. Live Ops, BIM Studio, Simulation and the
- * standalone Twin Health / Copilot pages were removed — their content now lives
- * inside the unified Dashboard (3-D scene, telemetry, co-pilot, findings,
- * maintenance and health, all for the active twin).
+ * standalone Twin Health page were removed — their content now lives inside the
+ * unified Dashboard (3-D scene, telemetry, findings, maintenance and health,
+ * all for the active twin).
+ *
+ * Twin Copilot is back as its own page, and is no longer the old rule-based
+ * mock: it is the embedded agent layer (nextxr-ontology/copilot/) — diagnosis,
+ * work orders, procurement, incident reports, repair training, and the two
+ * chat agents, all running in-process against the live twin.
  *
  * `backing`: 'live' fully wired to the backend · 'partial' partly mocked ·
  * 'mock' UI placeholder only.
@@ -16,6 +21,7 @@ export const NAV = [
   { id: 'concierge',   path: '/build',       label: 'Build a Twin', icon: 'ti-sparkles',         backing: 'live' },
 
   { section: 'Intelligence' },
+  { id: 'copilot',     path: '/copilot',     label: 'Twin Copilot', icon: 'ti-sparkles',         backing: 'live' },
   { id: 'predict',     path: '/predict',     label: 'Prediction',   icon: 'ti-chart-histogram',  backing: 'live' },
   { id: 'agents',      path: '/agents',      label: 'Twin Intelligence', icon: 'ti-robot',       backing: 'partial' },
 

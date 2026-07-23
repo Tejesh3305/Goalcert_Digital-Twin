@@ -1,11 +1,14 @@
 /**
  * MachineDashboard — the unified live dashboard for a machine-domain twin
  * (turbine / EDM / tram). One page, collins-demo style: 3D/network scene on top,
- * KPIs (health ring, risk, findings), an always-on AI co-pilot chat, live
- * telemetry with sparklines, subsystem condition, active findings and a
- * generated maintenance work order. Everything polls the machine-twin runtime.
+ * KPIs (health ring, risk, findings), the embedded AI co-pilot (narration,
+ * predictive alert and live Q&A — real agents from copilot/, not canned
+ * replies), live telemetry with sparklines, subsystem condition, active
+ * findings and an agent-generated work order. Everything polls the
+ * machine-twin runtime.
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
 import { HealthRing, Sparkline } from './ui/Viz'
@@ -21,10 +24,14 @@ import Scene3D from './Scene3D'
 import GlbViewer from './GlbViewer'
 import { usePolling, useApi } from '../hooks/useApi'
 import {
-  domainMeta, statusColor, healthBand, riskFromHealth, hColor,
-  stubNarration, stubReply, isNetworkDomain,
+  domainMeta, statusColor, healthBand, riskFromHealth, hColor, isNetworkDomain,
 } from '../lib/machine'
 import { localName } from '../lib/format'
+import NarrationStrip from './copilot/NarrationStrip'
+import CopilotChat from './copilot/CopilotChat'
+import AgentCard from './copilot/AgentCard'
+import useAgent from './copilot/useAgent'
+import { WorkOrderView } from './copilot/Structured'
 import api, { assetUrl } from '../api/client'
 
 const sevClass = { critical: 'ev-crit', warning: 'ev-warn', info: 'ev-info', ok: 'ev-ok' }
@@ -165,8 +172,17 @@ export default function MachineDashboard({ tenant, domain, name }) {
         </Card>
       )}
 
-      {/* AI Co-Pilot */}
-      <CoPilot tenant={tenant} state={{ ...state, name: name || meta.label }} className="section-gap" />
+      {/* AI co-pilot — the embedded agent layer, reading this twin's live physics
+          in-process. Narration + predictive alert on top, Q&A below. */}
+      <div className="section-gap">
+        <NarrationStrip tenant={tenant} machine={name || meta.label} />
+      </div>
+      <Card title={<><i className="ti ti-message-chatbot" /> AI Co-Pilot</>}
+        action={<span className="pill pill-green" style={{ fontSize: 9 }}>● live agent</span>}
+        className="section-gap">
+        <CopilotChat tenant={tenant} machine={name || meta.label} domain={domain}
+          mode="dashboard" height={260} />
+      </Card>
 
       {/* Live telemetry */}
       <Card title={<><i className="ti ti-activity" /> Live Telemetry</>}
@@ -225,9 +241,34 @@ export default function MachineDashboard({ tenant, domain, name }) {
         </Card>
       </div>
 
-      {/* Maintenance work order */}
-      <WorkOrder domain={domain} name={name || meta.label} findings={findings} />
+      {/* Maintenance work order — the real agent, grounded in this twin's
+          diagnosis and the domain's compliance regime. */}
+      <div className="section-gap">
+        <DashboardWorkOrder tenant={tenant} machine={name || meta.label} domain={domain} />
+      </div>
+
+      <div className="hint" style={{ textAlign: 'center', paddingBottom: 4 }}>
+        Diagnosis, analysis, cascade, procurement, incident reports and the repair trainer live in{' '}
+        <Link to="/copilot"><i className="ti ti-sparkles" /> Twin Copilot</Link>.
+      </div>
     </div>
+  )
+}
+
+/** Work order from the real agent (copilot/), replacing a hand-written template
+ *  whose "parts required" were a hardcoded per-domain list. */
+function DashboardWorkOrder({ tenant, machine, domain }) {
+  const workOrder = useAgent(api.copilot.workOrder)
+  return (
+    <AgentCard
+      icon="ti-file-certificate" title="Maintenance Work Order" slow={35}
+      cta="Generate"
+      description="Generated from the current diagnosis: ordered steps with acceptance criteria, safety warnings, parts and the required sign-off authority."
+      agent={workOrder}
+      onRun={() => workOrder.run({ tenant, machine, domain })}
+    >
+      {(d) => <WorkOrderView wo={d.work_order} />}
+    </AgentCard>
   )
 }
 
@@ -258,151 +299,3 @@ function MachineHero({ meta, name, health, latest }) {
   )
 }
 
-/** Always-on co-pilot chat: zero-token stub narration + Q&A grounded in state. */
-function CoPilot({ tenant, state, className }) {
-  const [msgs, setMsgs] = useState([])
-  const [input, setInput] = useState('')
-  const endRef = useRef(null)
-  const stRef = useRef(state); stRef.current = state
-
-  // auto-narration every 20s
-  useEffect(() => {
-    const tick = () => {
-      const t = stubNarration(stRef.current)
-      if (t) setMsgs((p) => [...p, { role: 'auto', text: t, ts: new Date().toLocaleTimeString() }].slice(-20))
-    }
-    tick()
-    const id = setInterval(tick, 20000)
-    return () => clearInterval(id)
-  }, [tenant])
-
-  useEffect(() => { const el = endRef.current?.parentElement; if (el) el.scrollTop = el.scrollHeight }, [msgs])
-
-  const send = () => {
-    const m = input.trim(); if (!m) return
-    setMsgs((p) => [...p, { role: 'user', text: m, ts: new Date().toLocaleTimeString() }])
-    setInput('')
-    const reply = stubReply(m, stRef.current)
-    setTimeout(() => setMsgs((p) => [...p, { role: 'assistant', text: reply, ts: new Date().toLocaleTimeString() }]), 250)
-  }
-
-  return (
-    <Card title={<><i className="ti ti-message-chatbot" /> AI Co-Pilot <span className="pill pill-green" style={{ fontSize: 9 }}>live</span></>}
-      className={className}>
-      <div style={{ maxHeight: 260, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '4px 0', marginBottom: 10 }}>
-        {msgs.length === 0 && <div className="muted" style={{ fontSize: 12.5, padding: '8px 0' }}>
-          Observing {state?.name} in real time. Auto-observations appear here, or ask a question.</div>}
-        {msgs.map((m, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start', gap: 8 }}>
-            {m.role !== 'user' && (
-              <div style={{ width: 26, height: 26, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 13, background: m.role === 'auto' ? 'rgba(22,163,74,.12)' : 'var(--gradient)', color: m.role === 'auto' ? 'var(--accent-green)' : '#fff' }}>
-                <i className={`ti ${m.role === 'auto' ? 'ti-antenna-bars-5' : 'ti-sparkles'}`} />
-              </div>
-            )}
-            <div style={{ maxWidth: '80%', padding: '9px 13px', fontSize: 12.5, lineHeight: 1.6,
-              borderRadius: m.role === 'user' ? '14px 4px 14px 14px' : '4px 14px 14px 14px',
-              background: m.role === 'user' ? 'var(--gradient)' : 'var(--surface2)',
-              color: m.role === 'user' ? '#fff' : 'var(--text)', border: m.role === 'user' ? 'none' : '1px solid var(--border)' }}>
-              {m.role === 'auto' && <div style={{ fontSize: 9, color: 'var(--accent-green)', fontWeight: 700, marginBottom: 3, fontFamily: 'var(--mono)' }}>OBSERVATION · {m.ts}</div>}
-              {m.text}
-            </div>
-          </div>
-        ))}
-        <div ref={endRef} />
-      </div>
-      {msgs.filter((m) => m.role === 'user').length === 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {['How is it doing?', "What's most concerning?", 'What should I check next?'].map((s) => (
-            <button key={s} className="quick-chip" onClick={() => setInput(s)}>{s}</button>
-          ))}
-        </div>
-      )}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <input className="input" value={input} onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && send()} placeholder={`Ask about ${state?.name}…`} style={{ flex: 1 }} />
-        <button className="btn btn-primary" onClick={send} disabled={!input.trim()}><i className="ti ti-send" /></button>
-      </div>
-    </Card>
-  )
-}
-
-/** Deterministic maintenance work order generated from the top finding. */
-function WorkOrder({ domain, name, findings }) {
-  const [wo, setWo] = useState(null)
-  if (findings.length === 0) return null
-  const gen = () => {
-    const top = findings.find((f) => f.severity === 'critical') || findings[0]
-    const num = 'WO-' + Math.abs(hashStr(name + top.message)).toString().slice(0, 5)
-    setWo({
-      wo_number: num,
-      priority: top.severity === 'critical' ? 'Critical' : 'Routine',
-      fault: top.message,
-      root_cause: `Behaviour ${top.behaviorId} (Tier ${top.tier}) flagged this on ${name}.`,
-      steps: [
-        'Isolate and lock out the affected subsystem per site safety procedure.',
-        `Inspect the component behind "${top.message.split('—')[0].trim()}".`,
-        'Replace/service the worn or out-of-limit part; verify against spec.',
-        'Return to service and confirm the finding clears on the live twin.',
-      ],
-      parts: domain === 'turbine-engine' ? ['Bearing kit', 'Oil filter', 'Seal set']
-        : domain === 'edm-machine' ? ['Wire spool', 'Dielectric filter', 'Ion-exchange resin']
-          : domain === 'railway-metro' ? ['Third-rail shoe', 'PSD actuator', 'HVAC filter bank', 'Rectifier module']
-            : domain === 'railway-trainset' ? ['Wheelset', 'Brake pads', 'Traction motor bearing', 'Door drive']
-              : domain === 'hospital-campus' ? ['AHU filter set', 'Medical gas regulator', 'UPS battery string', 'TMV / flush valve']
-                : domain === 'ev-charging-network' ? ['Connector cable', 'Charger power module', 'Transformer tap', 'Contactor']
-                  : domain === 'ev-battery-pack' ? ['Cell module', 'BMS slave board', 'Coolant pump', 'Balancing resistor']
-                    : domain === 'defence-base' ? ['Radar TWT', 'Sensor node', 'Magazine cooling unit', 'Fuel bladder']
-                      : domain === 'defence-warship' ? ['GT hot section', 'Bilge pump', 'Watertight door seal', 'Hull plate']
-                        : ['Brake pads', 'Pantograph carbon', 'OHL section'],
-    })
-  }
-  return (
-    <Card title={<><i className="ti ti-file-certificate" /> Maintenance Work Order</>}
-      action={<span className="pill pill-surface" style={{ fontSize: 9 }}>generated</span>} className="section-gap">
-      {!wo ? (
-        <>
-          <div className="muted" style={{ fontSize: 12.5, marginBottom: 12 }}>
-            Generate a maintenance work order from the current diagnosis.</div>
-          <button className="btn btn-primary" onClick={gen} style={{ width: '100%' }}>
-            <i className="ti ti-file-certificate" /> Generate Work Order</button>
-        </>
-      ) : (
-        <div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10, marginBottom: 14 }}>
-            <div className="kpibox"><div className="card-label">WO Number</div><div style={{ fontFamily: 'var(--mono)', fontWeight: 700 }}>{wo.wo_number}</div></div>
-            <div className="kpibox"><div className="card-label">Priority</div><div><span className={`pill ${wo.priority === 'Critical' ? 'pill-red' : 'pill-surface'}`}>{wo.priority}</span></div></div>
-            <div className="kpibox"><div className="card-label">Steps</div><div style={{ fontWeight: 700 }}>{wo.steps.length}</div></div>
-          </div>
-          <div style={{ background: 'rgba(225,29,72,.04)', border: '1px solid rgba(225,29,72,.12)', borderRadius: 12, padding: '12px 14px', marginBottom: 12 }}>
-            <div className="card-label" style={{ color: 'var(--accent-red)' }}>Fault</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 4 }}>{wo.fault}</div>
-            <div className="card-label" style={{ marginTop: 10 }}>Root cause</div>
-            <div style={{ fontSize: 12.5, lineHeight: 1.6, marginTop: 4 }}>{wo.root_cause}</div>
-          </div>
-          <div className="card-label" style={{ marginBottom: 8 }}>Repair Procedure</div>
-          <div className="event-list">
-            {wo.steps.map((s, i) => (
-              <div key={i} className="event-item">
-                <div className="event-icon" style={{ background: 'var(--brand-soft)', color: 'var(--brand)' }}>{i + 1}</div>
-                <div className="event-body"><div className="event-title" style={{ fontWeight: 500 }}>{s}</div></div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <div className="card-label" style={{ marginBottom: 8 }}>Parts Required</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {wo.parts.map((p) => <span key={p} className="pill pill-blue">{p}</span>)}
-            </div>
-          </div>
-        </div>
-      )}
-    </Card>
-  )
-}
-
-function hashStr(s) {
-  let h = 0
-  for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0 }
-  return h
-}

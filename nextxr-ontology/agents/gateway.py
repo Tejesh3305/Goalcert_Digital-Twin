@@ -1,18 +1,32 @@
 """
-gateway.py — the LLM Gateway every agent calls.
+gateway.py — the LLM Gateway every agent graph calls.
 
-Single choke-point for model access, so the whole platform has ONE place that:
+ONE provider: Claude (Anthropic). The platform previously ran OpenAI here and
+Claude in copilot/, which meant two keys, two model policies and two failure
+modes for one product. Both now share `copilot.config` — a single
+ANTHROPIC_API_KEY and a single model choice govern every agent on the platform.
+
+This is the single choke-point for model access, so the whole platform has ONE
+place that:
   * threads tenant_id through every call (for quota / audit / isolation),
   * enforces a per-session call cap (spec: max_calls_per_session: 100),
-  * returns structured JSON when asked (response_format=json_object),
-  * degrades gracefully: if no OPENAI_API_KEY is configured (or the SDK/network
-    is unavailable), it falls back to a deterministic STUB so the entire agent
-    flow and demo still run — exactly like the event bus's Redis/in-memory
-    fallback. Add the key to light up real reasoning; change nothing else.
+  * returns structured JSON when asked,
+  * degrades gracefully: with no ANTHROPIC_API_KEY configured (or the SDK/network
+    unavailable) it falls back to a deterministic STUB so the entire agent flow
+    and demo still run — exactly like the event bus's Redis/in-memory fallback.
 
-Agents never import `openai` directly — they call `gateway.complete(...)` or
-`gateway.complete_json(...)`. Swapping providers (OpenAI → Anthropic Gateway)
-is a change here only.
+Agents never import `anthropic` directly — they call `gateway.complete(...)` or
+`gateway.complete_json(...)`. The public surface here is unchanged from the
+OpenAI era, so no caller needed editing:
+
+    complete() · complete_json() · complete_vision() · complete_json_vision()
+    .backend · .stats() · .reset_session() · .last_vision_error
+
+NOTE ON SAMPLING PARAMETERS: callers still pass `temperature=`. Claude Opus 4.8
+REJECTS temperature/top_p/top_k with a 400, so this gateway accepts the argument
+and deliberately ignores it. Steer these agents with prompt wording, not
+sampling. The parameter is kept in the signature only so the swap needed no
+edits at ~20 call sites; treat it as deprecated.
 """
 
 from __future__ import annotations
@@ -20,30 +34,49 @@ from __future__ import annotations
 import json
 import os
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
-# Load .env once so OPENAI_API_KEY / NXR_LLM_* are available even when the
-# process wasn't started with them exported.
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except Exception:
-    pass
+# One key, one model policy, for the whole platform.
+from copilot.config import config as _claude
 
-DEFAULT_MODEL = os.getenv("NXR_LLM_MODEL", "gpt-4o-mini")
-# Vision model for plan parsing. Prefer a strong model: if an Anthropic key is
-# present we use Claude (excellent at dense architectural drawings); otherwise
-# OpenAI gpt-4o. Override with NXR_VISION_MODEL.
-DEFAULT_VISION_MODEL = os.getenv("NXR_VISION_MODEL", "")
-ANTHROPIC_VISION_DEFAULT = "claude-sonnet-4-6"
-OPENAI_VISION_DEFAULT = "gpt-4o"
+def _claude_model_or_default(env_name: str, default: str = "") -> str:
+    """Honour a per-gateway model override ONLY if it names a Claude model.
+
+    These env vars predate the move to a single provider and are still set to
+    OpenAI ids (`gpt-4o-mini`) in existing .env files and deployments. Passing
+    one to the Anthropic API 404s on every call — and because every method here
+    falls back to a stub, the platform would look like it was merely running
+    keyless instead of misconfigured. Ignoring a non-Claude value keeps a stale
+    setting from silently disabling the whole agent layer.
+    """
+    val = (os.getenv(env_name) or "").strip()
+    if not val:
+        return default
+    if val.startswith("claude"):
+        return val
+    print(f"[gateway] ignoring {env_name}={val!r} — this platform is Claude-only. "
+          f"Use NXR_CLAUDE_MODEL to override the model.", flush=True)
+    return default
+
+
+# Kept for callers/telemetry that read them. A per-gateway override applies only
+# if it names a Claude model; otherwise the platform-wide choice wins.
+DEFAULT_MODEL = _claude_model_or_default("NXR_LLM_MODEL", _claude.CLAUDE_MODEL)
+DEFAULT_VISION_MODEL = _claude_model_or_default("NXR_VISION_MODEL", "")
 MAX_CALLS_PER_SESSION = int(os.getenv("NXR_LLM_MAX_CALLS", "100"))
+
+# Plan parsing reads dense architectural drawings — worth thinking about, and
+# worth a large budget. Everything else here is short structured extraction
+# where thinking would just eat the token budget.
+VISION_MIN_TOKENS = 16000
+
+_JSON_ONLY = "\nReturn ONLY the JSON object, with no prose and no code fences."
 
 
 def _salvage_json(text: str) -> Optional[dict]:
-    """Best-effort: parse a JSON object from a model reply that may be wrapped in
-    prose or ```json fences, or lightly truncated."""
+    """Best-effort: parse a JSON object from a reply that may be wrapped in prose
+    or ```json fences, or lightly truncated."""
     if not text:
         return None
     try:
@@ -60,31 +93,38 @@ def _salvage_json(text: str) -> Optional[dict]:
         try:
             return json.loads(frag)
         except Exception:
-            # truncated: trim to the last complete top-level array/brace and close.
+            # Truncated: trim to the last complete array/brace and close it.
             for cut in (frag.rfind("}]"), frag.rfind("]"), frag.rfind("}")):
                 if cut > 0:
+                    head = frag[:cut + 1]
                     try:
-                        return json.loads(frag[:cut + 1].rstrip(", \n") +
-                                          ("]" if frag[:cut + 1].count("[") > frag[:cut + 1].count("]") else "") +
-                                          "}" * max(0, frag[:cut + 1].count("{") - frag[:cut + 1].count("}")))
+                        return json.loads(
+                            head.rstrip(", \n")
+                            + ("]" if head.count("[") > head.count("]") else "")
+                            + "}" * max(0, head.count("{") - head.count("}")))
                     except Exception:
                         continue
     return None
 
 
-def _split_data_url(url: str):
-    """('image/png', '<base64>') from a data URL, else (None, None)."""
-    if isinstance(url, str) and url.startswith("data:") and "," in url:
-        head, data = url.split(",", 1)
-        media = head[5:].split(";")[0] or "image/png"
-        return media, data
-    return None, None
+def _image_blocks(image_urls: list[str], limit: int = 4) -> list[dict]:
+    """Anthropic image content blocks from data URLs or http(s) URLs."""
+    blocks = []
+    for url in (image_urls or [])[:limit]:
+        if isinstance(url, str) and url.startswith("data:") and "," in url:
+            head, data = url.split(",", 1)
+            media = head[5:].split(";")[0] or "image/png"
+            blocks.append({"type": "image", "source": {
+                "type": "base64", "media_type": media, "data": data}})
+        elif isinstance(url, str) and url.startswith("http"):
+            blocks.append({"type": "image", "source": {"type": "url", "url": url}})
+    return blocks
 
 
 @dataclass
 class LLMResult:
     text: str
-    backend: str            # "openai" | "stub"
+    backend: str            # "anthropic" | "stub"
     model: Optional[str] = None
     raw: Optional[dict] = None
 
@@ -94,50 +134,46 @@ class LLMGateway:
 
     def __init__(self):
         self._client = None
-        self._anthropic = None
-        self._backend = "stub"
+        self._client_key: str | None = None
         self.last_vision_error = None
         self.last_vision_backend = None
         self._lock = threading.Lock()
         self._session_calls: dict[str, int] = {}
-        self._init_client()
-        self._init_anthropic()
 
-    def _init_anthropic(self):
-        key = os.getenv("ANTHROPIC_API_KEY")
+    # ---- client ------------------------------------------------------
+    def _anthropic(self):
+        """Lazily built, rebuilt if the key changes underneath us. Returns None
+        when no key is configured — every caller falls back to its stub."""
+        key = _claude.ANTHROPIC_API_KEY
         if not key:
-            return
-        try:
-            import anthropic
-            self._anthropic = anthropic.Anthropic(api_key=key)
-        except Exception:
-            self._anthropic = None
-
-    def _init_client(self):
-        key = os.getenv("OPENAI_API_KEY")
-        if not key:
-            self._backend = "stub"
-            return
-        try:
-            from openai import OpenAI
-            self._client = OpenAI(api_key=key)
-            self._backend = "openai"
-        except Exception:
-            self._client = None
-            self._backend = "stub"
+            return None
+        if self._client is None or self._client_key != key:
+            try:
+                import anthropic
+                self._client = anthropic.Anthropic(api_key=key)
+                self._client_key = key
+            except Exception:
+                self._client = None
+        return self._client
 
     @property
     def backend(self) -> str:
-        return self._backend
+        """'anthropic' when a key is configured, else 'stub'.
+
+        Callers branch on `== "stub"` to decide whether output is real, so this
+        must stay honest.
+        """
+        return "anthropic" if _claude.ANTHROPIC_API_KEY else "stub"
 
     def stats(self) -> dict:
-        return {"backend": self._backend, "model": DEFAULT_MODEL,
+        return {"backend": self.backend, "provider": "anthropic",
+                "model": DEFAULT_MODEL if self.backend != "stub" else None,
                 "sessions": len(self._session_calls),
                 "max_calls_per_session": MAX_CALLS_PER_SESSION}
 
     # ---- call accounting ---------------------------------------------
     def _check_and_count(self, session_id: str) -> bool:
-        """Returns True if the call is allowed; increments the counter."""
+        """True if the call is allowed; increments the counter."""
         with self._lock:
             n = self._session_calls.get(session_id, 0)
             if n >= MAX_CALLS_PER_SESSION:
@@ -149,51 +185,77 @@ class LLMGateway:
         with self._lock:
             self._session_calls.pop(session_id, None)
 
+    # ---- internal ----------------------------------------------------
+    def _message(self, *, system, content, max_tokens: int, model: Optional[str],
+                 thinking: bool = False) -> str:
+        """One Claude call -> concatenated text. Raises on failure."""
+        kwargs = {
+            "model": model or DEFAULT_MODEL,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": content}],
+        }
+        if thinking:
+            kwargs["thinking"] = {"type": "adaptive"}
+        resp = self._anthropic().messages.create(**kwargs)
+        if getattr(resp, "stop_reason", None) == "refusal":
+            raise RuntimeError("model declined the request")
+        return "".join(b.text for b in resp.content
+                       if getattr(b, "type", "") == "text").strip()
+
     # ---- core completion ---------------------------------------------
     def complete(self, *, tenant_id: str, session_id: str, system: str,
                  user: str, temperature: float = 0.3,
                  max_tokens: int = 700, model: Optional[str] = None,
                  stub) -> LLMResult:
         """Free-text completion. `stub` is a zero-arg callable returning the
-        deterministic fallback string — REQUIRED so every call works keyless."""
-        if self._backend != "openai" or not self._check_and_count(session_id):
+        deterministic fallback string — REQUIRED so every call works keyless.
+        `temperature` is accepted and ignored (see module docstring)."""
+        if self._anthropic() is None or not self._check_and_count(session_id):
             return LLMResult(text=stub(), backend="stub")
         try:
-            resp = self._client.chat.completions.create(
-                model=model or DEFAULT_MODEL,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": user}],
-            )
-            return LLMResult(text=resp.choices[0].message.content or "",
-                             backend="openai", model=resp.model)
+            text = self._message(system=system, content=user,
+                                 max_tokens=max_tokens, model=model)
+            return LLMResult(text=text or stub(),
+                             backend="anthropic" if text else "stub",
+                             model=model or DEFAULT_MODEL)
         except Exception:
             # Any API/network error -> deterministic stub, flow continues.
             return LLMResult(text=stub(), backend="stub")
 
-    # ---- multimodal (vision) completion --------------------------------
+    # ---- structured JSON completion ----------------------------------
+    def complete_json(self, *, tenant_id: str, session_id: str, system: str,
+                      user: str, stub: dict, temperature: float = 0.1,
+                      max_tokens: int = 700,
+                      model: Optional[str] = None) -> dict:
+        """Structured JSON completion. Always returns a dict (never raises): on
+        any failure or invalid JSON the stub is returned, so routing logic always
+        has a valid shape."""
+        if self._anthropic() is None or not self._check_and_count(session_id):
+            return dict(stub)
+        try:
+            text = self._message(system=system + _JSON_ONLY, content=user,
+                                 max_tokens=max_tokens, model=model)
+            parsed = _salvage_json(text)
+            return parsed if isinstance(parsed, dict) else dict(stub)
+        except Exception:
+            return dict(stub)
+
+    # ---- multimodal (vision) completion ------------------------------
     def complete_vision(self, *, tenant_id: str, session_id: str, system: str,
                         user_text: str, image_urls: list[str],
                         temperature: float = 0.3, max_tokens: int = 1200,
                         model: Optional[str] = None, stub) -> LLMResult:
-        """Vision completion: text + images. `stub` is a zero-arg callable
-        returning the fallback string. Uses gpt-4o (vision-capable) by default."""
-        if self._backend != "openai" or not self._check_and_count(session_id):
+        """Vision completion: text + images."""
+        if self._anthropic() is None or not self._check_and_count(session_id):
             return LLMResult(text=stub(), backend="stub")
         try:
-            content: list[dict] = [{"type": "text", "text": user_text}]
-            for url in image_urls[:5]:  # cap at 5 images to control cost
-                content.append({"type": "image_url", "image_url": {"url": url}})
-            resp = self._client.chat.completions.create(
-                model=model or "gpt-4o",
-                temperature=temperature,
-                max_tokens=max_tokens,
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": content}],
-            )
-            return LLMResult(text=resp.choices[0].message.content or "",
-                             backend="openai", model=resp.model)
+            content = [{"type": "text", "text": user_text}] + _image_blocks(image_urls, 5)
+            text = self._message(system=system, content=content,
+                                 max_tokens=max_tokens, model=model)
+            return LLMResult(text=text or stub(),
+                             backend="anthropic" if text else "stub",
+                             model=model or DEFAULT_MODEL)
         except Exception:
             return LLMResult(text=stub(), backend="stub")
 
@@ -202,90 +264,35 @@ class LLMGateway:
                              stub: dict, temperature: float = 0.1,
                              max_tokens: int = 8000,
                              model: Optional[str] = None) -> dict:
-        """Structured JSON vision completion for plan parsing. Prefers Claude
-        (strong on dense architectural drawings) when ANTHROPIC_API_KEY is set,
-        else OpenAI gpt-4o with HIGH-detail images so small room labels are read.
+        """Structured JSON vision completion — the floor-plan parser's path.
+
+        Claude is strong on dense architectural drawings, and this is the one
+        call worth thinking budget: a misread plan produces a wrong building.
         Salvages lightly-truncated JSON. Returns the stub only on hard failure,
-        recording why on self.last_vision_error so the cause is visible."""
+        recording why on `self.last_vision_error` so the cause stays visible in
+        the UI rather than silently becoming a synthesized floor plan.
+        """
         self.last_vision_error = None
+        if self._anthropic() is None:
+            self.last_vision_error = "no ANTHROPIC_API_KEY configured"
+            return dict(stub)
         if not self._check_and_count(session_id):
             self.last_vision_error = "session call cap reached"
             return dict(stub)
-
-        # --- Claude path (preferred when available) ---
-        if self._anthropic is not None and (not DEFAULT_VISION_MODEL
-                                            or DEFAULT_VISION_MODEL.startswith("claude")):
-            try:
-                blocks = [{"type": "text", "text": user_text}]
-                for url in image_urls[:4]:
-                    media, b64 = _split_data_url(url)
-                    if b64:
-                        blocks.append({"type": "image", "source": {
-                            "type": "base64", "media_type": media, "data": b64}})
-                    elif isinstance(url, str) and url.startswith("http"):
-                        blocks.append({"type": "image", "source": {"type": "url", "url": url}})
-                resp = self._anthropic.messages.create(
-                    model=DEFAULT_VISION_MODEL or ANTHROPIC_VISION_DEFAULT,
-                    max_tokens=max(max_tokens, 8000), temperature=temperature,
-                    system=system + "\nReturn ONLY the JSON object, no prose.",
-                    messages=[{"role": "user", "content": blocks}])
-                text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-                parsed = _salvage_json(text)
-                if isinstance(parsed, dict):
-                    self.last_vision_backend = "anthropic"
-                    return parsed
-                self.last_vision_error = "anthropic returned unparseable JSON"
-            except Exception as e:
-                self.last_vision_error = f"anthropic error: {e}"
-
-        # --- OpenAI gpt-4o path (HIGH detail + salvage) ---
-        if self._backend == "openai":
-            try:
-                content: list[dict] = [{"type": "text", "text": user_text}]
-                for url in image_urls[:4]:
-                    content.append({"type": "image_url",
-                                    "image_url": {"url": url, "detail": "high"}})
-                resp = self._client.chat.completions.create(
-                    model=model or DEFAULT_VISION_MODEL or OPENAI_VISION_DEFAULT,
-                    temperature=temperature,
-                    max_tokens=max(max_tokens, 4096),
-                    response_format={"type": "json_object"},
-                    messages=[{"role": "system", "content": system},
-                              {"role": "user", "content": content}])
-                parsed = _salvage_json(resp.choices[0].message.content or "{}")
-                if isinstance(parsed, dict):
-                    self.last_vision_backend = "openai"
-                    return parsed
-                self.last_vision_error = "openai returned unparseable/truncated JSON"
-            except Exception as e:
-                self.last_vision_error = f"openai error: {e}"
-        elif not self.last_vision_error:
-            self.last_vision_error = "no vision backend configured"
-        return dict(stub)
-
-    # ---- structured JSON completion --------------------------------------
-    def complete_json(self, *, tenant_id: str, session_id: str, system: str,
-                      user: str, stub: dict, temperature: float = 0.1,
-                      max_tokens: int = 700, model: Optional[str] = None) -> dict:
-        """Structured JSON completion. `stub` is the deterministic fallback
-        dict. Always returns a dict (never raises): on any failure or invalid
-        JSON, the stub is returned so routing logic always has a valid shape."""
-        if self._backend != "openai" or not self._check_and_count(session_id):
-            return dict(stub)
         try:
-            resp = self._client.chat.completions.create(
-                model=model or DEFAULT_MODEL,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                response_format={"type": "json_object"},
-                messages=[{"role": "system", "content": system},
-                          {"role": "user", "content": user}],
-            )
-            content = resp.choices[0].message.content or "{}"
-            parsed = json.loads(content)
-            return parsed if isinstance(parsed, dict) else dict(stub)
-        except Exception:
-            return dict(stub)
+            content = [{"type": "text", "text": user_text}] + _image_blocks(image_urls, 4)
+            text = self._message(
+                system=system + _JSON_ONLY, content=content,
+                max_tokens=max(max_tokens, VISION_MIN_TOKENS),
+                model=model or DEFAULT_VISION_MODEL or None, thinking=True)
+            parsed = _salvage_json(text)
+            if isinstance(parsed, dict):
+                self.last_vision_backend = "anthropic"
+                return parsed
+            self.last_vision_error = "model returned unparseable JSON"
+        except Exception as e:  # noqa: BLE001
+            self.last_vision_error = f"anthropic error: {e}"
+        return dict(stub)
 
 
 _gateway: Optional[LLMGateway] = None

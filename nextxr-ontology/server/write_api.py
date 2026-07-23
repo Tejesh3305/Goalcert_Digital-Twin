@@ -29,31 +29,11 @@ from changelog.service import ChangeLog
 
 router = APIRouter(prefix="/api/v1", tags=["write"])
 
-# Sensor subclasses need sosa:observes pointing at an ontology concept.
-# The writer handles this via ontology_ref=True (skips Neo4j integrity check,
-# renders the raw IRI in validation TTL). This map auto-injects the correct
-# observable property when the frontend creates a sensor without specifying one.
-_SENSOR_OBSERVES: dict[str, str] = {
-    "https://ontology.nextxr.io/v3/cfp#TemperatureSensor": "cfp:temperature",
-    "https://ontology.nextxr.io/v3/cfp#HumiditySensor": "cfp:relativeHumidity",
-    "https://ontology.nextxr.io/v3/cfp#AirQualitySensor": "cfp:airQualityIndex",
-    "https://ontology.nextxr.io/v3/cfp#OccupancySensor": "cfp:occupancyCount",
-    "https://ontology.nextxr.io/v3/cfp#LightSensor": "cfp:illuminance",
-    "https://ontology.nextxr.io/v3/cfp#VibrationSensor": "cfp:vibrationVelocity",
-    "https://ontology.nextxr.io/v3/cfp#NoiseSensor": "cfp:soundLevel",
-    "https://ontology.nextxr.io/v3/cfp#WaterQualitySensor": "cfp:waterQuality",
-    "https://ontology.nextxr.io/v3/cfp#SmokeDetector": "cfp:smokeObscuration",
-    "https://ontology.nextxr.io/v3/cfp#AspiratingDetector": "cfp:smokeObscuration",
-    "https://ontology.nextxr.io/v3/cfp#HeatDetector": "cfp:temperature",
-    "https://ontology.nextxr.io/v3/cfp#FlameDetector": "cfp:flameSignal",
-    "https://ontology.nextxr.io/v3/cfp#Camera": "cfp:illuminance",
-    "https://ontology.nextxr.io/v3/cfp#AccessReader": "cfp:doorState",
-    "https://ontology.nextxr.io/v3/cfp#IntrusionSensor": "cfp:doorState",
-    "https://ontology.nextxr.io/v3/cfp#LeakSensor": "cfp:leakState",
-    "https://ontology.nextxr.io/v3/cfp#WaterMeter": "cfp:flowRate",
-    "https://ontology.nextxr.io/v3/cfp#EnergyMeter": "cfp:energy",
-    "https://ontology.nextxr.io/v3/hvac#TemperatureSensor": "cfp:temperature",
-}
+# Sensor subclasses need sosa:observes pointing at an ontology concept. The map
+# and injection helper are shared with the agent write path — see
+# graph/sensor_defaults.py for why they must not diverge.
+from graph.sensor_defaults import SENSOR_OBSERVES as _SENSOR_OBSERVES  # noqa: E402
+from graph.sensor_defaults import inject_observes  # noqa: E402
 
 _writer: Optional[GraphWriter] = None
 
@@ -99,13 +79,7 @@ def create_entity(req: CreateEntityRequest):
 
     # Auto-inject sosa:observes for sensor subclasses if not already provided.
     # This lets the frontend create sensors without knowing about ontology refs.
-    has_observes = any(r.predicate == "sosa:observes" for r in rels)
-    if not has_observes and req.canonical_type in _SENSOR_OBSERVES:
-        rels.append(Rel(
-            predicate="sosa:observes",
-            target_id=_SENSOR_OBSERVES[req.canonical_type],
-            ontology_ref=True,
-        ))
+    rels = inject_observes(req.canonical_type, rels)
 
     result = w.create(
         tenant_id=req.tenant,

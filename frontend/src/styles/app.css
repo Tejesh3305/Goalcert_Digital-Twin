@@ -1,3 +1,8 @@
+/* The embedded agent layer's UI. Imported from here rather than from an entry
+   file so it travels with app.css into BOTH builds — the standalone app and the
+   federated remote the hub mounts (TwinRemoteApp imports no CSS of its own). */
+@import './copilot.css';
+
 /* app.css — Goalcert layout + shared component classes.
    Same class contract as before (so every panel re-themes for free); the look
    is rebuilt for the light/purple "Workforce Intelligence" brand. */
