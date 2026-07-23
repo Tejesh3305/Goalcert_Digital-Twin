@@ -7,9 +7,11 @@ import DemoTwin from '../components/DemoTwin'
 import BimViewer from '../components/BimViewer'
 import GlbViewer from '../components/GlbViewer'
 import MachineDashboard from '../components/MachineDashboard'
+import SimMachineDashboard from '../components/SimMachineDashboard'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
 import { isMachineDomain } from '../lib/machine'
+import { simDomainOf } from '../lib/simTwins'
 import { timeOf } from '../lib/format'
 import api, { assetUrl } from '../api/client'
 
@@ -17,6 +19,11 @@ import api, { assetUrl } from '../api/client'
  *  unified live machine dashboard; facility twins keep the graph-driven overview. */
 export default function Dashboard() {
   const { activeTenant, activeTwin } = useTwin()
+
+  // Simulated twins (datacenter / manufacturing) — no backend, a client-side
+  // tenant like "sim:datacenter" drives the Collins simulation dashboard.
+  const simDomain = simDomainOf(activeTenant)
+  if (simDomain) return <SimMachineDashboard domain={simDomain} />
 
   if (activeTenant && isMachineDomain(activeTwin?.domain)) {
     return <MachineDashboard tenant={activeTenant} domain={activeTwin.domain} name={activeTwin.name} />

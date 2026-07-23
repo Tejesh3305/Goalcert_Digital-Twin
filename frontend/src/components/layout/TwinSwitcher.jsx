@@ -1,13 +1,14 @@
 import { useTwin } from '../../context/TwinContext'
+import { SIM_TWINS, simTenantFor, isSimTenant } from '../../lib/simTwins'
 
 /** Dropdown to switch the active twin. Sits in the top bar. */
 export default function TwinSwitcher() {
   const { twins, activeTenant, setActiveTenant, loading } = useTwin()
 
-  if (loading && !twins.length) {
+  if (loading && !twins.length && !isSimTenant(activeTenant)) {
     return <div className="topbar-stat">loading twins…</div>
   }
-  if (!twins.length) {
+  if (!twins.length && !isSimTenant(activeTenant)) {
     return <div className="topbar-stat">no twins yet</div>
   }
 
@@ -23,6 +24,13 @@ export default function TwinSwitcher() {
           {t.name} ({t.domain})
         </option>
       ))}
+      <optgroup label="Simulated">
+        {SIM_TWINS.map((s) => (
+          <option key={s.domain} value={simTenantFor(s.domain)}>
+            {s.label} (sim)
+          </option>
+        ))}
+      </optgroup>
     </select>
   )
 }

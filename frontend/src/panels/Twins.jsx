@@ -7,6 +7,7 @@ import { useTwin } from '../context/TwinContext'
 import { useToast } from '../context/ToastContext'
 import { domainMeta } from '../lib/machine'
 import { dateOf } from '../lib/format'
+import { SIM_TWINS, simTenantFor } from '../lib/simTwins'
 import api from '../api/client'
 
 /**
@@ -54,6 +55,9 @@ export default function Twins() {
   }
 
   const openInstance = (t) => { setActiveTenant(t.tenant_id); nav('/') }
+
+  // Sim twins (datacenter / manufacturing) — no backend; open a client-side twin.
+  const openSim = (domain) => { setActiveTenant(simTenantFor(domain)); nav('/') }
 
   const remove = async (e, t) => {
     e.stopPropagation()
@@ -141,6 +145,31 @@ export default function Twins() {
               </div>
             )
           })}
+
+          {/* Simulated twins (datacenter / manufacturing) — no backend physics. */}
+          {SIM_TWINS.map((s) => (
+            <div key={s.domain} className="card twin-card" style={{ position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderRadius: '16px 16px 0 0',
+                background: `linear-gradient(90deg, ${s.accent}, ${s.accent}88)` }} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, marginTop: 4 }}>
+                <div className="agent-icon" style={{ background: `${s.accent}18`, color: s.accent }}><i className={`ti ${s.icon}`} /></div>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--display)' }}>{s.label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{s.tag}</div>
+                </div>
+                <span className="pill pill-surface" style={{ marginLeft: 'auto', fontSize: 9 }}>SIM</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.55, marginBottom: 12, minHeight: 44 }}>{s.blurb}</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                <span className="pill pill-green">● live</span>
+                <span className="pill pill-surface">simulated</span>
+              </div>
+              <button className="btn btn-primary" style={{ width: '100%', background: s.accent, borderColor: 'transparent', boxShadow: `0 4px 14px ${s.accent}33` }}
+                onClick={() => openSim(s.domain)}>
+                <i className="ti ti-bolt" /> Open twin
+              </button>
+            </div>
+          ))}
         </div>
       )}
     </div>

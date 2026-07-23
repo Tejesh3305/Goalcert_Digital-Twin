@@ -7,7 +7,6 @@ the twin, reading the live machine-twin runtime (twins/runtime.py) directly
 rather than over HTTP from a separate service.
 
   config.py     Claude/Anthropic configuration (key, model, effort profiles)
-  knowledge.py  the fault-library / compliance / incident-memory RAG store
   agents.py     the agents themselves
 
 Every agent is keyless-safe: with no ANTHROPIC_API_KEY set, each one falls back

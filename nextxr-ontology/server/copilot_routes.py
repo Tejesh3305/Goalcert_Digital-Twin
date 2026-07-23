@@ -26,8 +26,6 @@ findings engine are reading — no second copy of the truth, no network hop.
   POST /api/v1/copilot/troubleshoot          AI mechanic, multi-turn
   POST /api/v1/copilot/dashboard-chat        live-state Q&A
 
-  GET  /api/v1/copilot/knowledge/search      fault library / compliance / memory
-  POST /api/v1/copilot/knowledge/remember    write a resolution back to memory
   GET  /api/v1/copilot/health                is Claude wired up, or stubbing?
 
 ONE endpoint per agent. Each accepts EITHER a live `tenant` or a raw telemetry
@@ -52,7 +50,6 @@ from pydantic import BaseModel
 
 from copilot import agents as A
 from copilot.config import copilot_status
-from copilot.knowledge import get_knowledge_store
 from twins.runtime import get_machine_engine
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])
@@ -112,14 +109,6 @@ class BuildTwinSpec(BaseModel):
     description: str = ""
     image_b64: str | None = None
     filename: str = "machine.png"
-
-
-class RememberRequest(BaseModel):
-    domain: str
-    title: str
-    diagnosis: str
-    resolution: str
-    metadata: dict | None = None
 
 
 # ── Binding to the live twin runtime ──────────────────────────────────────
@@ -370,36 +359,7 @@ def dashboard_chat(req: ChatRequest):
     return {"reply": reply, **b.meta(), "ai": t}
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# Knowledge / learning loop
-# ══════════════════════════════════════════════════════════════════════════
-
-@router.get("/knowledge/search")
-def knowledge_search(query: str, domain: str | None = None,
-                     category: str | None = None, top_k: int = 5):
-    """Semantic search over the fault library, compliance rules and the
-    incidents this platform has already resolved."""
-    try:
-        results = get_knowledge_store().search(query, domain=domain,
-                                               category=category, top_k=top_k)
-        return {"query": query, "results": results, "total": len(results)}
-    except Exception as e:  # noqa: BLE001
-        return {"query": query, "results": [], "total": 0, "error": str(e)}
-
-
-@router.post("/knowledge/remember")
-def knowledge_remember(req: RememberRequest):
-    """Close the learning loop: a resolved incident becomes retrievable context
-    for every future diagnosis on this domain."""
-    entry_id = A.remember_resolution(req.domain, req.title, req.diagnosis,
-                                     req.resolution, req.metadata)
-    return {"stored": bool(entry_id), "entry_id": entry_id,
-            "stats": A.knowledge_stats()}
-
-
 @router.get("/health")
 def health():
-    """Whether the embedded agents are reasoning with Claude or stubbing, plus
-    the state of the knowledge store."""
-    return {"copilot": copilot_status(), "knowledge": A.knowledge_stats(),
-            "domains": sorted(A.DOMAIN_CONTEXT)}
+    """Whether the embedded agents are reasoning with Claude or stubbing."""
+    return {"copilot": copilot_status(), "domains": sorted(A.DOMAIN_CONTEXT)}

@@ -31,7 +31,20 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 from .config import config
-from .knowledge import get_knowledge_store, normalize_domain
+# Domain-name normalisation (the copilot agents' one shared helper). The
+# knowledge/RAG store this used to live beside was removed; the alias map stays
+# so older callers still resolve to this platform's pack keys.
+DOMAIN_ALIASES = {
+    "mrt-line": "railway-metro",
+    "ev-network": "ev-charging-network",
+    "hospital": "hospital-campus",
+}
+
+
+def normalize_domain(domain: str | None) -> str | None:
+    if not domain:
+        return domain
+    return DOMAIN_ALIASES.get(domain, domain)
 
 logger = logging.getLogger("copilot.agents")
 
@@ -247,44 +260,15 @@ def _j(obj, limit: int = 4000) -> str:
     return json.dumps(obj, default=str)[:limit]
 
 
-# ── Knowledge retrieval (agent #17) — the RAG the other agents depend on ──
+# ── Knowledge retrieval — removed ─────────────────────────────────────────
+# The RAG knowledge store (fault library / compliance / incident memory) was
+# retired from the twin. `retrieve_context` is kept as a no-op so the agents
+# that used to enrich their prompts with it (Diagnosis, Work Order, Troubleshoot)
+# keep working — they now reason purely from the live twin's own physics + findings.
 
 def retrieve_context(query: str, domain: str | None, *, faults: int = 3,
                      compliance: int = 2, incidents: int = 2) -> str:
-    """Pull similar faults, applicable compliance rules and past resolved
-    incidents out of the knowledge store and render them for a prompt.
-
-    This is a hard dependency of the Diagnosis, Work Order and Troubleshoot
-    agents — it is what lets them cite a real standard instead of inventing one.
-    """
-    want = normalize_domain(domain)
-
-    def _render(hits: list[dict], heading: str) -> str:
-        if not hits:
-            return ""
-        lines = []
-        for h in hits:
-            # A hit from another domain is a weak analogy, not a rule that binds
-            # this asset — say so, or the agent will cite it as if it applied.
-            tag = (f" [from {h['domain']} — different domain, treat as analogy only]"
-                   if want and h["domain"] != want else "")
-            lines.append(f"- {h['title']}{tag}: {h['content'][:300]}\n")
-        return heading + "".join(lines)
-
-    try:
-        kb = get_knowledge_store()
-        return "".join([
-            _render(kb.search_faults(query, domain=domain, top_k=faults),
-                    "\n\nSIMILAR KNOWN FAULTS FROM LIBRARY:\n") if faults else "",
-            _render(kb.search_compliance(query, domain=domain, top_k=compliance),
-                    "\nAPPLICABLE COMPLIANCE RULES:\n") if compliance else "",
-            _render(kb.recall_incidents(query, domain=domain, top_k=incidents),
-                    "\nSIMILAR PAST INCIDENTS (resolved on this platform):\n")
-            if incidents else "",
-        ])
-    except Exception as e:  # noqa: BLE001
-        logger.warning("retrieve_context failed (%s)", e)
-        return ""
+    return ""
 
 
 def _finding_query(diagnostics: dict, machine: str) -> str:
@@ -299,27 +283,6 @@ def _finding_query(diagnostics: dict, machine: str) -> str:
     return (" ".join(bad) or machine).strip()
 
 
-# ── Agent #18: resolution memory (write the learning loop back) ────────────
-
-def remember_resolution(domain: str, title: str, diagnosis: str,
-                        resolution: str, metadata: dict | None = None) -> str:
-    """Store a resolved incident so future diagnoses recall it. Called when an
-    incident is closed — today's resolution becomes tomorrow's retrieval hit."""
-    try:
-        entry_id = get_knowledge_store().remember_incident(
-            domain, title, diagnosis, resolution, metadata)
-        logger.info("copilot: captured resolution '%s' as %s", title, entry_id)
-        return entry_id
-    except Exception as e:  # noqa: BLE001
-        logger.warning("remember_resolution failed (%s)", e)
-        return ""
-
-
-def knowledge_stats() -> dict:
-    try:
-        return get_knowledge_store().stats()
-    except Exception:  # noqa: BLE001
-        return {"total_entries": 0}
 
 
 # ══════════════════════════════════════════════════════════════════════════

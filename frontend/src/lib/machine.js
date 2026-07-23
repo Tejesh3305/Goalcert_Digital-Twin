@@ -5,13 +5,14 @@
  * HVAC/CFP feed.
  */
 export const MACHINE_DOMAINS = ['turbine-engine', 'edm-machine',
-  'railway-metro', 'railway-trainset', 'hospital-campus', 'ev-charging-network', 'ev-battery-pack',
+  'railway-metro', 'railway-trainset', 'tram-network',
+  'hospital-campus', 'ev-charging-network', 'ev-battery-pack',
   'defence-base', 'defence-warship']
 
 export const isMachineDomain = (domain) => MACHINE_DOMAINS.includes(domain)
 
 /** Domains that expose a live network/spatial payload via GET /twins/{tenant}/network. */
-export const NETWORK_DOMAINS = ['railway-metro', 'hospital-campus',
+export const NETWORK_DOMAINS = ['railway-metro', 'tram-network', 'hospital-campus',
   'ev-charging-network', 'ev-battery-pack', 'defence-base', 'defence-warship']
 
 export const isNetworkDomain = (domain) => NETWORK_DOMAINS.includes(domain)
@@ -63,6 +64,9 @@ export const DOMAIN_META = {
   'railway-trainset': { label: 'Rolling Stock', tag: 'Rail · Vehicle', icon: 'ti-container',
     accent: '#6366f1', control: 'Throttle', machine: true, signals: 14,
     blurb: 'A rolling-stock twin — one train set at the vehicle level: traction, bogies, braking, doors and auxiliaries, with health and remaining-useful-life.' },
+  'tram-network': { label: 'Tram / Light-Rail Network', tag: 'Fleet · Transit', icon: 'ti-train',
+    accent: '#78be20', control: 'Service level', machine: true, network: true, signals: 22,
+    blurb: 'A whole tram / light-rail network twin — rolling stock, traction power, track & points, signalling and service operations, with a live network map showing per-vehicle positions and per-route status.' },
   'hospital-campus': { label: 'Hospital Campus', tag: 'Healthcare · Estates', icon: 'ti-building-hospital',
     accent: '#0891b2', control: 'Patient load', machine: true, network: true, signals: 22,
     blurb: 'A full hospital-campus twin — theatres, ICU, ED, pharmacy, wards, medical gas, water safety, power resilience, sterilisation, infection control and patient flow, with a bed board, OR calendar, patient-flow funnel, infection map and medical-gas schematic.' },

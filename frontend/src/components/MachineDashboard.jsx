@@ -7,7 +7,7 @@
  * findings and an agent-generated work order. Everything polls the
  * machine-twin runtime.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
@@ -32,6 +32,12 @@ import CopilotChat from './copilot/CopilotChat'
 import AgentCard from './copilot/AgentCard'
 import useAgent from './copilot/useAgent'
 import { WorkOrderView } from './copilot/Structured'
+import Maintenance from '../collins/Maintenance'
+import SignalHeatmap from '../collins/Heatmap'
+import CascadeGraph from '../collins/CascadeGraph'
+import EVWorld from '../collins/EVWorld'
+import CollinsNetworkMap from '../collins/NetworkMap'
+import { toCollinsDomain, toCollinsTwin, toCollinsLatest, maintSupported } from '../collins/adapter'
 import api, { assetUrl } from '../api/client'
 
 const sevClass = { critical: 'ev-crit', warning: 'ev-warn', info: 'ev-info', ok: 'ev-ok' }
@@ -39,6 +45,7 @@ const fmt = (v) => (typeof v !== 'number' ? (v ?? '—') : Number.isInteger(v) ?
 
 export default function MachineDashboard({ tenant, domain, name }) {
   const meta = domainMeta(domain)
+  const [repair, setRepair] = useState(false)   // AI Maintenance Director overlay
   const { data: state, refetch } = usePolling(() => api.twinRuntimeState(tenant), 1500, [tenant], { skip: !tenant })
   const { data: diag } = usePolling(() => api.twinDiagnostics(tenant), 3000, [tenant], { skip: !tenant })
   const { data: net } = usePolling(() => api.twinNetwork(tenant).catch(() => null), 2000, [tenant],
@@ -60,6 +67,15 @@ export default function MachineDashboard({ tenant, domain, name }) {
   const risk = riskFromHealth(health)
   const faults = useMemo(
     () => (domains?.domains || []).find((d) => d.key === domain)?.faults || [], [domains, domain])
+
+  // Collins-vocabulary view of the live frame, for the ported Collins widgets
+  // (signal heatmap, and the cinematic Repair-with-AI overlay).
+  const collinsLive = useMemo(() => toCollinsLatest(domain, latest), [domain, latest])
+  const collinsSignals = useMemo(
+    () => Object.keys(toCollinsLatest(domain, latest)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [domain, Object.keys(latest).length])
+  const canRepair = maintSupported(domain)
 
   // rolling history for sparklines
   const hist = useRef({})
@@ -85,6 +101,12 @@ export default function MachineDashboard({ tenant, domain, name }) {
           <button className="btn" onClick={toggleRunning}>
             <i className={`ti ${running ? 'ti-player-pause' : 'ti-player-play'}`} /> {running ? 'Stop twin' : 'Start twin'}
           </button>
+          {canRepair && (
+            <button className="btn btn-primary repair-cta" onClick={() => setRepair(true)}
+              title="Enter the AI Maintenance Director — cinematic guided repair">
+              <i className="ti ti-robot" /> Repair with AI
+            </button>
+          )}
           {faults.length > 0 && (
             <select className="select" style={{ width: 'auto', minWidth: 150 }} value=""
               onChange={(e) => e.target.value && inject(e.target.value)}>
@@ -131,7 +153,23 @@ export default function MachineDashboard({ tenant, domain, name }) {
       {domain === 'hospital-campus' ? (
         <div className="section-gap"><HospitalCampusViews net={net} tenant={tenant} /></div>
       ) : domain === 'ev-charging-network' ? (
-        <div className="section-gap"><EVNetworkViews net={net} /></div>
+        <>
+          {/* The live 3-D energy-site world (Collins) sits above the network views. */}
+          <Card title={<><i className="ti ti-charging-pile" /> Live Energy Site</>}
+            action={<span className="pill pill-green">● live</span>}
+            className="section-gap" style={{ padding: 0, overflow: 'hidden' }}>
+            <EVWorld live={collinsLive} machine={name || meta.label} height={440} />
+          </Card>
+          <div className="section-gap"><EVNetworkViews net={net} /></div>
+        </>
+      ) : domain === 'tram-network' ? (
+        <Card title={<><i className="ti ti-train" /> Live Tram Network</>}
+          action={net?.blocked?.length
+            ? <span className="pill pill-red">{net.blocked.length} route blocked</span>
+            : <span className="pill pill-green">● live</span>}
+          className="section-gap" style={{ padding: 0, overflow: 'hidden' }}>
+          <CollinsNetworkMap tenant={tenant} running={running} height={460} />
+        </Card>
       ) : domain === 'ev-battery-pack' ? (
         <Card title={<><i className="ti ti-grid-dots" /> Battery Cell Heatmap</>}
           action={<span className="pill pill-green">● live</span>} className="section-gap">
@@ -205,6 +243,14 @@ export default function MachineDashboard({ tenant, domain, name }) {
         )}
       </Card>
 
+      {/* Signal anomaly heatmap (Collins) — last 60 s, coloured by severity */}
+      {collinsSignals.length > 0 && (
+        <Card title={<><i className="ti ti-grid-dots" /> Signal Heatmap</>}
+          action={<span className="pill pill-surface">last 60 s</span>} className="section-gap">
+          <SignalHeatmap signals={collinsSignals} live={collinsLive} />
+        </Card>
+      )}
+
       <div className="grid-2 section-gap">
         {/* Subsystem condition */}
         <Card title={<><i className="ti ti-subtask" /> Subsystem Condition</>}>
@@ -247,11 +293,44 @@ export default function MachineDashboard({ tenant, domain, name }) {
         <DashboardWorkOrder tenant={tenant} machine={name || meta.label} domain={domain} />
       </div>
 
+      {/* Cascade analysis — the real copilot agent, rendered as a graph. */}
+      <div className="section-gap">
+        <DashboardCascade tenant={tenant} machine={name || meta.label} domain={domain} findings={findings} />
+      </div>
+
       <div className="hint" style={{ textAlign: 'center', paddingBottom: 4 }}>
         Diagnosis, analysis, cascade, procurement, incident reports and the repair trainer live in{' '}
         <Link to="/copilot"><i className="ti ti-sparkles" /> Twin Copilot</Link>.
       </div>
+
+      {/* AI Maintenance Director — the cinematic guided-repair takeover (Collins),
+          driven by this live twin's domain, health and findings. */}
+      {repair && (
+        <Maintenance
+          domain={toCollinsDomain(domain)}
+          machineName={name || meta.label}
+          twin={toCollinsTwin(domain, state)}
+          modelUrl={reconUrl || null}
+          claudeOn={false}
+          onExit={() => setRepair(false)}
+        />
+      )}
     </div>
+  )
+}
+
+/** Cascade analysis from the real copilot agent, drawn as a propagation graph. */
+function DashboardCascade({ tenant, machine, domain, findings }) {
+  const cascade = useAgent(api.copilot.cascade)
+  return (
+    <AgentCard
+      icon="ti-affiliate" title="Cascade Analysis" slow={35} cta="Run analysis"
+      description="Reason about how degradation in one subsystem propagates to others over the forecast horizon."
+      agent={cascade}
+      onRun={() => cascade.run({ tenant, machine, domain })}
+    >
+      {(d) => <CascadeGraph text={d.cascade_analysis || d.analysis || d.report || ''} findings={findings} />}
+    </AgentCard>
   )
 }
 

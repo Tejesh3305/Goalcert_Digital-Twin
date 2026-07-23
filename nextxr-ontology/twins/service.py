@@ -35,6 +35,7 @@ RAIL = "https://ontology.nextxr.io/v3/railway#"
 HSP  = "https://ontology.nextxr.io/v3/hospital#"
 EV   = "https://ontology.nextxr.io/v3/ev#"
 DEF  = "https://ontology.nextxr.io/v3/defence#"
+FLEET = "https://ontology.nextxr.io/v3/fleet#"
 
 # Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
 # Computing it from __file__ meant "inside the container image", which on Fargate is
@@ -90,6 +91,18 @@ TEMPLATES = {
         "seeds_feed": False,
         "machine": True,
         "class_iri": RAIL + "RailNetwork",
+    },
+    "tram-network": {
+        "label": "Tram / Light-Rail Network",
+        "description": "A whole tram / light-rail network twin — rolling stock, "
+                       "traction power (overhead line + substations), track & "
+                       "points, signalling and service operations, with a live "
+                       "network map showing per-vehicle positions and per-route "
+                       "status.",
+        "primary_signal": "fleet:onTimePerformance",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": FLEET + "TramNetwork",
     },
     "railway-trainset": {
         "label": "Rolling Stock (Train Set)",

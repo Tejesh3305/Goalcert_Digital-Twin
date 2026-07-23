@@ -263,11 +263,6 @@ export const api = {
       request('/copilot/build-twin/message', { method: 'POST', body: JSON.stringify({ history, message }) }),
     buildTwinSpec: (body) =>
       request('/copilot/build-twin/spec', { method: 'POST', body: JSON.stringify(body) }),
-
-    // Knowledge / learning loop
-    knowledgeSearch: (query, { domain, category, top_k = 5 } = {}) =>
-      request(`/copilot/knowledge/search?${qs({ query, domain, category, top_k })}`),
-    remember: (body) => request('/copilot/knowledge/remember', { method: 'POST', body: JSON.stringify(body) }),
   },
 }
 

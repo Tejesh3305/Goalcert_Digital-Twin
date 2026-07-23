@@ -1,0 +1,330 @@
+/* Maintenance.css — the AI Maintenance Director: a full-screen, cinematic
+   "autonomous maintenance" takeover. Dark, holographic, GPU-friendly (only
+   transform/opacity/filter animate). Namespaced .mx-* so it never touches the
+   light dashboard theme. */
+
+:root{
+  --mx-bg:#070912; --mx-bg2:#0b0f1d; --mx-panel:rgba(15,19,36,.72);
+  --mx-line:rgba(124,150,255,.16); --mx-line2:rgba(124,150,255,.30);
+  --mx-text:#e9edff; --mx-dim:#9aa6d6; --mx-faint:#66719e;
+  --mx-cyan:#36e3ff; --mx-violet:#9a7cff; --mx-blue:#5b8bff;
+  --mx-green:#33e29b; --mx-amber:#ffc24b; --mx-red:#ff5d73;
+  --mx-glow:0 0 24px rgba(54,227,255,.35);
+}
+
+/* ── root / takeover ─────────────────────────────────────────────── */
+.mx-root{position:fixed;inset:0;z-index:1000;color:var(--mx-text);
+  font-family:var(--font);overflow:hidden;
+  background:
+    radial-gradient(1200px 700px at 70% -10%,rgba(90,80,200,.22),transparent 60%),
+    radial-gradient(900px 600px at 10% 110%,rgba(20,120,180,.18),transparent 60%),
+    linear-gradient(180deg,var(--mx-bg2),var(--mx-bg));
+  animation:mxRootIn .5s ease both;
+  --mx-dim-level:0;
+}
+@keyframes mxRootIn{from{opacity:0}to{opacity:1}}
+.mx-root::before{ /* faint moving grid */
+  content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background:
+    repeating-linear-gradient(0deg,transparent 0 38px,rgba(124,150,255,.04) 39px),
+    repeating-linear-gradient(90deg,transparent 0 38px,rgba(124,150,255,.04) 39px);
+  mask:radial-gradient(120% 120% at 50% 30%,#000 30%,transparent 100%);
+  animation:mxGrid 18s linear infinite}
+@keyframes mxGrid{to{background-position:0 38px,38px 0}}
+/* dim-the-room veil, raised during component-focus moments */
+.mx-veil{position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:radial-gradient(1000px 700px at var(--mx-spot-x,50%) var(--mx-spot-y,46%),
+    transparent 0%, rgba(4,6,14,calc(.0 + var(--mx-dim-level)*.66)) 70%);
+  transition:background .8s ease, opacity .6s ease}
+
+/* ── intro sequence ──────────────────────────────────────────────── */
+.mx-intro{position:absolute;inset:0;z-index:40;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:26px;
+  background:radial-gradient(800px 600px at 50% 45%,rgba(12,16,32,.5),rgba(5,7,15,.92));
+  backdrop-filter:blur(2px);animation:mxFade .5s ease both}
+.mx-intro.out{animation:mxIntroOut .9s ease forwards}
+@keyframes mxIntroOut{to{opacity:0;transform:scale(1.04);visibility:hidden}}
+.mx-intro-title{font-family:var(--display);font-weight:600;font-size:26px;letter-spacing:.01em;
+  text-align:center;text-shadow:0 0 30px rgba(90,140,255,.5)}
+.mx-intro-sub{font-family:var(--mono);font-size:12px;color:var(--mx-cyan);letter-spacing:.18em;
+  text-transform:uppercase}
+.mx-intro-bar{width:260px;height:3px;border-radius:3px;background:rgba(124,150,255,.18);overflow:hidden}
+.mx-intro-bar i{display:block;height:100%;width:40%;border-radius:3px;
+  background:linear-gradient(90deg,transparent,var(--mx-cyan),var(--mx-violet),transparent);
+  animation:mxScanX 1.1s ease-in-out infinite}
+@keyframes mxScanX{0%{transform:translateX(-120%)}100%{transform:translateX(320%)}}
+
+/* ── the AI core (stationary holographic presence, never a flying bot) ── */
+.mx-core{position:relative;width:var(--s,150px);height:var(--s,150px);flex:none}
+.mx-core .ring{position:absolute;inset:0;border-radius:50%;border:2px solid transparent}
+.mx-core .r1{border-top-color:var(--mx-cyan);border-right-color:var(--mx-cyan);
+  animation:mxSpin 3.2s linear infinite;box-shadow:var(--mx-glow)}
+.mx-core .r2{inset:14%;border-bottom-color:var(--mx-violet);border-left-color:var(--mx-violet);
+  animation:mxSpin 4.6s linear infinite reverse}
+.mx-core .r3{inset:28%;border-top-color:var(--mx-blue);border-left-color:var(--mx-blue);
+  animation:mxSpin 6s linear infinite}
+.mx-core .orb{position:absolute;inset:36%;border-radius:50%;
+  background:radial-gradient(circle at 38% 32%,#bfefff,var(--mx-cyan) 42%,#3550c8 86%);
+  box-shadow:0 0 30px rgba(54,227,255,.7),inset 0 0 18px rgba(255,255,255,.5);
+  animation:mxBreath 2.6s ease-in-out infinite}
+.mx-core.speaking .orb{animation:mxBreath 1.1s ease-in-out infinite}
+.mx-core .pulse{position:absolute;inset:0;border-radius:50%;border:1px solid var(--mx-cyan);
+  opacity:0;animation:mxPulse 2.6s ease-out infinite}
+@keyframes mxSpin{to{transform:rotate(360deg)}}
+@keyframes mxBreath{0%,100%{transform:scale(1);filter:brightness(1)}50%{transform:scale(1.08);filter:brightness(1.25)}}
+@keyframes mxPulse{0%{transform:scale(.7);opacity:.7}100%{transform:scale(1.9);opacity:0}}
+
+/* ── stage layout ────────────────────────────────────────────────── */
+.mx-stage{position:absolute;inset:0;z-index:10;display:grid;
+  grid-template-columns:330px 1fr 330px;grid-template-rows:56px 1fr auto;
+  grid-template-areas:"top top top" "left center right" "bottom bottom bottom";
+  gap:14px;padding:14px 16px;animation:mxFade .8s ease both}
+@keyframes mxFade{from{opacity:0}to{opacity:1}}
+@media(max-width:1180px){.mx-stage{grid-template-columns:280px 1fr 280px}}
+
+.mx-top{grid-area:top;display:flex;align-items:center;gap:14px;z-index:20}
+.mx-center{grid-area:center;position:relative;border-radius:18px;overflow:hidden;
+  border:1px solid var(--mx-line2);box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.02)}
+.mx-left{grid-area:left}.mx-right{grid-area:right}
+.mx-left,.mx-right{display:flex;flex-direction:column;gap:12px;min-height:0;overflow-y:auto;z-index:15;
+  padding-bottom:4px}
+.mx-bottom{grid-area:bottom;z-index:20}
+.mx-left::-webkit-scrollbar,.mx-right::-webkit-scrollbar{width:6px}
+.mx-left::-webkit-scrollbar-thumb,.mx-right::-webkit-scrollbar-thumb{background:rgba(124,150,255,.22);border-radius:6px;border:0}
+
+/* the 3D host fills the center cell (override .hero3d's fixed 300px height) */
+.mx-canvas{position:absolute!important;inset:0!important;height:auto!important;width:auto!important;
+  padding:0!important;border:0!important;border-radius:0!important;box-shadow:none!important;display:block!important}
+.mx-canvas canvas{display:block;width:100%!important;height:100%!important}
+
+/* top bar */
+.mx-badge{display:flex;align-items:center;gap:10px;padding:7px 14px 7px 8px;border-radius:999px;
+  background:var(--mx-panel);border:1px solid var(--mx-line2);backdrop-filter:blur(12px)}
+.mx-badge .dot{width:9px;height:9px;border-radius:50%;background:var(--mx-cyan);box-shadow:var(--mx-glow);animation:mxBlink 1.6s ease-in-out infinite}
+@keyframes mxBlink{0%,100%{opacity:1}50%{opacity:.35}}
+.mx-badge b{font-family:var(--display);font-weight:600;font-size:13.5px}
+.mx-badge small{font-family:var(--mono);font-size:9.5px;color:var(--mx-cyan);letter-spacing:.16em;text-transform:uppercase}
+.mx-top-spacer{flex:1}
+.mx-chip{font-family:var(--mono);font-size:10.5px;color:var(--mx-dim);background:var(--mx-panel);
+  border:1px solid var(--mx-line);border-radius:999px;padding:6px 12px;display:flex;align-items:center;gap:7px;backdrop-filter:blur(12px)}
+.mx-chip b{color:var(--mx-text)}
+.mx-exit{font-family:var(--font);font-weight:600;font-size:12px;color:var(--mx-text);cursor:pointer;
+  background:rgba(255,93,115,.12);border:1px solid rgba(255,93,115,.4);border-radius:999px;padding:7px 14px;
+  display:flex;align-items:center;gap:6px;transition:.15s}
+.mx-exit:hover{background:rgba(255,93,115,.22)}
+
+/* ── glass cards in the rails ────────────────────────────────────── */
+.mx-card{background:var(--mx-panel);border:1px solid var(--mx-line);border-radius:16px;padding:14px;
+  backdrop-filter:blur(14px);box-shadow:0 12px 34px rgba(0,0,0,.32);animation:mxCardIn .5s ease both}
+@keyframes mxCardIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.mx-card.flush{flex:1;min-height:0;display:flex;flex-direction:column}
+.mx-h{display:flex;align-items:center;gap:8px;font-family:var(--display);font-weight:600;font-size:12.5px;
+  letter-spacing:.02em;margin-bottom:12px;color:var(--mx-text)}
+.mx-h i{font-size:16px;color:var(--mx-cyan)}
+.mx-h .tag{margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--mx-faint);
+  letter-spacing:.12em;text-transform:uppercase}
+
+/* ── flow diagram (repair steps) ─────────────────────────────────── */
+.mx-flow{display:flex;flex-direction:column;gap:0;overflow-y:auto;flex:1;margin:-2px}
+.mx-fnode{position:relative;display:flex;gap:12px;padding:9px 6px;cursor:pointer;border-radius:10px;
+  transition:background .2s}
+.mx-fnode:hover{background:rgba(124,150,255,.06)}
+.mx-fnode .rail{position:relative;display:flex;flex-direction:column;align-items:center;flex:none}
+.mx-fnode .bead{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11px;font-weight:700;color:var(--mx-faint);
+  border:2px solid var(--mx-line2);background:rgba(10,14,28,.7);transition:.3s;flex:none}
+.mx-fnode .wire{width:2px;flex:1;background:var(--mx-line2);margin:2px 0;min-height:10px}
+.mx-fnode:last-child .wire{display:none}
+.mx-fnode .body{padding-bottom:6px;min-width:0;flex:1}
+.mx-fnode .ftitle{font-size:12.5px;font-weight:600;color:var(--mx-dim);transition:color .3s}
+.mx-fnode .fsub{font-size:10.5px;color:var(--mx-faint);margin-top:2px;line-height:1.4}
+/* states */
+.mx-fnode.done .bead{background:var(--mx-green);border-color:var(--mx-green);color:#04130d;box-shadow:0 0 14px rgba(51,226,155,.4)}
+.mx-fnode.done .ftitle{color:var(--mx-dim)}
+.mx-fnode.done .wire{background:var(--mx-green)}
+.mx-fnode.active .bead{border-color:var(--mx-cyan);color:var(--mx-cyan);
+  box-shadow:0 0 0 4px rgba(54,227,255,.18),0 0 18px rgba(54,227,255,.5);animation:mxBeadPulse 1.5s ease-in-out infinite}
+.mx-fnode.active .ftitle{color:#fff}
+.mx-fnode.active{background:rgba(54,227,255,.06)}
+@keyframes mxBeadPulse{0%,100%{box-shadow:0 0 0 4px rgba(54,227,255,.16),0 0 16px rgba(54,227,255,.45)}50%{box-shadow:0 0 0 7px rgba(54,227,255,.05),0 0 26px rgba(54,227,255,.7)}}
+.mx-fnode .safety{display:inline-block;margin-left:6px;font-family:var(--mono);font-size:8px;color:var(--mx-amber);
+  border:1px solid rgba(255,194,75,.4);border-radius:4px;padding:0 4px;vertical-align:1px}
+
+/* expanded detail under the active step */
+.mx-detail{margin-top:8px;border-top:1px dashed var(--mx-line2);padding-top:9px;animation:mxFade .35s ease both}
+.mx-meta{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:11px}
+.mx-meta div span{color:var(--mx-faint)}
+.mx-meta div b{color:var(--mx-text);font-weight:600}
+
+/* ── root-cause hologram ─────────────────────────────────────────── */
+.mx-rc{display:flex;flex-direction:column;gap:0}
+.mx-rcn{display:flex;align-items:center;gap:10px;opacity:.25;transform:translateX(-6px);
+  transition:opacity .5s,transform .5s}
+.mx-rcn.lit{opacity:1;transform:none}
+.mx-rcn .ic{width:30px;height:30px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;
+  font-size:15px;color:var(--mx-amber);background:rgba(255,194,75,.1);border:1px solid rgba(255,194,75,.32)}
+.mx-rcn.lit .ic{box-shadow:0 0 16px rgba(255,194,75,.4)}
+.mx-rcn .tx{font-size:11.5px;line-height:1.4;color:var(--mx-dim)}
+.mx-rcn .tx b{color:var(--mx-text)}
+.mx-rcarrow{width:2px;height:14px;margin-left:14px;background:linear-gradient(var(--mx-amber),transparent);
+  opacity:.25;transition:opacity .5s}
+.mx-rcarrow.lit{opacity:.8}
+
+/* ── health ring (SVG) ───────────────────────────────────────────── */
+.mx-health{display:flex;align-items:center;gap:14px}
+.mx-ring-svg{width:96px;height:96px;flex:none;transform:rotate(-90deg)}
+.mx-ring-bg{fill:none;stroke:rgba(124,150,255,.14);stroke-width:9}
+.mx-ring-fg{fill:none;stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .8s cubic-bezier(.4,0,.2,1),stroke .6s}
+.mx-ring-num{font-family:var(--display);font-weight:700;font-size:26px;line-height:1}
+.mx-ring-lbl{font-size:10.5px;color:var(--mx-faint);text-transform:uppercase;letter-spacing:.1em;margin-top:3px}
+.mx-sub-list{margin-top:4px;display:flex;flex-direction:column;gap:7px}
+.mx-subrow{display:flex;align-items:center;gap:8px;font-size:11px}
+.mx-subrow .sd{width:8px;height:8px;border-radius:50%;flex:none;transition:background .5s,box-shadow .5s}
+.mx-subrow .nm{color:var(--mx-dim);flex:1}
+.mx-subrow .st{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em}
+
+/* ── telemetry overlay ───────────────────────────────────────────── */
+.mx-tel{display:flex;flex-direction:column;gap:11px}
+.mx-trow .tt{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;margin-bottom:4px}
+.mx-trow .tt .nm{color:var(--mx-dim)}
+.mx-trow .tt .vv{font-family:var(--display);font-weight:600;font-size:14px;transition:color .4s}
+.mx-trow .tt .vv u{text-decoration:none;font-size:9px;color:var(--mx-faint);margin-left:2px;font-weight:400}
+.mx-bar{height:6px;border-radius:6px;background:rgba(124,150,255,.12);overflow:hidden}
+.mx-bar i{display:block;height:100%;border-radius:6px;transition:width .8s cubic-bezier(.4,0,.2,1),background .6s}
+
+/* ── glued component callout (over the 3D) ───────────────────────── */
+.mx-callout{position:absolute;z-index:14;pointer-events:none;left:0;top:0;
+  transform:translate(-50%,-100%);will-change:transform;transition:opacity .4s}
+.mx-callout .ring{position:absolute;left:50%;top:100%;width:54px;height:54px;margin:-27px 0 0 -27px;
+  border-radius:50%;border:2px solid var(--mx-red);opacity:.9}
+.mx-callout .ring::after{content:'';position:absolute;inset:-6px;border-radius:50%;border:2px solid var(--mx-red);
+  animation:mxPulse 1.8s ease-out infinite}
+.mx-callout.repair .ring,.mx-callout.repair .lab{--cc:var(--mx-cyan);border-color:var(--mx-cyan)}
+.mx-callout .stem{position:absolute;left:50%;top:100%;width:1px;height:30px;background:linear-gradient(var(--cc,var(--mx-red)),transparent)}
+.mx-callout .lab{transform:translateY(-30px);background:rgba(10,14,28,.86);border:1px solid var(--cc,var(--mx-red));
+  border-radius:12px;padding:8px 12px;backdrop-filter:blur(10px);box-shadow:0 10px 30px rgba(0,0,0,.5);min-width:160px}
+.mx-callout .lab .nm{font-family:var(--display);font-weight:600;font-size:12.5px;display:flex;align-items:center;gap:6px}
+.mx-callout .lab .nm i{color:var(--cc,var(--mx-red))}
+.mx-callout .lab .mm{margin-top:6px;display:flex;flex-direction:column;gap:3px}
+.mx-callout .lab .mm span{display:flex;justify-content:space-between;font-size:10.5px;color:var(--mx-dim);
+  font-family:var(--mono)}
+.mx-callout .lab .mm span b{color:#fff}
+
+/* scan sweep over the canvas */
+.mx-scan{position:absolute;inset:0;z-index:13;pointer-events:none;overflow:hidden;opacity:0}
+.mx-scan.on{opacity:1}
+.mx-scan i{position:absolute;left:0;right:0;height:200px;
+  background:linear-gradient(180deg,transparent,rgba(54,227,255,.18) 48%,rgba(54,227,255,.5) 50%,rgba(54,227,255,.18) 52%,transparent);
+  filter:blur(1px);animation:mxScanY 2.4s ease-in-out infinite}
+@keyframes mxScanY{0%{transform:translateY(-220px)}100%{transform:translateY(calc(100% + 20px))}}
+.mx-scan b{position:absolute;left:0;right:0;top:0;bottom:0;
+  background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(54,227,255,.05) 4px)}
+
+/* ── bottom: AI voice / task / controls ──────────────────────────── */
+.mx-bar-wrap{display:flex;align-items:stretch;gap:14px}
+.mx-voice{flex:1;display:flex;align-items:center;gap:14px;background:var(--mx-panel);
+  border:1px solid var(--mx-line2);border-radius:16px;padding:12px 16px;backdrop-filter:blur(14px);min-width:0}
+.mx-voice .mx-core{--s:46px;flex:none}
+.mx-wave{display:flex;align-items:center;gap:3px;height:26px;flex:none}
+.mx-wave i{width:3px;border-radius:3px;background:var(--mx-cyan);height:30%;animation:mxWave 1s ease-in-out infinite}
+.mx-wave i:nth-child(2){animation-delay:.12s}.mx-wave i:nth-child(3){animation-delay:.24s}
+.mx-wave i:nth-child(4){animation-delay:.36s}.mx-wave i:nth-child(5){animation-delay:.48s}
+.mx-wave i:nth-child(6){animation-delay:.6s}.mx-wave i:nth-child(7){animation-delay:.72s}
+.mx-wave.idle i{animation-play-state:paused;height:22%}
+@keyframes mxWave{0%,100%{height:25%}50%{height:100%}}
+.mx-said{min-width:0;flex:1}
+.mx-said .who{font-family:var(--mono);font-size:9.5px;color:var(--mx-cyan);letter-spacing:.16em;
+  text-transform:uppercase;margin-bottom:3px}
+.mx-said .txt{font-size:13.5px;line-height:1.5;color:var(--mx-text);min-height:20px}
+.mx-said .txt .car{display:inline-block;width:7px;color:var(--mx-cyan);animation:mxBlink .8s steps(1) infinite}
+
+.mx-task{flex:none;width:300px;background:var(--mx-panel);border:1px solid var(--mx-line);border-radius:16px;
+  padding:12px 16px;backdrop-filter:blur(14px);display:flex;flex-direction:column;justify-content:center;gap:8px}
+.mx-task .lbl{font-family:var(--mono);font-size:9px;color:var(--mx-faint);letter-spacing:.14em;text-transform:uppercase}
+.mx-task .now{font-family:var(--display);font-weight:600;font-size:14px;line-height:1.25}
+.mx-task .eta{font-family:var(--mono);font-size:11px;color:var(--mx-cyan)}
+.mx-prog{height:5px;border-radius:5px;background:rgba(124,150,255,.14);overflow:hidden;margin-top:2px}
+.mx-prog i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,var(--mx-cyan),var(--mx-violet));
+  transition:width .8s cubic-bezier(.4,0,.2,1)}
+
+.mx-ctrls{flex:none;display:flex;align-items:center;gap:8px;background:var(--mx-panel);
+  border:1px solid var(--mx-line);border-radius:16px;padding:0 12px;backdrop-filter:blur(14px)}
+.mx-btn{width:40px;height:40px;border-radius:11px;display:flex;align-items:center;justify-content:center;
+  font-size:18px;color:var(--mx-text);background:rgba(124,150,255,.08);border:1px solid var(--mx-line);cursor:pointer;
+  transition:.14s}
+.mx-btn:hover{background:rgba(124,150,255,.18);border-color:var(--mx-line2)}
+.mx-btn.play{background:linear-gradient(135deg,var(--mx-cyan),var(--mx-blue));color:#04121f;border:0;
+  box-shadow:0 0 20px rgba(54,227,255,.4);width:46px;height:46px;font-size:20px}
+.mx-btn.on{color:var(--mx-cyan);border-color:var(--mx-line2);background:rgba(54,227,255,.12)}
+.mx-btn[disabled]{opacity:.35;cursor:not-allowed}
+/* primary manual-advance button */
+.mx-next{display:flex;align-items:center;gap:8px;height:44px;padding:0 20px;margin-left:4px;
+  border-radius:12px;border:0;cursor:pointer;font-family:var(--font);font-weight:700;font-size:13.5px;
+  color:#04121f;background:linear-gradient(135deg,var(--mx-cyan),var(--mx-blue));
+  box-shadow:0 0 22px rgba(54,227,255,.45);transition:.15s;white-space:nowrap}
+.mx-next:hover{filter:brightness(1.08);box-shadow:0 0 30px rgba(54,227,255,.65)}
+.mx-next i{font-size:16px}
+.mx-next[disabled]{opacity:.4;cursor:not-allowed;box-shadow:none}
+
+/* ── floating step-detail window (anchored beside the flow node) ──── */
+.mx-fnode .chev{margin-left:auto;font-size:13px;color:var(--mx-faint);flex:none;transition:.2s}
+.mx-fnode.viewing{background:rgba(54,227,255,.09);box-shadow:inset 2px 0 0 var(--mx-cyan)}
+.mx-fnode.viewing .ftitle{color:#fff}
+.mx-fnode.viewing .chev{color:var(--mx-cyan)}
+.mx-stepdetail{position:fixed;z-index:60;width:310px;transform:translateY(-50%);
+  background:linear-gradient(180deg,rgba(17,22,42,.97),rgba(11,15,29,.97));
+  border:1px solid var(--mx-line2);border-radius:14px;padding:14px 15px;
+  box-shadow:0 24px 60px rgba(0,0,0,.6),0 0 0 1px rgba(54,227,255,.1),inset 0 0 0 1px rgba(255,255,255,.02);
+  backdrop-filter:blur(16px);animation:mxDetailIn .22s cubic-bezier(.2,.9,.3,1) both}
+@keyframes mxDetailIn{from{opacity:0;transform:translateY(-50%) translateX(-8px)}to{opacity:1;transform:translateY(-50%) translateX(0)}}
+/* little pointer stem on the left edge, aimed back at the flow node */
+.mx-stepdetail::before{content:'';position:absolute;left:-7px;top:50%;width:12px;height:12px;
+  transform:translateY(-50%) rotate(45deg);background:rgba(17,22,42,.97);
+  border-left:1px solid var(--mx-line2);border-bottom:1px solid var(--mx-line2)}
+.mx-stepdetail .sd-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.mx-stepdetail .sd-idx{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.08em;
+  color:#04121f;background:var(--mx-cyan);border-radius:5px;padding:2px 7px;flex:none}
+.mx-stepdetail .sd-title{font-size:13px;font-weight:700;color:#fff;line-height:1.3}
+.mx-stepdetail .sd-x{margin-left:auto;color:var(--mx-faint);cursor:pointer;font-size:14px;flex:none}
+.mx-stepdetail .sd-x:hover{color:var(--mx-text)}
+.mx-stepdetail .sd-safety{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;
+  font-weight:700;color:var(--mx-red);background:rgba(255,93,115,.12);border:1px solid rgba(255,93,115,.35);
+  border-radius:8px;padding:7px 10px;margin-bottom:10px;letter-spacing:.02em}
+.mx-stepdetail .sd-desc{font-size:12.5px;line-height:1.7;color:var(--mx-dim);margin-bottom:12px}
+.mx-stepdetail .sd-meta{display:grid;grid-template-columns:1fr 1fr;gap:11px 12px}
+.mx-stepdetail .sd-meta div{display:flex;flex-direction:column;gap:2px}
+.mx-stepdetail .sd-meta span{font-family:var(--mono);font-size:9px;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--mx-faint)}
+.mx-stepdetail .sd-meta b{font-size:12.5px;font-weight:700;color:var(--mx-text)}
+.mx-stepdetail .sd-jump{margin-top:13px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+  height:36px;border-radius:9px;border:1px solid var(--mx-line2);cursor:pointer;font-family:var(--font);
+  font-weight:600;font-size:12px;color:var(--mx-cyan);background:rgba(54,227,255,.1);transition:.14s}
+.mx-stepdetail .sd-jump:hover{background:rgba(54,227,255,.2)}
+
+/* ── completion ──────────────────────────────────────────────────── */
+.mx-complete{position:absolute;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:8px;background:radial-gradient(700px 500px at 50% 42%,rgba(20,40,30,.4),rgba(5,9,15,.86));
+  backdrop-filter:blur(3px);animation:mxFade .6s ease both}
+.mx-complete .big{font-family:var(--display);font-weight:700;font-size:30px;letter-spacing:.01em;
+  text-shadow:0 0 30px rgba(51,226,155,.5);animation:mxPop .6s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes mxPop{from{transform:scale(.8);opacity:0}to{transform:scale(1);opacity:1}}
+.mx-complete .sub{color:var(--mx-dim);font-size:13.5px}
+.mx-complete .ok{width:84px;height:84px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:46px;color:#04130d;background:radial-gradient(circle at 38% 32%,#caffe9,var(--mx-green));
+  box-shadow:0 0 50px rgba(51,226,155,.6);margin-bottom:8px;animation:mxPop .6s cubic-bezier(.2,1.4,.4,1) both}
+.mx-confetti{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+.mx-confetti i{position:absolute;top:-12px;width:8px;height:14px;border-radius:2px;opacity:.9;
+  animation:mxFall linear forwards}
+@keyframes mxFall{to{transform:translateY(110vh) rotate(640deg);opacity:.1}}
+.mx-complete .acts{display:flex;gap:10px;margin-top:18px}
+
+/* ── playback timeline ───────────────────────────────────────────── */
+.mx-play{display:flex;flex-direction:column;gap:6px;max-width:540px;width:100%;margin-top:8px}
+.mx-play .row{display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:10px;cursor:pointer;
+  background:rgba(124,150,255,.05);border:1px solid var(--mx-line);transition:.14s}
+.mx-play .row:hover{background:rgba(124,150,255,.12);border-color:var(--mx-line2)}
+.mx-play .row .t{font-family:var(--mono);font-size:11px;color:var(--mx-cyan);width:46px;flex:none}
+.mx-play .row .l{font-size:12.5px;color:var(--mx-text)}
+.mx-play .row i{margin-left:auto;color:var(--mx-faint)}
+
+.mx-empty{font-size:11.5px;color:var(--mx-faint);text-align:center;padding:18px 8px}

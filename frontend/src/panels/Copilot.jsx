@@ -35,7 +35,6 @@ const TABS = [
   { id: 'act', label: 'Act', icon: 'ti-tool' },
   { id: 'train', label: 'Train', icon: 'ti-school' },
   { id: 'ask', label: 'Ask', icon: 'ti-message-chatbot' },
-  { id: 'know', label: 'Knowledge', icon: 'ti-books' },
 ]
 
 export default function Copilot() {
@@ -104,7 +103,6 @@ export default function Copilot() {
       {tab === 'act' && <ActTab ctx={ctx} />}
       {tab === 'train' && <TrainTab ctx={ctx} />}
       {tab === 'ask' && <AskTab ctx={ctx} />}
-      {tab === 'know' && <KnowledgeTab ctx={ctx} />}
     </div>
   )
 }
@@ -301,113 +299,3 @@ function AskTab({ ctx }) {
   )
 }
 
-// ── Knowledge: the RAG library and the learning loop ──────────────────────
-
-function KnowledgeTab({ ctx }) {
-  const [q, setQ] = useState('')
-  const [scoped, setScoped] = useState(true)
-  const search = useAgent(api.copilot.knowledgeSearch)
-  const remember = useAgent(api.copilot.remember)
-  const [form, setForm] = useState({ title: '', diagnosis: '', resolution: '' })
-
-  const { data: health, refetch: refetchHealth } = useApi(() => api.copilot.health(), [])
-
-  const doSearch = (e) => {
-    e?.preventDefault()
-    if (q.trim()) search.run(q.trim(), { domain: scoped ? ctx.domain : undefined, top_k: 8 })
-  }
-
-  const doRemember = async () => {
-    await remember.run({
-      domain: ctx.domain, title: form.title,
-      diagnosis: form.diagnosis, resolution: form.resolution,
-    })
-    setForm({ title: '', diagnosis: '', resolution: '' })
-    refetchHealth()
-    if (q.trim()) doSearch()
-  }
-
-  const stats = health?.knowledge
-
-  return (
-    <>
-      <Card title={<><i className="ti ti-search" /> Fault library, compliance rules &amp; past incidents</>}
-            className="section-gap">
-        <div className="hint" style={{ marginBottom: 10 }}>
-          This is the retrieval the Diagnosis, Work Order and Troubleshoot agents depend on — it is
-          what lets them cite a real standard instead of inventing a clause number.
-          {stats && <> Currently {stats.total_entries} entries across {Object.keys(stats.by_domain || {}).length} domains.</>}
-        </div>
-        <form className="field" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}
-              onSubmit={doSearch}>
-          <input className="input" value={q} placeholder="e.g. rising exhaust temperature, blade erosion…"
-                 onChange={(e) => setQ(e.target.value)} style={{ flex: 1, minWidth: 220 }} />
-          <label className="hint" style={{ display: 'flex', gap: 5, alignItems: 'center', whiteSpace: 'nowrap' }}>
-            <input type="checkbox" checked={scoped} onChange={(e) => setScoped(e.target.checked)} />
-            this domain only
-          </label>
-          <button className="btn btn-primary" type="submit" disabled={search.loading || !q.trim()}>
-            <i className="ti ti-search" /> Search
-          </button>
-        </form>
-
-        {search.loading && <Loading label="Searching…" />}
-        {search.data && !search.loading && (
-          search.data.total === 0
-            ? <Empty label="No matches. Try broader wording, or untick 'this domain only'." icon="ti-books" />
-            : (
-              <div className="kb-results">
-                {search.data.results.map((r) => (
-                  <div key={r.id} className="kb-hit">
-                    <div className="kb-hit-head">
-                      <span className={`pill ${r.category === 'compliance' ? 'pill-blue'
-                        : r.category === 'incident' ? 'pill-purple' : 'pill-surface'}`}
-                            style={{ fontSize: 10 }}>{r.category}</span>
-                      <span className="kb-hit-title">{r.title}</span>
-                      {r.domain !== ctx.domain && (
-                        <span className="pill pill-amber" style={{ fontSize: 10 }}
-                              title="From a different domain — an analogy, not a rule that binds this asset">
-                          {r.domain}
-                        </span>
-                      )}
-                      <span className="kb-hit-score">{r.score}</span>
-                    </div>
-                    <div className="kb-hit-body">{r.content}</div>
-                  </div>
-                ))}
-              </div>
-            )
-        )}
-      </Card>
-
-      <Card title={<><i className="ti ti-bookmark-plus" /> Remember a resolution</>}>
-        <div className="hint" style={{ marginBottom: 10 }}>
-          Closes the learning loop: once stored, every future diagnosis on
-          <strong> {ctx.domain || 'this domain'}</strong> can retrieve it.
-        </div>
-        <div className="field">
-          <input className="input" placeholder="Title — e.g. 'TR-01 EGT drift resolved by nozzle clean'"
-                 value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
-        </div>
-        <div className="field">
-          <textarea className="input" rows={2} placeholder="What was diagnosed (symptoms, readings, evidence)"
-                    value={form.diagnosis} onChange={(e) => setForm({ ...form, diagnosis: e.target.value })} />
-        </div>
-        <div className="field">
-          <textarea className="input" rows={2} placeholder="What actually fixed it"
-                    value={form.resolution} onChange={(e) => setForm({ ...form, resolution: e.target.value })} />
-        </div>
-        <button className="btn btn-primary"
-                disabled={remember.loading || !form.title.trim() || !form.resolution.trim()}
-                onClick={doRemember}>
-          {remember.loading ? <><span className="spinner" /> Saving…</> : <><i className="ti ti-device-floppy" /> Remember</>}
-        </button>
-        {remember.data?.stored && (
-          <span className="pill pill-green" style={{ marginLeft: 10, fontSize: 10 }}>
-            <i className="ti ti-check" /> stored — {remember.data.stats?.total_entries} entries
-          </span>
-        )}
-      </Card>
-    </>
-  )
-}

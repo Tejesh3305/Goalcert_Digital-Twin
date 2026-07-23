@@ -1,6 +1,7 @@
 import Topbar from './components/layout/Topbar'
 import Sidebar from './components/layout/Sidebar'
 import TwinRoutes from './TwinRoutes'
+import CommandPalette from './components/CommandPalette'
 
 // Standalone shell: chrome + the routed twin content. The hub federates only
 // <TwinRoutes/> and supplies its own chrome, so the two stay in one source.
@@ -14,6 +15,7 @@ export default function App() {
           <TwinRoutes />
         </div>
       </div>
+      <CommandPalette />
     </div>
   )
 }

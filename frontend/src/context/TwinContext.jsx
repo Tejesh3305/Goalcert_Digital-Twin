@@ -8,6 +8,7 @@
  */
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import api from '../api/client'
+import { isSimTenant } from '../lib/simTwins'
 
 const TwinContext = createContext(null)
 const STORAGE_KEY = 'nxr_active_tenant'
@@ -28,8 +29,9 @@ export function TwinProvider({ children }) {
       setTwins(list)
       setError(null)
       // Ensure the active tenant still exists; else pick the first twin.
+      // Sim tenants ("sim:datacenter") have no backend record — keep them.
       setActiveTenant((cur) => {
-        if (cur && list.some((t) => t.tenant_id === cur)) return cur
+        if (cur && (isSimTenant(cur) || list.some((t) => t.tenant_id === cur))) return cur
         return list.length ? list[0].tenant_id : null
       })
     } catch (e) {
