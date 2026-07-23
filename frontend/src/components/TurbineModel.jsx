@@ -2,12 +2,16 @@
  * TurbineModel — renders the gas-turbine GLB (from the collins-demo _models set)
  * with drei's useGLTF, centred + auto-scaled, health-driven emissive glow, and
  * live sensor hotspots. Ported from the collins TurbineModel; hotspot signal keys
- * are this backend's turbine:* keys. Fully offline (local GLB, local lights).
+ * are this backend's turbine:* keys. Fully offline: a local GLB lit by a
+ * procedural RoomEnvironment (image-based lighting) with ACES tone mapping, so
+ * the polished-metal Rolls-Royce Trent 1000 renders bright and reflective — no
+ * CDN/HDR fetch.
  */
-import React, { Suspense, useMemo, useState } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import React, { Suspense, useEffect, useMemo, useState } from 'react'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, useGLTF, Html, Bounds, ContactShadows } from '@react-three/drei'
 import * as THREE from 'three'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import turbineUrl from '../assets/turbine.glb?url'
 
 // Bundled as a Vite asset so the GLB is served from the remote's OWN origin.
@@ -43,6 +47,20 @@ function sevClass(sig, v) {
   return ''
 }
 
+/** Offline image-based lighting: a procedural RoomEnvironment PMREM applied as
+ *  scene.environment. This is what makes the polished-metal turbine read bright
+ *  and premium (realistic reflections), with no CDN/HDR fetch. */
+function StudioEnvironment() {
+  const { gl, scene } = useThree()
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environment = envTex
+    return () => { scene.environment = null; envTex.dispose(); pmrem.dispose() }
+  }, [gl, scene])
+  return null
+}
+
 function Model({ url, health }) {
   const { scene } = useGLTF(url)
   const ref = React.useRef()
@@ -54,7 +72,18 @@ function Model({ url, health }) {
     const scale = 3 / (Math.max(size.x, size.y, size.z) || 1)
     s.position.sub(center)
     s.scale.setScalar(scale)
-    s.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true } })
+    s.traverse((o) => {
+      if (!o.isMesh) return
+      o.castShadow = true; o.receiveShadow = true
+      // Let the environment map light every material so the metal reflects and
+      // brightens; a touch of extra intensity makes the Trent 1000 pop.
+      const mats = Array.isArray(o.material) ? o.material : [o.material]
+      mats.forEach((m) => {
+        if (!m) return
+        if ('envMapIntensity' in m) m.envMapIntensity = 1.35
+        m.needsUpdate = true
+      })
+    })
     return s
   }, [scene])
 
@@ -100,13 +129,17 @@ function Fallback({ label }) {
 
 export default function TurbineModel({ url = MODEL_URL, latest = {}, height = 320, health = null }) {
   return (
-    <div style={{ height, borderRadius: 12, overflow: 'hidden', background: '#0b0d18', position: 'relative' }}>
-      <Canvas shadows camera={{ position: [4, 2.5, 4.5], fov: 48 }} dpr={[1, 2]}>
-        <color attach="background" args={['#0b0d18']} />
-        <hemisphereLight args={['#e6ecff', '#1a2038', 0.7]} />
-        <ambientLight intensity={0.4} />
-        <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
-        <directionalLight position={[-5, 3, -4]} intensity={0.4} color="#9ec9ff" />
+    <div style={{ height, borderRadius: 12, overflow: 'hidden', position: 'relative',
+      background: 'radial-gradient(circle at 50% 34%, #33405f 0%, #141a2c 52%, #0a0c16 100%)' }}>
+      <Canvas shadows dpr={[1, 2]} camera={{ position: [4, 2.5, 4.5], fov: 48 }}
+        gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping, toneMappingExposure: 1.15 }}>
+        <StudioEnvironment />
+        <hemisphereLight args={['#eef3ff', '#26304a', 1.0]} />
+        <ambientLight intensity={0.5} />
+        <directionalLight position={[5, 8, 5]} intensity={2.0} castShadow
+          shadow-mapSize={[2048, 2048]} shadow-bias={-0.0002} />
+        <directionalLight position={[-5, 3, -4]} intensity={0.7} color="#a8cbff" />
+        <directionalLight position={[0, 2, -6]} intensity={0.6} color="#ffd9a8" />
         <Suspense fallback={<Fallback label="Loading 3D model…" />}>
           <Bounds fit clip margin={1.2}>
             <Model url={url} health={health} />
@@ -115,7 +148,7 @@ export default function TurbineModel({ url = MODEL_URL, latest = {}, height = 32
             <Hotspot key={s} pos={pos} sig={s} value={latest[s]} />
           ))}
         </Suspense>
-        <ContactShadows position={[0, -1.6, 0]} opacity={0.5} scale={10} blur={2.4} far={4} />
+        <ContactShadows position={[0, -1.6, 0]} opacity={0.55} scale={10} blur={2.6} far={4} />
         <OrbitControls makeDefault enablePan={false} autoRotate autoRotateSpeed={0.6} minDistance={3} maxDistance={12} />
       </Canvas>
       <div style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(12,14,28,.72)',
