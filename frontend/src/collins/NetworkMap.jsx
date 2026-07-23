@@ -5,6 +5,7 @@
 // (`GET /api/twins/{tenant}/network`, polled while the twin runs). Blocked or
 // degraded routes glow red/amber; clicking a tram or a stop opens an inspector.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
+import './collins.css'
 import api from './api.js'
 import { Icon } from './lib.jsx'
 

@@ -3,6 +3,7 @@
 // BESS fill, charger faults, power-flow intensity) and wires the inspector's
 // "Ask AI" to the orchestrator's asset-status agent.
 import React, { useEffect, useRef } from 'react'
+import './collins.css'
 import { createEVWorld } from './scene/evworld.js'
 import api from './api'
 

@@ -18,7 +18,7 @@ export const SIM_TWINS = [
     tag: 'Data Center',
     icon: 'ti-server-2',
     accent: '#0ea5e9',
-    blurb: 'Server halls, CRAC cooling and UPS power with rack-level telemetry — a simulated twin streaming live signals with fault injection and AI repair.',
+    blurb: 'Server halls, CRAC cooling and UPS power with rack-level telemetry — streaming live signals with fault injection and AI repair.',
   },
   {
     domain: 'manufacturing',
@@ -26,7 +26,7 @@ export const SIM_TWINS = [
     tag: 'Manufacturing',
     icon: 'ti-building-factory-2',
     accent: '#f59e0b',
-    blurb: 'Production lines, robotics and utilities with predictive-maintenance signals — a simulated twin streaming live OEE, vibration and thermal telemetry.',
+    blurb: 'Production lines, robotics and utilities with predictive-maintenance signals — streaming live OEE, vibration and thermal telemetry.',
   },
 ]
 

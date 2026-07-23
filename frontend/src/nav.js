@@ -23,12 +23,10 @@ export const NAV = [
   { section: 'Intelligence' },
   { id: 'copilot',     path: '/copilot',     label: 'Twin Copilot', icon: 'ti-sparkles',         backing: 'live' },
   { id: 'predict',     path: '/predict',     label: 'Prediction',   icon: 'ti-chart-histogram',  backing: 'live' },
-  { id: 'agents',      path: '/agents',      label: 'Twin Intelligence', icon: 'ti-robot',       backing: 'partial' },
 
   { section: 'Governance' },
   { id: 'changelog',   path: '/changelog',   label: 'Change Log',   icon: 'ti-history',          backing: 'live' },
 
   { section: 'Platform' },
-  { id: 'bundle',      path: '/bundle-author', label: 'Bundle Author', icon: 'ti-wand',           backing: 'live' },
   { id: 'marketplace', path: '/marketplace', label: 'Marketplace',  icon: 'ti-layout-grid',      backing: 'mock' },
 ]

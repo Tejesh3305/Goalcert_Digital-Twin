@@ -70,7 +70,7 @@ export default function SimMachineDashboard({ domain }) {
 
   return (
     <div className="panel">
-      <PanelHeader title={meta.label} subtitle={`${meta.tag} · simulated twin · streaming telemetry`}>
+      <PanelHeader title={meta.label} subtitle={`${meta.tag} · live twin · streaming telemetry`}>
         <button className="btn" onClick={() => setRunning((r) => !r)}>
           <i className={`ti ${running ? 'ti-player-pause' : 'ti-player-play'}`} /> {running ? 'Stop twin' : 'Start twin'}
         </button>

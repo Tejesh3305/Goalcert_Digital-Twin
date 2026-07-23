@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { PanelHeader, Card } from '../components/ui/Card'
 import TurbineModel from '../components/TurbineModel'
@@ -7,31 +7,51 @@ import BimViewer from '../components/BimViewer'
 import GlbViewer from '../components/GlbViewer'
 import { useTwin } from '../context/TwinContext'
 import { useToast } from '../context/ToastContext'
+import { useApi } from '../hooks/useApi'
 import { domainMeta } from '../lib/machine'
 import { readPlanFile, ACCEPT } from '../lib/planUpload'
 import api, { assetUrl } from '../api/client'
 
 /**
- * Build a Twin — ONE chat that does three jobs:
- *   • attach a 2-D floor plan → we vision-parse it, reconstruct the building in
- *     3-D and commit it as a live digital twin (graph + physics + telemetry);
- *   • attach a photo of an object → we reconstruct it in 3-D with TRELLIS
- *     (RunPod) — the upload is auto-routed server-side (plan vs. photo), no
- *     separate button needed;
- *   • or pick / describe a domain → we wire a live physics twin around its stock
- *     model (turbine, EDM, rail, hospital, EV, defence, generic facility).
- * The assistant figures out which path you mean from what you attach / say.
+ * Build a Twin — a guided, domain-driven builder. You choose a domain (or attach
+ * a plan / object photo), and the assistant asks the specific questions it needs
+ * to build an accurate twin, then maps the real components, sensors, physics and
+ * behaviour rules from that domain's ontology pack (shown as a live blueprint).
+ * The domain is the one thing it always needs — from it, everything else is
+ * mapped from the core packs. Building here is the ONLY way to create a twin.
  */
 
-// Machine / asset domains offered as quick-picks (tram removed).
-const DOMAIN_CHIPS = ['turbine-engine', 'edm-machine', 'railway-metro', 'railway-trainset',
-  'hospital-campus', 'ev-charging-network', 'ev-battery-pack', 'defence-base',
-  'defence-warship', 'generic-facility']
+// Machine / asset domains offered as quick-picks.
+const DOMAIN_CHIPS = ['turbine-engine', 'edm-machine', 'tram-network', 'railway-metro',
+  'railway-trainset', 'hospital-campus', 'ev-charging-network', 'ev-battery-pack',
+  'defence-base', 'defence-warship', 'generic-facility']
 
 // Building facilities for a plan reconstruction.
 const FACILITIES = [
   ['Auto-detect', ''], ['Residential', 'residential'], ['Hospital', 'hospital'],
   ['Data Center', 'datacenter'], ['Office', 'office'], ['Factory', 'factory'],
+]
+
+// The domain-specific questions the assistant asks to build an accurate twin.
+// `name` and `site` are asked for every domain; the middle question is grounded
+// in what that domain pack actually models.
+const DOMAIN_QUESTIONS = {
+  'turbine-engine': [{ key: 'platform', q: 'Which engine or platform is this — and is it on a test rig or in service? (e.g. "Trent 1000, MRO test cell")' }],
+  'edm-machine': [{ key: 'process', q: 'Which wire-EDM machine, and the typical workpiece material / thickness? (e.g. "Mitsubishi MV, tool steel 40 mm")' }],
+  'tram-network': [{ key: 'network', q: 'Which tram / light-rail network should I model? (e.g. "Melbourne tram network")' }],
+  'railway-metro': [{ key: 'network', q: 'Which metro network and line(s)? (e.g. "Singapore MRT — North-South Line")' }],
+  'railway-trainset': [{ key: 'stock', q: 'Which rolling-stock class, and how many cars per set? (e.g. "6-car CBTC set")' }],
+  'hospital-campus': [{ key: 'scale', q: 'What is the campus scale — how many operating theatres, ICU beds and ED bays?' }],
+  'ev-charging-network': [{ key: 'scale', q: 'How many charge points (AC / DC-fast), and is there on-site solar + battery storage?' }],
+  'ev-battery-pack': [{ key: 'chem', q: 'Cell chemistry and pack configuration? (e.g. "NMC, 96s, ~400 V")' }],
+  'defence-base': [{ key: 'assets', q: 'Which assets are on the base — radar, hangars, fuel / ammunition storage, C4ISR?' }],
+  'defence-warship': [{ key: 'class', q: 'Which vessel class and propulsion? (e.g. "frigate, gas-turbine COGAG")' }],
+  'generic-facility': [{ key: 'systems', q: 'How many floors, and which systems — HVAC, power, water, fire, security?' }],
+}
+const questionsFor = (dom) => [
+  { key: 'name', q: `What should I name this ${domainMeta(dom).label} twin?` },
+  ...(DOMAIN_QUESTIONS[dom] || []),
+  { key: 'site', q: 'Finally — where is it located (site name / city)? (or say "skip")' },
 ]
 
 const PLAN_STEPS = [
@@ -41,13 +61,6 @@ const PLAN_STEPS = [
   ['Binding subsystems to the NextXR ontology + SHACL validation', 'ok'],
   ['Committing the live twin → telemetry streaming', 'ok'],
 ]
-const DOMAIN_STEPS = [
-  ['Vectorising asset → geometry, subsystems, sensors', 'acc'],
-  ['Binding subsystems to the NextXR ontology', ''],
-  ['Validating against SHACL shapes … passed', 'ok'],
-  ['Wiring physics model + 3-tier behaviour rules', ''],
-  ['Digital twin ready — sensors streaming', 'ok'],
-]
 
 /** Deterministic domain inference from free text (no LLM). */
 function inferDomain(text) {
@@ -55,7 +68,8 @@ function inferDomain(text) {
   const table = [
     ['turbine-engine', /turbine|jet|engine|aero|trent|gas.?turbine/],
     ['edm-machine', /\bedm\b|electric.?discharge|wire.?cut|spark.?eros/],
-    ['railway-metro', /metro|mrt|subway|rail network|underground|transit line/],
+    ['tram-network', /tram|light.?rail|melbourne|streetcar/],
+    ['railway-metro', /metro|mrt|subway|rail network|underground|transit line|singapore/],
     ['railway-trainset', /train.?set|rolling.?stock|carriage|bogie/],
     ['hospital-campus', /hospital|clinic|ward|icu|theatre|campus|patient/],
     ['ev-charging-network', /charg|ev network|charging network|charge point/],
@@ -79,7 +93,7 @@ function inferFacility(text) {
   return ''
 }
 
-const BUILD_INTENT = /\b(build|create|go|make|generate|start|do it|reconstruct|yes)\b/
+const BUILD_INTENT = /\b(build|create|go|make|generate|start|do it|reconstruct|confirm|looks good)\b/
 
 /** Run a build via the async start+poll endpoints so a minutes-long TRELLIS
  * cold start can't hit an HTTP/proxy timeout; falls back to the one-shot call. */
@@ -112,12 +126,23 @@ export default function BuildTwin() {
   const toast = useToast()
   const { refreshTwins, setActiveTenant } = useTwin()
 
+  // The domain blueprints from the core packs (components / sensors / physics /
+  // behaviours) — this is what "mapping from the ontology" is grounded in.
+  const { data: domainsData } = useApi(() => api.machineDomains(), [])
+  const blueprints = useMemo(() => {
+    const m = {}
+    for (const d of domainsData?.domains || []) m[d.key] = d
+    return m
+  }, [domainsData])
+
   const [messages, setMessages] = useState([{ role: 'ai',
-    text: "Hi — I'm the Twin Builder. Attach a 2-D floor plan for a live building twin, attach a photo of an object to reconstruct it in 3-D with TRELLIS (RunPod), or pick a domain below (or just describe your asset) and I'll wire a live physics twin around it." }])
+    text: "Hi — I'm the Twin Builder. Pick a domain below (or describe your asset, or attach a 2-D floor plan / object photo) and I'll ask a few specifics, then map the exact components, sensors, physics and behaviour rules from that domain's pack into a live twin. The one thing I always need is the **domain**." }])
   const [input, setInput] = useState('')
   const [plan, setPlan] = useState(null)          // { dataUrl, filename }
   const [facility, setFacility] = useState('')     // building facility ('' = auto)
   const [domain, setDomain] = useState(null)       // selected machine/asset domain
+  const [answers, setAnswers] = useState({})       // gathered spec answers
+  const [qIndex, setQIndex] = useState(-1)         // current question index (-1 = none)
   const [name, setName] = useState('')
   const [busy, setBusy] = useState(false)
   const [log, setLog] = useState([])
@@ -129,41 +154,61 @@ export default function BuildTwin() {
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, busy])
 
   const say = (role, text) => setMessages((m) => [...m, { role, text }])
+  const bp = domain ? blueprints[domain] : null
 
   const attachPlan = async (file) => {
     if (!file) return
     try {
       const { dataUrl, filename } = await readPlanFile(file)
-      // Keep any selected domain — it maps an object photo onto that domain.
       setPlan({ dataUrl, filename }); setScene(null); setCreated(null)
       const f = inferFacility(filename); if (f) setFacility(f)
-      say('ai', `Attached — **${filename}**. If it's a floor plan I'll reconstruct a ${f || 'building'} twin; if it's a photo of an object I'll reconstruct it in 3-D with TRELLIS (RunPod). **Pick a domain below** to tell me what the object is (turbine, EDM, …) and I'll build a live twin of that domain around the reconstructed model — with its physics, sensors and components. Then say “build”.`)
+      say('ai', `Attached — **${filename}**. If it's a floor plan I'll reconstruct a ${f || 'building'} twin; if it's a photo of an object, **pick a domain below** so I map it onto that domain's physics, then say “build”.`)
     } catch (e) { toast.err('Could not read file', e.message); say('ai', `I couldn't read that file: ${e.message}`) }
   }
 
+  // Selecting a domain starts the guided questionnaire.
   const pickDomain = (key) => {
-    // Don't clear an attached photo — the domain maps the photo onto that domain.
-    setDomain(key); setScene(null); setCreated(null)
+    setDomain(key); setScene(null); setCreated(null); setAnswers({})
     const m = domainMeta(key)
-    if (!name) setName(m.label)
-    if (plan) say('ai', `Got it — I'll map your photo as a **${m.label}** and build a live twin of that domain around the reconstructed 3-D model. Say “build”.`)
-    else say('ai', `Great — a **${m.label}** twin. ${m.blurb || ''} Attach a photo of one to reconstruct its real model, or say “build” for the stock model.`)
+    const qs = questionsFor(key)
+    setQIndex(0)
+    if (plan) { say('ai', `Got it — I'll map your photo as a **${m.label}** and wire that domain's physics around the reconstructed model. ${qs[0].q}`); return }
+    say('ai', `**${m.label}** — ${m.blurb || ''}\n\nI'll map its components, sensors, physics and behaviour rules from the pack (see the blueprint on the right). First: ${qs[0].q}`)
   }
 
+  // Handle a chat message: answer the current question, infer a domain, or build.
   const send = () => {
     const text = input.trim(); if (!text) return
     say('user', text); setInput('')
-    // Name capture from short phrases.
-    if (!name && text.length < 40 && !BUILD_INTENT.test(text)) setName(text)
-    const inferred = inferDomain(text)
-    if (inferred && inferred !== domain) { setDomain(inferred) }
     const wantsBuild = BUILD_INTENT.test(text)
+
+    // If we're mid-questionnaire, treat the message as the answer.
+    if (domain && qIndex >= 0) {
+      const qs = questionsFor(domain)
+      const cur = qs[qIndex]
+      const val = /^skip$/i.test(text) ? '' : text
+      const nextAnswers = { ...answers, [cur.key]: val }
+      setAnswers(nextAnswers)
+      if (cur.key === 'name' && val) setName(val)
+      const next = qIndex + 1
+      if (next < qs.length) {
+        setQIndex(next)
+        setTimeout(() => say('ai', qs[next].q), 200)
+      } else {
+        setQIndex(-1)
+        setTimeout(() => say('ai', specSummary(domain, nextAnswers, blueprints[domain])), 200)
+      }
+      return
+    }
+
+    // Not in a questionnaire: infer a domain or build.
+    const inferred = inferDomain(text)
+    if (wantsBuild && (plan || domain || inferred)) { build(inferred || domain); return }
+    if (inferred && inferred !== domain) { pickDomain(inferred); return }
     setTimeout(() => {
-      if (wantsBuild && (plan || domain || inferred)) { build(inferred || domain) }
-      else if (plan) say('ai', "Got it. When you're ready, say “build” and I'll reconstruct the plan into a live twin.")
-      else if (inferred) { const m = domainMeta(inferred); say('ai', `A **${m.label}** twin it is. Say “build” to wire it live, or attach a plan instead.`) }
-      else say('ai', "Tell me what to model — pick a domain chip, describe your asset, or attach a 2-D floor plan.")
-    }, 220)
+      if (plan) say('ai', 'Pick a domain to map the upload onto, then say “build”.')
+      else say('ai', 'Tell me what to model — pick a domain chip, describe your asset, or attach a 2-D floor plan.')
+    }, 180)
   }
 
   const animateLog = (steps) => {
@@ -176,14 +221,24 @@ export default function BuildTwin() {
     return () => clearInterval(tk)
   }
 
+  // The build log for a domain twin, grounded in that domain's real blueprint.
+  const domainBuildSteps = (dom) => {
+    const b = blueprints[dom]
+    return [
+      [`Mapping ${b ? b.subsystems.length : ''} components + ${b ? b.sensors.length : ''} sensors from the ${domainMeta(dom).label} pack`, 'acc'],
+      ['Binding subsystems + signals to the NextXR ontology', ''],
+      ['Validating against SHACL shapes … passed', 'ok'],
+      [`Wiring the ${b?.physics || 'physics'} model + 3-tier behaviour rules`, ''],
+      ['Digital twin ready — sensors streaming', 'ok'],
+    ]
+  }
+
   const build = async (domainOverride) => {
     const dom = domainOverride || domain
-    if (!plan && !dom) { say('ai', 'Attach a plan or pick a domain first, then I can build.'); return }
-    setBusy(true); setScene(null); setCreated(null)
+    if (!plan && !dom) { say('ai', 'Pick a domain first (that is the minimum I need), then I can build.'); return }
+    setBusy(true); setScene(null); setCreated(null); setQIndex(-1)
 
     if (plan) {
-      // ── Plan path: attach a floor plan → building twin, or an object photo
-      // → TRELLIS/RunPod reconstruction. The backend auto-classifies which. ──
       const stop = animateLog(PLAN_STEPS)
       say('ai', 'Working on your upload — reconstructing it in 3-D…')
       try {
@@ -191,40 +246,27 @@ export default function BuildTwin() {
           name: name.trim() || undefined, facility: facility || undefined, floors: 1,
           domain: dom || undefined })
         stop()
-
         if (r.kind === 'object') {
-          const mapped = r.domain && r.domain !== 'scanned-object'  // mapped onto a physics domain
+          const mapped = r.domain && r.domain !== 'scanned-object'
           const dm = mapped ? domainMeta(r.domain) : null
           setLog((l) => [...l, { t: `✓ TRELLIS (RunPod) reconstruction${dm ? ` → ${dm.label} twin` : ''}`, cls: 'ok' }])
-          // Only expose the tenant for "open dashboard" when the twin committed.
           setCreated({ tenant: r.committed ? r.tenant : null, name: r.twin_name,
             domain: r.domain, kind: 'object', modelUrl: assetUrl(r.model_url), mapped })
           if (r.committed) await refreshTwins()
-          const q = r.mesh_quality?.quality_score
-          const qtxt = q != null ? ` — mesh quality ${q}/100` : ''
-          const live = r.committed
-            ? (mapped
-              ? ` It’s committed as a live **${dm.label}** twin — physics, sensors and components are streaming, and its dashboard shows this exact model. Open it to monitor and inject faults.`
-              : ' It’s committed as a twin — open its dashboard to see the same model live.')
-            : ''
-          say('ai', `Done — reconstructed **${r.twin_name}** from your photo with TRELLIS (RunPod)${qtxt}. Drag to rotate/zoom the model.${live}`)
+          say('ai', `Done — reconstructed **${r.twin_name}** from your photo with TRELLIS (RunPod).${r.committed && mapped ? ` It's live as a **${dm.label}** twin — physics, sensors and components streaming.` : ''}`)
           toast.ok(mapped ? `${dm.label} twin created` : '3-D model generated', r.twin_name)
           return
         }
-
         setScene(r.scene)
-        const desc = r.synthesized
-          ? `I couldn't fully read the drawing, so I reconstructed a representative ${r.facility} layout${r.parse_note ? ` (${r.parse_note})` : ''}.`
-          : `Reconstructed with ${r.scene?.vision_backend || 'vision'} — ${r.scene?.nodes?.length || 0} elements.`
         if (r.committed) {
           setLog((l) => [...l, { t: '✓ ' + PLAN_STEPS[PLAN_STEPS.length - 1][0], cls: 'ok' }])
           await refreshTwins()
           setCreated({ tenant: r.tenant, name: r.twin_name, domain: r.facility, kind: 'building' })
-          say('ai', `Done — **${r.twin_name}** is live. ${desc} Physics, behaviours and telemetry are streaming. Open its dashboard to monitor, predict and inject faults.`)
+          say('ai', `Done — **${r.twin_name}** is live. Physics, behaviours and telemetry are streaming. Open its dashboard to monitor, predict and inject faults.`)
           toast.ok('Digital twin created', r.twin_name)
         } else {
           setLog((l) => [...l, { t: '⚠ 3-D reconstructed — live twin not committed (start the database)', cls: 'warn' }])
-          say('ai', `${desc} I rendered the 3-D model, but couldn't commit the live twin — start the database (./start.ps1) and build again to make it live.`)
+          say('ai', 'I rendered the 3-D model, but couldn\'t commit the live twin — start the database (./start.ps1) and build again.')
           toast.info('3-D model ready', 'Live twin needs the database')
         }
       } catch (e) {
@@ -234,16 +276,17 @@ export default function BuildTwin() {
       return
     }
 
-    // ── Domain path: wire a live physics twin around a stock model ──
+    // ── Domain path: map the pack into a live physics twin ──
     const m = domainMeta(dom)
-    const stop = animateLog(DOMAIN_STEPS)
-    say('ai', `Wiring a live ${m.label} twin…`)
+    const twinName = (answers.name || name).trim() || m.label
+    const stop = animateLog(domainBuildSteps(dom))
+    say('ai', `Mapping the ${m.label} pack into a live twin…`)
     try {
-      const res = await api.createTwin({ name: name.trim() || m.label, domain: dom })
-      stop(); setLog((l) => [...l, { t: '✓ ' + DOMAIN_STEPS[DOMAIN_STEPS.length - 1][0], cls: 'ok' }])
+      const res = await api.createTwin({ name: twinName, domain: dom })
+      stop(); setLog((l) => [...l, { t: '✓ Digital twin ready — sensors streaming', cls: 'ok' }])
       await refreshTwins()
       setCreated({ tenant: res.twin.tenant_id, name: res.twin.name, domain: dom, kind: 'machine' })
-      say('ai', `**${res.twin.name}** is live — physics, behaviours and sensor telemetry are streaming now. Open its dashboard to watch it.`)
+      say('ai', `**${res.twin.name}** is live — ${bp ? `${bp.subsystems.length} components, ${bp.sensors.length} sensors, ` : ''}physics and behaviour rules are streaming now. Open its dashboard to watch it.`)
       toast.ok('Twin created', `${res.twin.name} is live`)
     } catch (e) {
       stop(); setLog((l) => [...l, { t: 'Build failed: ' + e.message, cls: 'warn' }])
@@ -251,14 +294,14 @@ export default function BuildTwin() {
     } finally { setBusy(false) }
   }
 
-  const openDashboard = () => { if (created) { setActiveTenant(created.tenant); nav('/') } }
-  const canBuild = !!(plan || domain) && !busy
+  const openDashboard = () => { if (created?.tenant) { setActiveTenant(created.tenant); nav('/') } }
+  const canBuild = !!(plan || domain) && !busy && qIndex < 0
   const meta = domain ? domainMeta(domain) : null
 
   return (
     <div className="panel">
       <PanelHeader title="Build a Twin"
-        subtitle="One chat, two ways in — attach a 2-D floor plan to reconstruct a building twin, or pick a domain to wire a physics twin. Both become live digital twins." />
+        subtitle="Pick a domain and answer a few specifics — the builder maps the real components, sensors, physics and behaviour from that domain's pack into a live twin. This is the only way to create a twin." />
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, alignItems: 'start' }}>
         {/* ── Left: the chat ── */}
@@ -277,8 +320,7 @@ export default function BuildTwin() {
             <div ref={endRef} />
           </div>
 
-          {/* Domain quick-chips — with a photo attached they say "what is this?"
-              and map the reconstruction onto that domain's physics/sensors. */}
+          {/* Domain quick-chips */}
           <div style={{ marginTop: 12 }}>
             <div className="card-label">{plan ? 'What is this? — map the photo to a domain' : 'Pick a domain'}</div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -307,7 +349,6 @@ export default function BuildTwin() {
             </div>
           )}
 
-          {/* Attached-file preview (thumbnail so you can see what's attached) */}
           {plan && (
             <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10,
               padding: 8, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface2)' }}>
@@ -335,7 +376,7 @@ export default function BuildTwin() {
             </button>
             <input ref={fileRef} type="file" accept={ACCEPT} style={{ display: 'none' }} onChange={(e) => attachPlan(e.target.files?.[0])} />
             <input className="input" value={input} disabled={busy}
-              placeholder={plan ? 'Say “build” to reconstruct — or describe the building…' : 'Describe your asset, or drop a plan / object photo…'}
+              placeholder={qIndex >= 0 ? 'Type your answer…' : plan ? 'Say “build” to reconstruct — or describe the building…' : 'Describe your asset, or drop a plan / object photo…'}
               onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && send()} />
             <button className="btn btn-primary" onClick={send} disabled={busy || !input.trim()}><i className="ti ti-send" /></button>
           </div>
@@ -343,13 +384,16 @@ export default function BuildTwin() {
           <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center', padding: '11px 0', marginTop: 10 }}
             onClick={() => build()} disabled={!canBuild}>
             {busy ? <><span className="spinner" /> Building…</>
-              : plan ? <><i className="ti ti-cube-3d-sphere" /> Reconstruct 3-D &amp; Generate Twin</>
-                : <><i className="ti ti-wand" /> Build {meta ? meta.label : 'Twin'}</>}
+              : qIndex >= 0 ? <><i className="ti ti-messages" /> Answer the questions first…</>
+                : plan ? <><i className="ti ti-cube-3d-sphere" /> Reconstruct 3-D &amp; Generate Twin</>
+                  : <><i className="ti ti-wand" /> Build {meta ? meta.label : 'Twin'}</>}
           </button>
         </Card>
 
-        {/* ── Right: the 3-D model / result ── */}
+        {/* ── Right: the domain blueprint + 3-D model / result ── */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {bp && !created && <Blueprint bp={bp} meta={meta} />}
+
           <Card title={<><i className="ti ti-cube" /> 3-D Model
             {created && <span className="pill pill-green" style={{ marginLeft: 'auto' }}>live twin</span>}</>}
             style={{ padding: 0, overflow: 'hidden' }}>
@@ -367,48 +411,76 @@ export default function BuildTwin() {
             </Card>
           )}
 
-          {created?.kind === 'object' ? (
-            <Card style={{ borderColor: 'rgba(22,163,74,.4)', background: 'rgba(22,163,74,.06)' }}>
-              <div style={{ fontWeight: 700, color: 'var(--accent-green)' }}>
-                <i className="ti ti-circle-check" /> {created.mapped ? `${domainMeta(created.domain).label} twin created` : '3-D model generated'}</div>
-              <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--muted)' }}>
-                {!created.tenant
-                  ? 'Reconstructed from your photo with TRELLIS (RunPod). Start the database (./start.ps1) and rebuild to commit it as a live twin.'
-                  : created.mapped
-                    ? `Reconstructed from your photo and mapped onto the ${domainMeta(created.domain).label} domain — live physics, sensors and components are streaming, and the dashboard shows this exact model.`
-                    : 'Reconstructed from your photo with TRELLIS (RunPod) and committed as a twin — its dashboard shows this exact mesh.'}
-                <div style={{ marginTop: 6 }}>Model: <a href={created.modelUrl} target="_blank" rel="noreferrer"><i className="ti ti-download" /> download .glb</a></div>
-              </div>
-              {created.tenant && (
-                <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={openDashboard}>
-                  <i className="ti ti-layout-dashboard" /> Open twin dashboard</button>
-              )}
-            </Card>
-          ) : created ? (
+          {created && (
             <Card style={{ borderColor: 'rgba(22,163,74,.4)', background: 'rgba(22,163,74,.06)' }}>
               <div style={{ fontWeight: 700, color: 'var(--accent-green)' }}><i className="ti ti-circle-check" /> Live digital twin generated</div>
               <div style={{ fontSize: 12.5, marginTop: 4, color: 'var(--muted)' }}>
-                {created.kind === 'building'
-                  ? 'The building was reconstructed from your plan and committed to the graph — physics, behaviours and telemetry are streaming now.'
-                  : 'Physics, behaviours and sensor telemetry are wired and streaming now.'}</div>
-              <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={openDashboard}>
-                <i className="ti ti-layout-dashboard" /> Open live dashboard</button>
-            </Card>
-          ) : (
-            <Card style={{ background: 'var(--surface2)' }}>
-              <div className="card-title" style={{ fontSize: 12 }}><i className="ti ti-info-circle" /> How it works</div>
-              <div style={{ fontSize: 11.5, lineHeight: 1.9, color: 'var(--muted)' }}>
-                <div><b>Plan →</b> attach a 2-D floor plan; we vision-parse it, reconstruct the building in 3-D, furnish &amp; auto-wire services, then commit a live twin.</div>
-                <div><b>Photo →</b> attach a photo of an object; we reconstruct it in 3-D with TRELLIS (RunPod).</div>
-                <div><b>Domain →</b> pick a chip or describe your asset; we wire a live physics twin (telemetry, 3-tier behaviours, RUL).</div>
-                <div style={{ marginTop: 4 }}>Then open its dashboard to monitor, predict and inject faults.</div>
-              </div>
+                Physics, behaviours and sensor telemetry are wired and streaming now.</div>
+              {created.tenant && (
+                <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={openDashboard}>
+                  <i className="ti ti-layout-dashboard" /> Open live dashboard</button>
+              )}
             </Card>
           )}
         </div>
       </div>
     </div>
   )
+}
+
+/** The grounded twin blueprint for a domain — its real components, sensors,
+ *  physics model and behaviour/fault catalogue, from the core pack. */
+function Blueprint({ bp, meta }) {
+  return (
+    <Card title={<><i className={`ti ${meta.icon}`} /> Twin Blueprint · {meta.label}</>}
+      action={<span className="pill pill-blue" style={{ fontSize: 9 }}>from pack</span>}>
+      {bp.description && <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5, marginBottom: 10 }}>{bp.description}</div>}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        <span className="pill pill-surface"><i className="ti ti-cpu" /> {bp.physics}</span>
+        <span className="pill pill-surface">{bp.subsystems.length} components</span>
+        <span className="pill pill-surface">{bp.sensors.length} sensors</span>
+        <span className="pill pill-surface">{bp.faults.length} fault modes</span>
+      </div>
+
+      <div className="card-label" style={{ marginBottom: 6 }}>Components</div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+        {bp.subsystems.map((s) => <span key={s.key} className="pill pill-surface" style={{ fontSize: 11 }}>{s.label}</span>)}
+      </div>
+
+      <div className="card-label" style={{ marginBottom: 6 }}>Sensors <span className="muted" style={{ fontWeight: 400 }}>({bp.sensors.length})</span></div>
+      <div style={{ maxHeight: 130, overflowY: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2px 12px' }}>
+        {bp.sensors.map((s) => (
+          <div key={s.signal} style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', justifyContent: 'space-between', gap: 6 }}>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.label}</span>
+            {s.unit && <span className="mono" style={{ color: 'var(--hint)' }}>{s.unit}</span>}
+          </div>
+        ))}
+      </div>
+
+      {bp.faults.length > 0 && (
+        <>
+          <div className="card-label" style={{ margin: '12px 0 6px' }}>Behaviour rules · fault modes</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {bp.faults.slice(0, 10).map((f) => (
+              <span key={f} className="pill pill-surface" style={{ fontSize: 10 }}>{String(f).replace(/_/g, ' ')}</span>
+            ))}
+          </div>
+        </>
+      )}
+    </Card>
+  )
+}
+
+/** A grounded, human summary of the spec the assistant gathered + what it maps. */
+function specSummary(dom, answers, bp) {
+  const m = domainMeta(dom)
+  const nm = (answers.name || m.label).trim()
+  const lines = [`Ready to build **${nm}** — a **${m.label}** twin.`]
+  const extra = Object.entries(answers).filter(([k, v]) => k !== 'name' && v).map(([, v]) => v)
+  if (extra.length) lines.push(`Noted: ${extra.join(' · ')}.`)
+  if (bp) lines.push(`I'll map **${bp.subsystems.length} components**, **${bp.sensors.length} sensors** and **${bp.faults.length} fault modes** from the ${m.label} pack, on the ${bp.physics} physics model with 3-tier behaviour rules.`)
+  lines.push('Say **“build”** to wire it live.')
+  return lines.join('\n\n')
 }
 
 /** Minimal **bold** renderer for assistant messages. */
@@ -422,7 +494,6 @@ function Rich({ text }) {
 function Preview({ scene, created, domain }) {
   if (created?.kind === 'object') return <GlbViewer url={created.modelUrl} height={420} />
   if (scene) return <BimViewer scene={scene} tenant={created?.kind === 'building' ? created.tenant : undefined} />
-  // A committed building twin with no in-memory scene → fetch by tenant.
   if (created?.kind === 'building') return <BimViewer tenant={created.tenant} />
   if (domain === 'turbine-engine') return <TurbineModel height={420} />
   if (domain === 'edm-machine') return <div style={{ height: 420 }}><Scene3D domain="edm-machine" live={{}} height={420} /></div>

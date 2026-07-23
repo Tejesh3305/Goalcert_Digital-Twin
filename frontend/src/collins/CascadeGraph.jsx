@@ -2,6 +2,7 @@
 // between subsystems. Nodes are colored by health, edges pulse along the
 // propagation direction. Used in the Dashboard to replace plain-text cascade output.
 import React, { useMemo, useState } from 'react'
+import './collins.css'
 import { Icon } from './lib.jsx'
 
 // Parse a cascade text into a structured graph. The text typically contains

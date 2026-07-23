@@ -4,10 +4,8 @@ import Dashboard from './panels/Dashboard'
 import BuildTwin from './panels/BuildTwin'
 import Twins from './panels/Twins'
 import Predict from './panels/Predict'
-import Agents from './panels/Agents'
 import Copilot from './panels/Copilot'
 import Changelog from './panels/Changelog'
-import BundleAuthor from './panels/BundleAuthor'
 import Marketplace from './panels/Marketplace'
 
 // The twin platform's routed content, WITHOUT the app chrome (Topbar/Sidebar).
@@ -23,9 +21,7 @@ export default function TwinRoutes() {
       <Route path="/twins" element={<Twins />} />
       <Route path="/predict" element={<Predict />} />
       <Route path="/copilot" element={<Copilot />} />
-      <Route path="/agents" element={<Agents />} />
       <Route path="/changelog" element={<Changelog />} />
-      <Route path="/bundle-author" element={<BundleAuthor />} />
       <Route path="/marketplace" element={<Marketplace />} />
       <Route path="*" element={<Dashboard />} />
     </Routes>

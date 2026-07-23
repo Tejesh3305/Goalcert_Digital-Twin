@@ -102,7 +102,10 @@ TEMPLATES = {
         "primary_signal": "fleet:onTimePerformance",
         "seeds_feed": False,
         "machine": True,
-        "class_iri": FLEET + "TramNetwork",
+        # The fleet domain has no ontology class of its own; seed the network
+        # node as a governed rail network (the runtime picks the fleet physics
+        # from the twin's `domain`, not from this node class).
+        "class_iri": RAIL + "RailNetwork",
     },
     "railway-trainset": {
         "label": "Rolling Stock (Train Set)",

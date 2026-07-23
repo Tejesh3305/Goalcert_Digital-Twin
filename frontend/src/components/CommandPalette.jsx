@@ -98,7 +98,7 @@ export default function CommandPalette() {
       })),
       ...SIM_TWINS.map((s) => ({
         id: `sim:${s.domain}`, label: `Open ${s.label}`, icon: s.icon, group: 'Twin',
-        hint: 'simulated', action: openTwin(simTenantFor(s.domain)),
+        hint: s.tag, action: openTwin(simTenantFor(s.domain)),
       })),
       {
         id: 'theme', label: 'Toggle dark mode', icon: 'ti-moon', group: 'Action',

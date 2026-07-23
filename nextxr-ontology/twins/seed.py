@@ -16,16 +16,17 @@ log = logging.getLogger("nxr.twins.seed")
 # (template key, display name). These are the domains the hub renders a live
 # machine dashboard for, plus a generic facility.
 DEMO_TWINS = [
-    ("turbine-engine", "Gas Turbine — Demo"),
-    ("edm-machine", "Wire EDM — Demo"),
-    ("railway-metro", "Metro Rail Network — Demo"),
-    ("railway-trainset", "Rolling Stock — Demo"),
-    ("hospital-campus", "Hospital Campus — Demo"),
-    ("ev-charging-network", "EV Charging Network — Demo"),
-    ("ev-battery-pack", "EV Battery Pack — Demo"),
-    ("defence-base", "Military Base — Demo"),
-    ("defence-warship", "Warship — Demo"),
-    ("generic-facility", "Data Center — Demo"),
+    ("turbine-engine", "Gas Turbine"),
+    ("edm-machine", "Wire EDM"),
+    ("tram-network", "Melbourne Tram Network"),
+    ("railway-metro", "Singapore MRT"),
+    ("railway-trainset", "Rolling Stock"),
+    ("hospital-campus", "Hospital Campus"),
+    ("ev-charging-network", "EV Charging Network"),
+    ("ev-battery-pack", "EV Battery Pack"),
+    ("defence-base", "Military Base"),
+    ("defence-warship", "Warship"),
+    ("generic-facility", "Generic Facility"),
 ]
 
 

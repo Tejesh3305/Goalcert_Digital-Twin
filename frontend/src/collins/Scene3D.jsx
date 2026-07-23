@@ -2,6 +2,7 @@
 // (scene/engine.js), wires the inspector's "Ask AI" to the orchestrator, and
 // streams real telemetry onto all domain subsystems (not just EDM).
 import React, { useEffect, useRef } from 'react'
+import './collins.css'
 import { createViewer } from './scene/engine.js'
 import { SIG, sevClass, fmt } from './lib.jsx'
 import api from './api'

@@ -62,13 +62,32 @@ class SimulateRequest(BaseModel):
 
 @router.get("/domains")
 def list_machine_domains():
-    """The machine domains this runtime can twin (for the build-a-twin UI)."""
-    return {"domains": [
-        {"key": s["key"], "label": s["label"], "control": s["control"],
-         "signals": list(s["signals"].values()),
-         "faults": list(s.get("faults", []))}
-        for s in SPECS.values()
-    ]}
+    """The machine domains this runtime can twin (for the build-a-twin UI).
+
+    Each entry carries the pack's blueprint — the components (subsystems),
+    sensors (with labels + units), the control input, the physics model name and
+    the injectable fault catalogue — so Build-a-Twin can show exactly what it
+    maps for a chosen domain, grounded in the domain pack, not invented."""
+    from twins.service import TEMPLATES
+    out = []
+    for s in SPECS.values():
+        tpl = TEMPLATES.get(s["key"], {})
+        out.append({
+            "key": s["key"],
+            "label": s["label"],
+            "description": tpl.get("description", ""),
+            "control": s["control"],
+            "class_iri": s.get("class_iri"),
+            "physics": getattr(s.get("physics"), "__name__", "physics model"),
+            # components = the pack's subsystems
+            "subsystems": [{"key": k, "label": lbl} for k, lbl in s.get("subsystems", [])],
+            # sensors = signal + human label + unit (from the SPEC sensor map)
+            "sensors": [{"signal": sig, "label": lbl, "unit": unit}
+                        for sig, (lbl, unit) in s.get("sensors", {}).items()],
+            "signals": list(s["signals"].values()),
+            "faults": list(s.get("faults", [])),
+        })
+    return {"domains": out}
 
 
 @router.get("/{tenant}/state")

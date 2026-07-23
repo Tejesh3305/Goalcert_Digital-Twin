@@ -12,11 +12,9 @@ import { Link } from 'react-router-dom'
 import { Card } from './ui/Card'
 import { Empty } from './ui/States'
 import { HealthRing, Sparkline } from './ui/Viz'
-import RailwayNetworkMap from './RailwayNetworkMap'
 import RailwayDepotBoard from './RailwayDepotBoard'
 import HospitalCampusViews from './HospitalCampusViews'
 import EVNetworkViews from './EVNetworkViews'
-import EVBatteryHeatmap from './EVBatteryHeatmap'
 import DefenceBaseViews from './DefenceBaseViews'
 import DefenceDamageControl from './DefenceDamageControl'
 import TurbineModel from './TurbineModel'
@@ -37,6 +35,8 @@ import SignalHeatmap from '../collins/Heatmap'
 import CascadeGraph from '../collins/CascadeGraph'
 import EVWorld from '../collins/EVWorld'
 import CollinsNetworkMap from '../collins/NetworkMap'
+import BatteryPack from '../collins/BatteryPack'
+import MRTMap from '../collins/MRTMap'
 import { toCollinsDomain, toCollinsTwin, toCollinsLatest, maintSupported } from '../collins/adapter'
 import api, { assetUrl } from '../api/client'
 
@@ -171,10 +171,8 @@ export default function MachineDashboard({ tenant, domain, name }) {
           <CollinsNetworkMap tenant={tenant} running={running} height={460} />
         </Card>
       ) : domain === 'ev-battery-pack' ? (
-        <Card title={<><i className="ti ti-grid-dots" /> Battery Cell Heatmap</>}
-          action={<span className="pill pill-green">● live</span>} className="section-gap">
-          {net ? <EVBatteryHeatmap net={net} /> : <Empty label="Loading cells…" icon="ti-loader" />}
-        </Card>
+        /* BatteryPack renders its own card + battery-cells / solar-array toggle. */
+        <div className="section-gap"><BatteryPack live={collinsLive} height={340} /></div>
       ) : domain === 'defence-base' ? (
         <div className="section-gap"><DefenceBaseViews net={net} /></div>
       ) : domain === 'defence-warship' ? (
@@ -185,13 +183,11 @@ export default function MachineDashboard({ tenant, domain, name }) {
         </Card>
       ) : (
         /* 3D / network scene */
-        <Card title={<><i className={`ti ${meta.icon}`} /> {domain === 'railway-metro' ? 'Live Metro Network' : '3-D Twin'}</>}
-          action={isNetworkDomain(domain) && net?.blocked?.length
-            ? <span className="pill pill-red">{net.blocked.length} {domain === 'railway-metro' ? 'line' : 'route'} blocked</span>
-            : <span className="pill pill-green">● live</span>}
-          className="section-gap">
+        <Card title={<><i className={`ti ${meta.icon}`} /> {domain === 'railway-metro' ? 'Live Singapore MRT Network' : '3-D Twin'}</>}
+          action={<span className="pill pill-green">● live</span>}
+          className="section-gap" style={domain === 'railway-metro' ? { padding: 0, overflow: 'hidden' } : undefined}>
           {domain === 'railway-metro'
-            ? (net ? <RailwayNetworkMap net={net} /> : <Empty label="Loading network…" icon="ti-loader" />)
+            ? <MRTMap twin={{ latest: collinsLive, health }} height={480} />
             : reconUrl
               ? <GlbViewer url={reconUrl} height={340} label="Reconstructed model · live twin" />
               : domain === 'turbine-engine'

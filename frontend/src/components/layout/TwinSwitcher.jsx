@@ -24,13 +24,11 @@ export default function TwinSwitcher() {
           {t.name} ({t.domain})
         </option>
       ))}
-      <optgroup label="Simulated">
-        {SIM_TWINS.map((s) => (
-          <option key={s.domain} value={simTenantFor(s.domain)}>
-            {s.label} (sim)
-          </option>
-        ))}
-      </optgroup>
+      {SIM_TWINS.map((s) => (
+        <option key={s.domain} value={simTenantFor(s.domain)}>
+          {s.label}
+        </option>
+      ))}
     </select>
   )
 }
