@@ -125,14 +125,32 @@ def list_templates():
 
 @router.get("")
 def list_twins():
-    """List all registered twins, each with a quick entity summary."""
+    """List all registered twins, each with a quick entity summary.
+
+    Probe the graph ONCE for the whole listing. _entity_summary runs ten label
+    queries per twin, and with the database unreachable every one of them burns
+    the driver's full retry budget before giving up — ~4s each, so ~40s per twin.
+    Measured against a 14-twin registry with Neo4j down that made this endpoint
+    take ~9 MINUTES. It is the first call the UI makes, so the whole app looked
+    frozen rather than degraded. One probe up front keeps the failure fast: the
+    registry rows still render, just without counts.
+    """
     reg = _get_registry()
+    try:
+        get_driver().verify_connectivity()
+        graph_up = True
+    except Exception:
+        graph_up = False
+
     out = []
     for t in reg.list():
         d = t.to_dict()
-        d["summary"] = _entity_summary(t.tenant_id)
+        d["summary"] = (_entity_summary(t.tenant_id) if graph_up
+                        else {"by_label": {}, "total": 0})
         out.append(d)
-    return {"count": len(out), "twins": out}
+    # `degraded` lets the UI say "database offline" instead of implying the
+    # twins are genuinely empty.
+    return {"count": len(out), "twins": out, "degraded": not graph_up}
 
 
 @router.post("")
