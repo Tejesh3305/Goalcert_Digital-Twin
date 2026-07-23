@@ -27,7 +27,6 @@ const SENSOR_META = {
   fiO2: ['FiO₂', '%'],
   peep: ['PEEP', 'cmH₂O'],
   batteryLevel: ['Battery', '%'],
-  flowRate: ['Flow Rate', 'mL/h'],
   volumeInfused: ['Volume Infused', 'mL'],
   occlusionPressure: ['Occlusion Pressure', 'kPa'],
   chamberTemp: ['Chamber Temperature', '°C'],

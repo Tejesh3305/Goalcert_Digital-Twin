@@ -88,7 +88,7 @@ export default function CopilotChat({ tenant, machine, domain, mode = 'dashboard
       </div>
 
       <div className="chat-wrap">
-        <div className="chat-messages" style={{ height, maxHeight: height }}>
+        <div className="chat-messages" style={{ height, maxHeight: height, flex: 'none' }}>
           {messages.length === 0 && !busy && (
             <div className="empty" style={{ padding: '18px 0' }}>
               <i className="ti ti-message-chatbot" style={{ fontSize: 22, display: 'block', marginBottom: 6 }} />
