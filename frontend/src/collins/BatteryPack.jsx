@@ -1,12 +1,12 @@
 // BatteryPack.jsx — the cell-level energy twin for the EV site. Two toggleable views:
 //   • Battery cells — an isometric 3-D battery module of cylindrical cells that glow
 //     by temperature/health; every cell is SELECTABLE — click one to inspect its
-//     temp / voltage / SoH / internal-resistance. GoalCert's predictive AI singles
-//     out the failing hot-spot cell ("Cell 17 · fails in 42 days").
-//   • Solar array — a top-down view of the site's PV field: rows of panels with a
-//     sun-glint sweep, per-panel output, and the AI flagging an under-performing /
-//     soiled panel. Both react live to the EV telemetry frame.
-import React, { useMemo, useState } from 'react'
+//     telemetry in the side panel. The predictive AI singles out the failing cell.
+//   • Solar array — a top-down view of the PV field: click any array (panel) to see
+//     its telemetry on the side; the side panel always shows the overall + live
+//     telemetry. When the twin has no solar physics (the battery-pack twin), the
+//     array streams a built-in simulation so nothing is ever empty.
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import './collins.css'
 import { Icon } from './lib.jsx'
 
@@ -49,7 +49,7 @@ function buildCells(cellTempMax, risk, soh) {
   return arr
 }
 
-function buildPanels(totalKw) {
+function buildPanels(totalKw, irr0) {
   const base = Math.max(0, totalKw) / PN
   const arr = []
   for (let i = 0; i < PN; i++) {
@@ -60,11 +60,45 @@ function buildPanels(totalKw) {
     arr.push({
       i, r, c, factor, status,
       kw: +(base * factor).toFixed(2),
-      irr: Math.round(760 * clamp01(factor)),
+      irr: Math.round((irr0 || 760) * clamp01(factor)),
       temp: Math.round(38 + rnd(i, 7) * 10 + (status === 'crit' ? 9 : 0)),
     })
   }
   return arr
+}
+
+// ── Built-in solar simulation (used when the twin has no solar physics) ──────
+// A gentle day-curve so array output, irradiance, self-consumption and ambient
+// vary live instead of sitting empty.
+function solarFrame(phase) {
+  const dayN = clamp01(0.55 + 0.4 * Math.sin(phase) + (Math.random() - 0.5) * 0.05)
+  return {
+    output: Math.round(120 + 180 * dayN),   // kW  (~120–300)
+    irr: Math.round(280 + 640 * dayN),       // W/m²
+    selfUse: Math.round(50 + 24 * dayN),     // %
+    ambient: Math.round(26 + 12 * dayN),     // °C
+    dayN,
+  }
+}
+
+function useSolarSim() {
+  const [frame, setFrame] = useState(() => solarFrame(0.6))
+  const phase = useRef(0.6)
+  useEffect(() => {
+    const t = setInterval(() => { phase.current += 0.05; setFrame(solarFrame(phase.current)) }, 2000)
+    return () => clearInterval(t)
+  }, [])
+  return frame
+}
+
+// A labelled telemetry row for the side panel.
+function Tele({ label, value, unit, tone }) {
+  return (
+    <div className="bp-tele-row">
+      <span>{label}</span>
+      <b style={tone ? { color: tone } : undefined}>{value}{unit ? <span className="bp-tele-unit"> {unit}</span> : null}</b>
+    </div>
+  )
 }
 
 export default function BatteryPack({ live = {}, height = 340 }) {
@@ -76,20 +110,29 @@ export default function BatteryPack({ live = {}, height = 340 }) {
   const imbalance = live['ev:cellImbalance'] ?? 14
   const soh = live['ev:stateOfHealth'] ?? 93
   const risk = live['ev:thermalRunawayRisk'] ?? 2
-  const solarKw = live['ev:solarOutput'] ?? 210
+
+  // Solar: prefer the twin's real output if present, else the simulation.
+  const sim = useSolarSim()
+  const solarKw = live['ev:solarOutput'] ?? sim.output
+  const irr = live['ev:solarIrradiance'] ?? sim.irr
+  const selfUse = live['ev:selfConsumption'] ?? sim.selfUse
 
   const cells = useMemo(() => buildCells(cellTempMax, risk, soh), [cellTempMax, risk, soh])
-  const panels = useMemo(() => buildPanels(solarKw), [solarKw])
+  const panels = useMemo(() => buildPanels(solarKw, irr), [solarKw, irr])
 
-  // AI predicted failure horizon for the hot-spot cell
   const days = Math.max(2, Math.round(180 - risk * 2.6 - (100 - soh) * 6 - Math.max(0, cellTempMax - 34) * 3))
   const packTone = risk >= 40 ? 'crit' : cellTempMax >= 42 ? 'warn' : 'ok'
   const selCell = sel != null ? cells[sel] : null
 
   const faultPanel = panels[FAULT_PANEL]
   const arrayKw = panels.reduce((a, p) => a + p.kw, 0)
+  const avgYield = Math.round(panels.reduce((a, p) => a + p.factor, 0) / PN * 100)
+  const faults = panels.filter((p) => p.status !== 'ok').length
   const worstPanel = panels.reduce((a, p) => (p.factor < a.factor ? p : a), panels[0])
   const selPanel = selP != null ? panels[selP] : null
+  const failingCells = cells.filter((c) => c.failing).length
+
+  const clsFor = (s) => (s === 'crit' ? 'var(--accent-red)' : s === 'warn' ? 'var(--accent-amber)' : 'var(--text)')
 
   return (
     <div className="card" style={{ overflow: 'hidden' }}>
@@ -97,18 +140,19 @@ export default function BatteryPack({ live = {}, height = 340 }) {
         <Icon n={view === 'battery' ? 'ti-battery-4' : 'ti-solar-panel'} />
         {view === 'battery' ? 'Battery Module · Cell-Level Twin' : 'Solar Array · Panel-Level Twin'}
         <span className={`pill ${packTone === 'crit' ? 'pill-red' : packTone === 'warn' ? 'pill-amber' : 'pill-green'}`}>
-          {view === 'battery' ? `${N} cells` : `${PN} panels`}</span>
+          {view === 'battery' ? `${N} cells` : `${PN} arrays`}</span>
         <div className="bp-seg">
           <button className={view === 'battery' ? 'on' : ''} onClick={() => setView('battery')}>Battery cells</button>
           <button className={view === 'solar' ? 'on' : ''} onClick={() => setView('solar')}>Solar array</button>
         </div>
       </div>
 
-      {view === 'battery' ? (
-        <>
+      <div className="bp-body">
+        {/* ── left: the visualisation ── */}
+        {view === 'battery' ? (
           <div className="bp-stage" style={{ height }}>
             <div className="bp-module" style={{ gridTemplateColumns: `repeat(${COLS}, 1fr)` }}>
-              {cells.map(cell => {
+              {cells.map((cell) => {
                 const { c, glow } = tempColor(cell.temp)
                 return (
                   <button key={cell.i}
@@ -121,110 +165,130 @@ export default function BatteryPack({ live = {}, height = 340 }) {
                 )
               })}
             </div>
-
-            {selCell ? (
-              <div className="bp-insp">
-                <div className="bp-insp-h">
-                  <b>Cell {selCell.i}</b>
-                  <span className={`pill ${selCell.failing ? 'pill-red' : selCell.temp > 44 ? 'pill-amber' : 'pill-green'}`}>
-                    {selCell.failing ? 'FAILING' : selCell.temp > 44 ? 'WARM' : 'HEALTHY'}</span>
-                  <span className="bp-insp-x" onClick={() => setSel(null)}>✕</span>
-                </div>
-                <div className="bp-insp-grid">
-                  <div><span>Temp</span><b>{selCell.temp.toFixed(1)}°C</b></div>
-                  <div><span>Voltage</span><b>{selCell.volt.toFixed(2)} V</b></div>
-                  <div><span>Cell SoH</span><b>{selCell.soh}%</b></div>
-                  <div><span>Internal R</span><b>{selCell.esr} mΩ</b></div>
-                  <div><span>Position</span><b>R{selCell.r + 1}·C{selCell.c + 1}</b></div>
-                  <div><span>String</span><b>{Math.floor(selCell.i / COLS) + 1}</b></div>
-                </div>
-                {selCell.failing &&
-                  <div className="bp-insp-ai"><Icon n="ti-brain" /> Dendrite-growth precursor — projected failure in <b>{days} days</b>. Schedule module swap.</div>}
-              </div>
-            ) : (
-              <div className="bp-callout">
-                <div className="bp-callout-t"><Icon n="ti-brain" /> Predictive Battery Health</div>
-                <div className="bp-callout-m">Cell {HOTSPOT} — projected failure in <b>{days} days</b></div>
-                <div className="bp-callout-s">Dendrite-growth precursor · schedule module swap</div>
-              </div>
-            )}
             <div className="bp-hint"><Icon n="ti-hand-finger" /> Click a cell to inspect</div>
           </div>
-
-          <div className="bp-foot">
-            <div className="bp-legend">
-              <span><i style={{ background: '#38bdf8', borderRadius: '50%' }} /> Healthy</span>
-              <span><i style={{ background: '#fbbf24', borderRadius: '50%' }} /> Warm</span>
-              <span><i style={{ background: '#fb7185', borderRadius: '50%' }} /> Failing</span>
-            </div>
-            <div className="bp-stats">
-              <div><span>Cell max</span><b style={{ color: cellTempMax >= 42 ? 'var(--accent-red)' : 'var(--text)' }}>{cellTempMax.toFixed(1)}°C</b></div>
-              <div><span>Imbalance</span><b style={{ color: imbalance >= 35 ? 'var(--accent-amber)' : 'var(--text)' }}>{Math.round(imbalance)} mV</b></div>
-              <div><span>Pack SoH</span><b>{soh.toFixed(1)}%</b></div>
-              <div><span>Runaway risk</span><b style={{ color: risk >= 15 ? 'var(--accent-red)' : 'var(--text)' }}>{Math.round(risk)}%</b></div>
-            </div>
-          </div>
-        </>
-      ) : (
-        <>
+        ) : (
           <div className="bp-stage solar" style={{ height }}>
             <div className="bp-sun" />
             <div className="bp-array" style={{ gridTemplateColumns: `repeat(${P_COLS}, 1fr)` }}>
-              {panels.map(p => (
+              {panels.map((p) => (
                 <button key={p.i}
                   className={`bp-panel ${p.status} ${selP === p.i ? 'sel' : ''}`}
-                  title={`Panel ${panelName(p)} · ${p.kw.toFixed(1)} kW`}
+                  title={`Array ${panelName(p)} · ${p.kw.toFixed(1)} kW`}
                   style={{ '--pf': p.factor.toFixed(2) }}
                   onClick={() => setSelP(selP === p.i ? null : p.i)} />
               ))}
             </div>
-
-            {selPanel ? (
-              <div className="bp-insp">
-                <div className="bp-insp-h">
-                  <b>Panel {panelName(selPanel)}</b>
-                  <span className={`pill ${selPanel.status === 'crit' ? 'pill-red' : selPanel.status === 'warn' ? 'pill-amber' : 'pill-green'}`}>
-                    {selPanel.status === 'crit' ? 'FAULT' : selPanel.status === 'warn' ? 'REDUCED' : 'OPTIMAL'}</span>
-                  <span className="bp-insp-x" onClick={() => setSelP(null)}>✕</span>
-                </div>
-                <div className="bp-insp-grid">
-                  <div><span>Output</span><b>{selPanel.kw.toFixed(1)} kW</b></div>
-                  <div><span>Yield</span><b>{Math.round(selPanel.factor * 100)}%</b></div>
-                  <div><span>Irradiance</span><b>{selPanel.irr} W/m²</b></div>
-                  <div><span>Cell temp</span><b>{selPanel.temp}°C</b></div>
-                  <div><span>Position</span><b>R{selPanel.r + 1}·C{selPanel.c + 1}</b></div>
-                  <div><span>String</span><b>{selPanel.r + 1}</b></div>
-                </div>
-                {selPanel.status !== 'ok' &&
-                  <div className="bp-insp-ai"><Icon n="ti-brain" /> {selPanel.status === 'crit'
-                    ? 'Soiling / shading suspected — clean & re-test; check bypass diode.'
-                    : 'Below-band yield — schedule cleaning at next site visit.'}</div>}
-              </div>
-            ) : (
-              <div className="bp-callout">
-                <div className="bp-callout-t"><Icon n="ti-brain" /> Predictive Solar Health</div>
-                <div className="bp-callout-m">Panel {panelName(faultPanel)} — <b>{Math.round(faultPanel.factor * 100)}% yield</b></div>
-                <div className="bp-callout-s">Soiling / shading suspected · clean & inspect</div>
-              </div>
-            )}
-            <div className="bp-hint"><Icon n="ti-hand-finger" /> Click a panel to inspect</div>
+            <div className="bp-hint"><Icon n="ti-hand-finger" /> Click an array to inspect</div>
           </div>
+        )}
 
-          <div className="bp-foot">
-            <div className="bp-legend">
-              <span><i style={{ background: '#2456c8' }} /> Optimal</span>
-              <span><i style={{ background: '#f59e0b' }} /> Reduced</span>
-              <span><i style={{ background: '#ef4444' }} /> Fault</span>
-            </div>
-            <div className="bp-stats">
-              <div><span>Array output</span><b>{Math.round(arrayKw)} kW</b></div>
-              <div><span>Panels</span><b>{PN}</b></div>
-              <div><span>Worst</span><b style={{ color: 'var(--accent-red)' }}>{panelName(worstPanel)}</b></div>
-              <div><span>Avg yield</span><b>{Math.round(panels.reduce((a, p) => a + p.factor, 0) / PN * 100)}%</b></div>
-            </div>
+        {/* ── right: the telemetry side panel ── */}
+        <div className="bp-side">
+          {view === 'battery' ? (
+            <>
+              <div className="bp-side-h"><Icon n="ti-activity" /> Overall telemetry</div>
+              <div className="bp-tele">
+                <Tele label="Pack SoH" value={soh.toFixed(1)} unit="%" />
+                <Tele label="Cell max temp" value={cellTempMax.toFixed(1)} unit="°C" tone={cellTempMax >= 42 ? 'var(--accent-red)' : undefined} />
+                <Tele label="Imbalance" value={Math.round(imbalance)} unit="mV" tone={imbalance >= 35 ? 'var(--accent-amber)' : undefined} />
+                <Tele label="Runaway risk" value={Math.round(risk)} unit="%" tone={risk >= 15 ? 'var(--accent-red)' : undefined} />
+                <Tele label="Cells" value={N} />
+                <Tele label="Failing" value={failingCells} tone={failingCells ? 'var(--accent-red)' : 'var(--accent-green)'} />
+              </div>
+
+              <div className="bp-side-h">{selCell ? <><Icon n="ti-battery-4" /> Cell {selCell.i}</> : <><Icon n="ti-list" /> Live telemetry</>}</div>
+              {selCell ? (
+                <>
+                  <div className="bp-tele">
+                    <Tele label="Temp" value={selCell.temp.toFixed(1)} unit="°C" tone={selCell.temp > 44 ? 'var(--accent-red)' : undefined} />
+                    <Tele label="Voltage" value={selCell.volt.toFixed(2)} unit="V" />
+                    <Tele label="Cell SoH" value={selCell.soh} unit="%" />
+                    <Tele label="Internal R" value={selCell.esr} unit="mΩ" />
+                    <Tele label="Position" value={`R${selCell.r + 1}·C${selCell.c + 1}`} />
+                    <Tele label="String" value={Math.floor(selCell.i / COLS) + 1} />
+                  </div>
+                  <div className={`bp-side-ai ${selCell.failing ? 'crit' : ''}`}>
+                    <Icon n="ti-brain" /> {selCell.failing
+                      ? <>Dendrite-growth precursor — projected failure in <b>{days} days</b>. Schedule module swap.</>
+                      : 'Cell within nominal band — no action required.'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bp-tele">
+                    <Tele label="Hot-spot cell" value={`#${HOTSPOT}`} />
+                    <Tele label="Failure ETA" value={days} unit="days" tone={days < 30 ? 'var(--accent-red)' : undefined} />
+                    <Tele label="Coolant" value={(live['ev:coolantTemp'] ?? 29).toFixed?.(1) ?? live['ev:coolantTemp'] ?? 29} unit="°C" />
+                    <Tele label="State of charge" value={Math.round(live['ev:stateOfCharge'] ?? 64)} unit="%" />
+                  </div>
+                  <div className="bp-side-ai"><Icon n="ti-brain" /> Predictive battery health — cell {HOTSPOT} projected failure in <b>{days} days</b> (dendrite-growth precursor).</div>
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="bp-side-h"><Icon n="ti-activity" /> Overall telemetry</div>
+              <div className="bp-tele">
+                <Tele label="Array output" value={Math.round(arrayKw)} unit="kW" />
+                <Tele label="Irradiance" value={irr} unit="W/m²" />
+                <Tele label="Avg yield" value={avgYield} unit="%" tone={avgYield < 80 ? 'var(--accent-amber)' : undefined} />
+                <Tele label="Arrays online" value={`${PN - faults}/${PN}`} tone={faults ? 'var(--accent-amber)' : 'var(--accent-green)'} />
+                <Tele label="Self-consumption" value={selfUse} unit="%" />
+                <Tele label="Worst array" value={panelName(worstPanel)} tone="var(--accent-red)" />
+              </div>
+
+              <div className="bp-side-h">{selPanel ? <><Icon n="ti-solar-panel" /> Array {panelName(selPanel)}</> : <><Icon n="ti-list" /> Live telemetry</>}</div>
+              {selPanel ? (
+                <>
+                  <div className="bp-tele">
+                    <Tele label="Output" value={selPanel.kw.toFixed(1)} unit="kW" tone={clsFor(selPanel.status)} />
+                    <Tele label="Yield" value={Math.round(selPanel.factor * 100)} unit="%" tone={clsFor(selPanel.status)} />
+                    <Tele label="Irradiance" value={selPanel.irr} unit="W/m²" />
+                    <Tele label="Cell temp" value={selPanel.temp} unit="°C" />
+                    <Tele label="Position" value={`R${selPanel.r + 1}·C${selPanel.c + 1}`} />
+                    <Tele label="Status" value={selPanel.status === 'crit' ? 'FAULT' : selPanel.status === 'warn' ? 'REDUCED' : 'OPTIMAL'} tone={clsFor(selPanel.status)} />
+                  </div>
+                  <div className={`bp-side-ai ${selPanel.status === 'crit' ? 'crit' : ''}`}>
+                    <Icon n="ti-brain" /> {selPanel.status === 'crit'
+                      ? 'Soiling / shading suspected — clean & re-test; check the bypass diode.'
+                      : selPanel.status === 'warn'
+                        ? 'Below-band yield — schedule cleaning at the next site visit.'
+                        : 'Array performing to spec.'}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="bp-tele">
+                    <Tele label="Peak array" value={panelName(panels.reduce((a, p) => (p.factor > a.factor ? p : a), panels[0]))} />
+                    <Tele label="Ambient" value={sim.ambient} unit="°C" />
+                    <Tele label="Faulted arrays" value={faults} tone={faults ? 'var(--accent-amber)' : 'var(--accent-green)'} />
+                    <Tele label="Flagged" value={panelName(faultPanel)} tone="var(--accent-red)" />
+                  </div>
+                  <div className="bp-side-ai"><Icon n="ti-brain" /> Predictive solar health — array {panelName(faultPanel)} at <b>{Math.round(faultPanel.factor * 100)}% yield</b>; soiling / shading suspected, clean & inspect.</div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* legend */}
+      <div className="bp-foot">
+        {view === 'battery' ? (
+          <div className="bp-legend">
+            <span><i style={{ background: '#38bdf8', borderRadius: '50%' }} /> Healthy</span>
+            <span><i style={{ background: '#fbbf24', borderRadius: '50%' }} /> Warm</span>
+            <span><i style={{ background: '#fb7185', borderRadius: '50%' }} /> Failing</span>
           </div>
-        </>
-      )}
+        ) : (
+          <div className="bp-legend">
+            <span><i style={{ background: '#2456c8' }} /> Optimal</span>
+            <span><i style={{ background: '#f59e0b' }} /> Reduced</span>
+            <span><i style={{ background: '#ef4444' }} /> Fault</span>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

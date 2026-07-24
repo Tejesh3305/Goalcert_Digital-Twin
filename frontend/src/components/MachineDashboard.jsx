@@ -172,7 +172,7 @@ export default function MachineDashboard({ tenant, domain, name }) {
         </Card>
       ) : domain === 'ev-battery-pack' ? (
         /* BatteryPack renders its own card + battery-cells / solar-array toggle. */
-        <div className="section-gap"><BatteryPack live={collinsLive} height={340} /></div>
+        <div className="section-gap"><BatteryPack live={collinsLive} height={380} /></div>
       ) : domain === 'defence-base' ? (
         <div className="section-gap"><DefenceBaseViews net={net} /></div>
       ) : domain === 'defence-warship' ? (
