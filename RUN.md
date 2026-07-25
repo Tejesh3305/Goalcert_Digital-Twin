@@ -29,33 +29,66 @@ python -m server.main           # http://localhost:8080
 
 ## Where local state goes
 
-By default the twin registry, change log, agent bundles, checkpoints and the BIM
-scene cache are **SQLite files** under `nextxr-ontology/data/`. Nothing extra to
-run — this is the default precisely so you can work offline.
+Three stores, and each has a **task-local fallback** so you can work offline with
+nothing running:
 
-Production uses **RDS PostgreSQL 16** instead (AWS_DEPLOYMENT.md §7). To exercise
-that same code path locally — worth doing before a deploy, since it is a
-different SQL dialect:
+| Store | Production | Fallback when unset |
+|---|---|---|
+| Records — twins, change log, bundles, checkpoints, scenes, 3-D jobs | RDS Postgres 16 (`NXR_DATABASE_URL`) | SQLite files in `nextxr-ontology/data/` |
+| Blobs — generated GLBs, 3-D artifacts | S3 (`NXR_S3_BUCKET`) | files in `data/blobs/` |
+| Event bus | ElastiCache Redis (`NXR_REDIS_URL`) | in-memory, this process only |
+
+The fallbacks are correct for one process and **wrong for a multi-task deploy** —
+each is per-task, and none of them errors. That is why the deploy sets
+`NXR_REQUIRE_DB` / `NXR_REQUIRE_S3` / `NXR_REQUIRE_REDIS`, which turn a missing
+variable into a refusal to start (AWS_DEPLOYMENT.md §9).
+
+### Run the production shape locally
+
+`docker compose` brings up the real thing — Postgres 16, Redis 7 and **MinIO**
+(S3-compatible), so the same code paths run as on AWS. Worth doing before any
+deploy; the full procedure is AWS_DEPLOYMENT.md §11.
 
 ```powershell
-docker compose up -d postgres
-$env:NXR_DATABASE_URL="postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+docker compose up -d            # Neo4j + Postgres + Redis + MinIO (+ bucket)
+
+$env:NXR_DATABASE_URL  = "postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+$env:NXR_REDIS_URL     = "redis://localhost:6379/0"
+$env:NXR_S3_BUCKET     = "nextxr-blobs"
+$env:NXR_S3_ENDPOINT_URL     = "http://localhost:9000"
+$env:NXR_S3_ADDRESSING_STYLE = "path"
+$env:AWS_ACCESS_KEY_ID = "nextxr"; $env:AWS_SECRET_ACCESS_KEY = "nextxr2026"
+$env:AWS_REGION        = "us-east-1"
+$env:NXR_REQUIRE_DB="1"; $env:NXR_REQUIRE_S3="1"; $env:NXR_REQUIRE_REDIS="1"
+
 cd nextxr-ontology
 python -m db.schema             # provision (idempotent); --check to inspect
 python -m server.main
 ```
 
-The server prints a `[db]` line at startup saying which backend it is on, and
-`/api/v1/health` reports it under `database`. Unset `NXR_DATABASE_URL` to go back
-to the SQLite files — they are untouched by any of this, so you can switch freely.
+The server prints its posture at startup — this is the same thing you read in
+CloudWatch after a deploy:
+
+```
+[db]    PostgreSQL - postgresql://nextxr:***@localhost:5432/nextxr (pool 1-10 per task)
+[blobs] S3 - bucket=nextxr-blobs prefix=/ endpoint=http://localhost:9000
+[bus]   Redis Streams - redis://localhost:6379/0
+```
+
+`/api/v1/health` reports all of it under `database`, `blobs` and `bus`. MinIO's
+console is at http://localhost:9001 (nextxr / nextxr2026) if you want to see the
+GLBs land.
+
+Clear those variables to go back to zero-dependency offline dev — the SQLite
+files and local blobs are untouched, so you can switch back and forth freely.
 
 To copy existing SQLite data into Postgres: `python -m db.migrate --dry-run`,
 then `python -m db.migrate`.
 
-> If port 5432 is already taken by a locally-installed PostgreSQL, either stop it
-> or map the container elsewhere (`ports: "5433:5432"`) and use that port in the
-> URL — the symptom is a confusing `password authentication failed` from the
-> *other* server.
+> **Port 5432 already taken?** A locally-installed PostgreSQL owns it and the
+> container silently cannot bind — you then connect "fine" and get `password
+> authentication failed` from the *other* server. Start with
+> `POSTGRES_PORT=5433 docker compose up -d postgres` and use 5433 in the URL.
 
 ---
 

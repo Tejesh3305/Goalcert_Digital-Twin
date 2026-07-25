@@ -29,7 +29,9 @@ from graph.connection import get_driver
 from graph.query import GraphQuery, LEGAL_LABELS
 from changelog.service import ChangeLog
 from bus import get_event_bus
+import bus as bus_pkg
 import db
+import storage
 
 router = APIRouter(prefix="/api/v1", tags=["graph"])
 
@@ -438,20 +440,47 @@ def health():
     database down" (degraded) from "server unreachable" (network error). The
     body carries the real component status:
 
-      status:   "healthy"   — server, Neo4j and the relational store all up
-                "degraded"  — server up, a dependency unreachable
+      status:   "healthy"   — every dependency up and correctly configured
+                "degraded"  — server up, something below is not
       neo4j:    "connected" | "unreachable"
       database: relational store (RDS Postgres, or SQLite in dev) — backend,
                 redacted endpoint, pool bounds and reachability
-      bus:      event-bus backend stats (redis / memory / null)
+      blobs:    object store (S3, or local filesystem in dev) — backend,
+                bucket/prefix and a real write+read+delete probe
+      bus:      event-bus backend (redis / memory / null) + whether Redis is
+                required by configuration
 
     Returning 503 here made the whole UI look dead whenever Neo4j was down,
     even though the app shell, twins registry, schema, and event bus all work.
     The frontend shows an amber 'degraded' state instead — which is also why
     the ALB target-group check cannot see a database outage on its own, and
-    why AWS_DEPLOYMENT.md §10 asks for a CloudWatch alarm on this payload."""
-    bus_info = get_event_bus().stats()
+    why AWS_DEPLOYMENT.md §10 asks for a CloudWatch alarm on this payload.
+
+    NOTE on `bus`: an in-memory bus reports healthy: true, because as a process
+    it IS working. It is nonetheless wrong on a multi-task deploy — each task
+    would see only its own events. `required` and `scale_safe` make that visible
+    here rather than leaving it to be discovered as "live updates sometimes stop"."""
+    bus_obj = get_event_bus()
+    bus_info = dict(bus_obj.stats())
+    bus_info["required"] = bus_pkg.redis_required()
+    # The one field an operator can alarm on before scaling out.
+    bus_info["scale_safe"] = bus_obj.backend in ("redis", "null")
+    if bus_obj.backend == "redis":
+        bus_info["url"] = bus_pkg.redacted_redis_url()
+
     db_info = db.info()
+    blob_info = storage.info()
+
+    # Which twins' physics THIS task drives. Across the fleet every tenant
+    # should appear exactly once; a tenant in two tasks' `owned` lists at the
+    # same time means leases are not holding and findings are being written
+    # twice (twins/coordinator.py).
+    try:
+        from twins.coordinator import get_coordinator
+        runtime_info = get_coordinator().stats()
+    except Exception as e:
+        runtime_info = {"enabled": False, "detail": str(e)}
+
     detail = None
     try:
         get_driver().verify_connectivity()
@@ -460,9 +489,15 @@ def health():
         neo4j = "unreachable"
         detail = str(e)
 
-    healthy = neo4j == "connected" and db_info.get("status") == "connected"
+    healthy = (neo4j == "connected"
+               and db_info.get("status") == "connected"
+               and blob_info.get("status") == "connected"
+               # Only a *configured* requirement can make the bus fail health;
+               # local dev on the in-memory bus stays "healthy".
+               and (not bus_pkg.redis_required() or bus_obj.backend == "redis"))
     out = {"status": "healthy" if healthy else "degraded",
-           "neo4j": neo4j, "database": db_info, "bus": bus_info}
+           "neo4j": neo4j, "database": db_info, "blobs": blob_info,
+           "bus": bus_info, "twin_runtime": runtime_info}
     if detail:
         out["detail"] = detail
     return out

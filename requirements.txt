@@ -38,10 +38,18 @@ psycopg2-binary>=2.9.9
 # (IsolationForest) slots behind the same Behavior interface; the shipped
 # z-score baseline is dependency-free.
 
-# Event bus (Redis Streams). The bus is best-effort with an automatic
-# in-memory fallback, so this dependency is OPTIONAL at runtime: if redis
-# isn't installed or the server is unreachable, the platform still runs.
+# Event bus (Redis Streams). The bus is best-effort with an automatic in-memory
+# fallback, so this is OPTIONAL for a single-process run. It is NOT optional for
+# a deploy: the fallback is per-process, so at 2+ tasks each task would see only
+# its own events. Set NXR_REQUIRE_REDIS=1 there and the app refuses to start
+# rather than degrade silently. See AWS_DEPLOYMENT.md §9.
 redis>=5.0
+
+# Blob store (storage/) — generated GLBs and 3-D job artifacts on S3. Same
+# optional-at-runtime story: without NXR_S3_BUCKET the local filesystem backend
+# is used and boto3 is never imported. Required for a multi-task deploy, where a
+# model written to one task's disk 404s on the others (NXR_REQUIRE_S3=1).
+boto3>=1.34
 
 # 3-D generation platform (server/threed_platform — photo of an object →
 # TRELLIS/RunPod → GLB; used by Build a Twin's object-photo path).

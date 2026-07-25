@@ -16,22 +16,32 @@ fallback (and for tests / no-Docker runs).
 
 from .event_bus import (
     BusEvent,
+    BusUnavailable,
     EventBus,
     InMemoryBus,
     NullBus,
     RedisStreamBus,
     get_event_bus,
+    log_posture,
+    redacted_redis_url,
+    redis_required,
+    redis_url,
     reset_event_bus,
     stream_key,
 )
 
 __all__ = [
     "BusEvent",
+    "BusUnavailable",
     "EventBus",
     "InMemoryBus",
     "NullBus",
     "RedisStreamBus",
     "get_event_bus",
+    "log_posture",
+    "redacted_redis_url",
+    "redis_required",
+    "redis_url",
     "reset_event_bus",
     "stream_key",
 ]

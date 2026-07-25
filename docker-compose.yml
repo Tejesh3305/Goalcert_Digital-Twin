@@ -28,11 +28,16 @@ services:
   # nextxr-ontology/data/ exactly as before, so nothing here is required to work
   # offline. Point at it with:
   #   $env:NXR_DATABASE_URL="postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+  #
+  # If you already run PostgreSQL natively it owns host port 5432 and this
+  # container cannot bind it. The failure is confusing — you connect "fine" and
+  # get `password authentication failed`, from the OTHER server. Set
+  # POSTGRES_PORT=5433 (and use that port in the URL) instead of stopping yours.
   postgres:
     image: postgres:16-alpine
     container_name: nxr-postgres
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nextxr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextxr2026}
@@ -59,6 +64,47 @@ services:
       timeout: 5s
       retries: 10
 
+  # Stands in for S3: the blob store for generated GLBs and 3-D job artifacts.
+  # MinIO speaks the S3 API, so the SAME storage/ code path runs locally as in
+  # production — the only difference is NXR_S3_ENDPOINT_URL. Console on :9001
+  # (nextxr / nextxr2026).
+  #
+  # OPTIONAL locally: with NXR_S3_BUCKET unset the blob store writes files under
+  # nextxr-ontology/data/blobs/ instead, so offline work needs none of this.
+  minio:
+    image: minio/minio:latest
+    container_name: nxr-minio
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # web console
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-nextxr}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-nextxr2026}
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Creates the bucket once MinIO is up, so `docker compose up -d` leaves a
+  # ready-to-use blob store rather than a bucket-not-found on first upload.
+  minio-init:
+    image: minio/mc:latest
+    container_name: nxr-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-nextxr} ${MINIO_ROOT_PASSWORD:-nextxr2026} &&
+      mc mb --ignore-existing local/${NXR_S3_BUCKET:-nextxr-blobs} &&
+      echo 'bucket ready: ${NXR_S3_BUCKET:-nextxr-blobs}'
+      "
+    restart: "no"
+
   # The server runs in a container ONLY when you opt in with the "full" profile:
   #     docker compose --profile full up -d
   # By default `docker compose up -d` starts just Neo4j + Redis, and you run the
@@ -82,15 +128,30 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-nextxr2026}
-      NXR_REDIS_URL: redis://redis:6379/0
-      # Stands in for the RDS endpoint. Unset this to fall back to SQLite files.
+      # ── The three shared stores. This block mirrors the ECS task definition:
+      #    Postgres = records, MinIO/S3 = blobs, Redis = live events.
       NXR_DATABASE_URL: postgresql://${POSTGRES_USER:-nextxr}:${POSTGRES_PASSWORD:-nextxr2026}@postgres:5432/${POSTGRES_DB:-nextxr}
+      NXR_REDIS_URL: redis://redis:6379/0
+      NXR_S3_BUCKET: ${NXR_S3_BUCKET:-nextxr-blobs}
+      NXR_S3_ENDPOINT_URL: http://minio:9000
+      NXR_S3_ADDRESSING_STYLE: path        # MinIO needs path-style
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-nextxr}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-nextxr2026}
+      AWS_REGION: us-east-1
+      # ── Production posture: refuse to start on a per-task fallback. This is
+      #    what makes the compose stack a faithful rehearsal of the deploy.
+      NXR_REQUIRE_DB: "1"
+      NXR_REQUIRE_S3: "1"
+      NXR_REQUIRE_REDIS: "1"
 
 volumes:
   neo4j_data:
   postgres_data:
   redis_data:
+  minio_data:

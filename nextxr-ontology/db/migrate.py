@@ -24,11 +24,22 @@ reported per tenant.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
 
 from . import core, schema
+
+
+def storage_backend() -> str:
+    """Where blobs are going. Worth printing: migrating artifacts into the LOCAL
+    backend just moves files around this machine and is almost never intended."""
+    try:
+        import storage
+        return storage.backend()
+    except Exception:
+        return "unavailable"
 
 # store -> (sqlite file, table, columns, conflict key)
 PLAN = [
@@ -125,6 +136,68 @@ def _fix_events_sequence() -> None:
             "COALESCE((SELECT MAX(seq) FROM events), 1), true)")
 
 
+def _migrate_threed(source: Path, dry: bool) -> tuple[int, int]:
+    """Move 3-D jobs off disk: job.json -> threed_jobs, files -> the blob store.
+
+    Returns (jobs, artifacts). This is easy to skip and expensive to skip: a
+    scanned-object twin's model_url points at
+    /api/v1/threed/api/jobs/<id>/file/<path>, so leaving the artifacts behind
+    breaks the 3-D view of every twin built from a photo the moment the old
+    volume goes away.
+
+    The 3-D platform reads its OWN data dir (`DATA_DIR`, default <data>/threed),
+    which is why this looks in two places rather than assuming one.
+    """
+    import storage
+    from server.threed_platform.app.store import blob_key
+
+    roots = []
+    env_dir = os.environ.get("DATA_DIR")
+    if env_dir:
+        roots.append(Path(env_dir) / "jobs")
+    roots += [source / "threed" / "jobs", source / "jobs"]
+
+    root = next((r for r in roots if r.is_dir()), None)
+    if root is None:
+        return 0, 0
+
+    jobs = artifacts = 0
+    for jdir in sorted(p for p in root.iterdir() if p.is_dir()):
+        jf = jdir / "job.json"
+        if not jf.is_file():
+            continue
+        try:
+            job = json.loads(jf.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        jobs += 1
+        files = [p for p in jdir.rglob("*") if p.is_file() and p.name != "job.json"]
+        artifacts += len(files)
+        if dry:
+            continue
+
+        job_id = job.get("id") or jdir.name
+        with core.connect("threed") as conn:
+            conn.execute(
+                "INSERT INTO threed_jobs (job_id, status, stage, filename, "
+                "fields, stages, state, error, created, updated) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT (job_id) DO NOTHING",
+                (job_id, job.get("status", "done"), job.get("stage"),
+                 job.get("filename"), core.Json(job.get("fields") or {}),
+                 core.Json(job.get("stages") or []),
+                 core.Json(job.get("state") or {}), job.get("error"),
+                 float(job.get("created") or 0), float(job.get("updated") or 0)),
+            )
+        store = storage.get_store()
+        for f in files:
+            rel = str(f.relative_to(jdir)).replace("\\", "/")
+            try:
+                store.put_file(blob_key(job_id, rel), f)
+            except Exception:
+                artifacts -= 1     # count only what actually landed
+    return jobs, artifacts
+
+
 def _migrate_scenes(source: Path, dry: bool) -> int:
     """Load data/scenes/*.json into the scene_cache table."""
     d = source / "scenes"
@@ -196,6 +269,11 @@ def main(argv: list[str]) -> int:
     if not dry:
         schema.ensure_all(strict=True)
 
+    if not dry and storage_backend() == "local":
+        print("\nNOTE: NXR_S3_BUCKET is not set, so 3-D artifacts will be copied "
+              "into the LOCAL blob directory, not S3.\n      Set it before "
+              "migrating if this is a cutover to a multi-task deploy.")
+
     if truncate and not dry:
         print("\n--truncate: emptying target tables first")
         for store, _f, table, *_ in PLAN:
@@ -203,6 +281,8 @@ def main(argv: list[str]) -> int:
                 conn.execute(f"DELETE FROM {table}")
         with core.connect("scenes") as conn:
             conn.execute("DELETE FROM scene_cache")
+        with core.connect("threed") as conn:
+            conn.execute("DELETE FROM threed_jobs")
 
     print(f"\n  {'table':<20} {'read':>7} {'written':>8} {'target now':>11}")
     print("  " + "-" * 50)
@@ -216,6 +296,11 @@ def main(argv: list[str]) -> int:
 
     scenes = _migrate_scenes(source, dry)
     print(f"  {'scene_cache':<20} {scenes:>7} {'-' if dry else scenes:>8}")
+
+    n_jobs, n_art = _migrate_threed(source, dry)
+    print(f"  {'threed_jobs':<20} {n_jobs:>7} {'-' if dry else n_jobs:>8}")
+    print(f"  {'  + artifacts -> blobs':<20} {n_art:>7} {'-' if dry else n_art:>8}"
+          f"   [{storage_backend()}]")
 
     if dry:
         print("\nDry run - nothing was written.")

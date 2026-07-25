@@ -168,12 +168,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         log_auth_posture()
         # Same reasoning as the auth line: a misconfigured deploy must announce
-        # itself at boot rather than be discovered when twins go missing.
-        try:
-            import db
-            db.log_posture()
-        except Exception:
-            pass
+        # itself at boot rather than be discovered when twins go missing, models
+        # 404 on half the tasks, or live updates quietly stop for some users.
+        # These four lines are the deployment posture, and AWS_DEPLOYMENT.md §11
+        # tells operators to read them in CloudWatch after every rollout.
+        for mod in ("db", "storage", "bus"):
+            try:
+                __import__(mod).log_posture()
+            except Exception as e:
+                # bus.log_posture() re-raises BusUnavailable when Redis is
+                # mandatory. That must NOT be swallowed: refusing to start is the
+                # entire point of NXR_REQUIRE_REDIS.
+                if type(e).__name__ == "BusUnavailable":
+                    raise
+                print(f"[{mod}] posture unavailable: {e}", flush=True)
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path

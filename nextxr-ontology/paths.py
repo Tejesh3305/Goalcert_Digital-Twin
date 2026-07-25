@@ -12,25 +12,27 @@ anywhere.
 Set NXR_DATA_DIR to a mounted volume (EFS access point on ECS) and it persists.
 Unset, it resolves to the same path as before, so local dev is unchanged.
 
-WHAT IS STILL HERE — AND WHAT MOVED
------------------------------------
-The five SQLite stores that used to live here (`twins.db`, `changelog.db`,
-`bundles.db`, `agent_checkpoints.db`, `track3_gate.db`) now live in the shared
-relational store, `db/` — RDS PostgreSQL 16 in production. That is what lifted the
-"desired count = 1" constraint: SQLite over NFS/EFS is safe for a single writer, so
-the API could never be scaled out or rolling-deployed. See AWS_DEPLOYMENT.md §7.
+WHAT MOVED — AND WHAT THIS DIRECTORY IS NOW
+-------------------------------------------
+Everything durable has left it:
 
-In local dev with no NXR_DATABASE_URL set, `db/` still writes SQLite files under
-this same directory, so the paths below remain the on-disk truth offline.
+    records  ->  db/       RDS PostgreSQL 16  (twin registry, change log, agent
+                           bundles, checkpoints, scene cache, 3-D job records)
+    blobs    ->  storage/  S3                 (generated GLBs, 3-D artifacts)
 
-What genuinely remains file state:
+That is what lifted the "desired count = 1" constraint. SQLite over NFS/EFS is
+safe for a single writer and local files are per-task, so the API could never be
+scaled out or rolling-deployed. See AWS_DEPLOYMENT.md §7.
 
-    data/scenes/    reconstructed 3-D models (mirrored into the DB scene cache,
-                    which is what makes them correct across tasks)
+This directory is now (a) the local WORKING directory — 3-D pipeline scratch
+while a stage runs — and (b) the FALLBACK location both layers use when
+NXR_DATABASE_URL / NXR_S3_BUCKET are unset, which is the zero-dependency local
+dev default. So the paths below are still the on-disk truth offline, and mean
+nothing durable on a correctly-configured deploy.
 
-Blobs — the generated GLBs under DATA_DIR (the 3-D platform's own variable) — are
-still on the volume. Moving those to S3 is the remaining step for a fully
-stateless task; the relational move does not depend on it.
+Because the fallback is silent, a deploy should set NXR_REQUIRE_DB=1 and
+NXR_REQUIRE_S3=1; the app then refuses to start rather than quietly writing a
+tenant's twins to one task's disk.
 """
 from __future__ import annotations
 

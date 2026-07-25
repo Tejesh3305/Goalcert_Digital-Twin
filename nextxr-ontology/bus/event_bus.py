@@ -42,6 +42,21 @@ Selection
 
 So the platform ALWAYS has a working bus object — never ``None`` — and runs
 fine today with no Docker / no Redis.
+
+⚠ THE IN-MEMORY FALLBACK IS A ONE-PROCESS ANSWER
+------------------------------------------------
+It is correct at one task and SILENTLY WRONG at two: each task would publish to
+its own memory, so an SSE client attached to task A never sees a mutation made on
+task B. Nothing errors — the dashboard just stops updating for half the users.
+That is the worst kind of bug, so a real deployment must not be able to reach it
+by omission:
+
+    NXR_REQUIRE_REDIS=1   -> a real Redis connection is MANDATORY. If it cannot
+                             be reached, get_event_bus() raises instead of
+                             quietly degrading, and the container fails to start.
+
+Set it whenever desired count > 1 (see AWS_DEPLOYMENT.md §9). Leave it unset
+locally, where the fallback is exactly what you want.
 """
 
 from __future__ import annotations
@@ -345,13 +360,43 @@ def _truthy(val: Optional[str]) -> bool:
     return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def redis_required() -> bool:
+    """Whether a real Redis connection is mandatory (production posture)."""
+    return _truthy(os.getenv("NXR_REQUIRE_REDIS"))
+
+
+def redis_url() -> str:
+    return (os.getenv("NXR_REDIS_URL") or os.getenv("REDIS_URL")
+            or DEFAULT_REDIS_URL)
+
+
+def redacted_redis_url() -> str:
+    """The Redis URL without its password — safe for logs and /health."""
+    url = redis_url()
+    try:
+        from urllib.parse import urlsplit, urlunsplit
+        p = urlsplit(url)
+        host = p.hostname or ""
+        if p.port:
+            host = f"{host}:{p.port}"
+        netloc = f"{p.username or ''}:***@{host}" if p.password else host
+        return urlunsplit((p.scheme, netloc, p.path, "", ""))
+    except Exception:
+        return "redis://***"
+
+
+class BusUnavailable(RuntimeError):
+    """Redis is mandatory (NXR_REQUIRE_REDIS) but could not be reached."""
+
+
 def get_event_bus() -> EventBus:
     """Return the process-wide bus, creating it on first use.
 
     Selection order:
       1. NXR_BUS_DISABLED truthy            -> NullBus
       2. Redis reachable                    -> RedisStreamBus
-      3. otherwise                          -> InMemoryBus (fallback)
+      3. NXR_REQUIRE_REDIS set              -> raise BusUnavailable
+      4. otherwise                          -> InMemoryBus (fallback)
     """
     global _bus_singleton
     if _bus_singleton is not None:
@@ -368,12 +413,45 @@ def get_event_bus() -> EventBus:
 
         try:
             bus: EventBus = RedisStreamBus.connect()
-            log.info("Event bus: connected to Redis (%s)", DEFAULT_REDIS_URL)
+            log.info("Event bus: connected to Redis (%s)", redacted_redis_url())
         except Exception as e:
+            if redis_required():
+                # Refuse to degrade. At more than one task the in-memory bus
+                # splits the event stream per task with no error anywhere, so
+                # failing loudly here is the only way the problem is ever seen.
+                raise BusUnavailable(
+                    f"NXR_REQUIRE_REDIS is set but Redis at "
+                    f"{redacted_redis_url()} is unreachable: {e}. "
+                    "The in-memory fallback is per-process and would silently "
+                    "split events across tasks."
+                ) from e
             log.info("Event bus: Redis unavailable (%s) -> in-memory fallback", e)
             bus = InMemoryBus()
         _bus_singleton = bus
         return _bus_singleton
+
+
+def log_posture() -> None:
+    """Announce the bus backend at startup, alongside the [auth]/[db] lines.
+
+    ASCII only: this goes to a redirected stream under CloudWatch.
+    """
+    try:
+        bus = get_event_bus()
+    except BusUnavailable as e:
+        print(f"[bus] !! {e}", flush=True)
+        raise
+    if bus.backend == "redis":
+        print(f"[bus] Redis Streams - {redacted_redis_url()}", flush=True)
+    elif bus.backend == "null":
+        print("[bus] disabled via NXR_BUS_DISABLED - no events are published.",
+              flush=True)
+    else:
+        print("[bus] !! IN-MEMORY - events are visible only inside THIS process. "
+              "Fine for one task; with more than one task each task sees only "
+              "its own events and live updates silently break for some users. "
+              "Set NXR_REDIS_URL (and NXR_REQUIRE_REDIS=1) before scaling out.",
+              flush=True)
 
 
 def reset_event_bus(new_bus: Optional[EventBus] = None) -> None:

@@ -31,12 +31,14 @@ _T = {
         "json":      "JSONB",
         "ts":        "TIMESTAMPTZ",
         "ts_now":    "TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "float":     "DOUBLE PRECISION",
     },
     core.SQLITE: {
         "serial_pk": "INTEGER PRIMARY KEY AUTOINCREMENT",
         "json":      "TEXT",
         "ts":        "TEXT",
         "ts_now":    "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "float":     "REAL",
     },
 }
 
@@ -104,6 +106,26 @@ DDL: dict[str, list[str]] = {
                scene       {json} NOT NULL,
                updated_at  {ts_now}
            )""",
+    ],
+    # 3-D reconstruction jobs (photo -> GLB). The record was job.json on the
+    # task's own disk, so a browser polling job status through the load balancer
+    # got a 404 whenever the poll landed on a task that had not run the job. The
+    # heavy outputs live in the blob store (storage/); this is only the record.
+    "threed": [
+        """CREATE TABLE IF NOT EXISTS threed_jobs (
+               job_id    TEXT PRIMARY KEY,
+               status    TEXT NOT NULL,
+               stage     TEXT,
+               filename  TEXT,
+               fields    {json},
+               stages    {json},
+               state     {json},
+               error     TEXT,
+               created   {float} NOT NULL,
+               updated   {float} NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_threed_updated "
+        "ON threed_jobs (updated DESC)",
     ],
 }
 
@@ -186,7 +208,7 @@ def create_extensions() -> list[tuple[str, str]]:
 # ── CLI ─────────────────────────────────────────────────────────────────
 _TABLES = {"twins": ["twins"], "changelog": ["events"],
            "bundles": ["published_bundles"], "checkpoints": ["checkpoints"],
-           "scenes": ["scene_cache"]}
+           "scenes": ["scene_cache"], "threed": ["threed_jobs"]}
 
 
 def _row_count(store: str, table: str):

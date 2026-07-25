@@ -39,8 +39,11 @@ def _run(job_id: str) -> None:
         store.update(job_id, status="done", stage=None)
     except Exception as e:
         store.update(job_id, status="error", error=str(e))
+        # Publish the traceback too: on a multi-task deploy the task that failed
+        # is rarely the one you are looking at when you go to read it.
         (Path(store.job_dir(job_id)) / "error.log").write_text(
             traceback.format_exc(), encoding="utf-8")
+        store.publish(job_id, "error.log")
 
 
 def _run_stage(ctx: Ctx, stage) -> None:

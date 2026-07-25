@@ -7,19 +7,23 @@
 # copy baked in here just goes unused there, since traffic to the ECS task's "/" isn't
 # what serves the AWS frontend.
 #
-# STATE LIVES IN RDS AND ON A VOLUME, NOT IN THIS IMAGE.
-# Relational state — twin registry, change log, agent bundles, agent checkpoints, BIM
-# scene cache — lives in RDS PostgreSQL 16. NXR_DATABASE_URL is deliberately NOT set
-# here: it carries a password, so it is injected as a task-definition SECRET from
-# Secrets Manager (AWS_DEPLOYMENT.md §5.2/§7). Left unset the app silently falls back
-# to per-task SQLite files, which is correct for local dev and wrong for a deploy —
-# check the `[db]` line and /api/v1/health after the first rollout.
+# THE RUNNING TASK IS STATELESS. STATE LIVES IN RDS, S3 AND ELASTICACHE.
 #
-# Blobs — reconstructed 3-D models and generated GLBs — remain on the mounted volume.
-# Baking those into the image (the old `COPY nextxr-ontology/` did, .db files and all)
-# is worse than losing them: every redeploy would RESET the live twin registry to
-# whatever snapshot was committed to git. .dockerignore keeps them out; NXR_DATA_DIR
-# points at the EFS mount instead.
+#   records (twins, change log, bundles, checkpoints, scenes, 3-D jobs) -> RDS Postgres
+#   blobs   (generated GLBs, 3-D job artifacts)                         -> S3
+#   live events                                                         -> ElastiCache Redis
+#
+# None of NXR_DATABASE_URL / NXR_S3_BUCKET / NXR_REDIS_URL is set here. The first
+# carries a password (a task-definition SECRET from Secrets Manager), and all three are
+# environment-specific. Left unset the app silently falls back to PER-TASK storage —
+# right for local dev, wrong for a deploy, and it does not error. Set
+# NXR_REQUIRE_DB / NXR_REQUIRE_S3 / NXR_REQUIRE_REDIS in the task definition so a
+# missing one fails the boot instead, and read the [db]/[blobs]/[bus] lines after the
+# first rollout (AWS_DEPLOYMENT.md §5.2, §9, §12).
+#
+# /data is now only scratch — mounting EFS is optional (§7.4). Committed .db files are
+# still excluded from the image by .dockerignore: baking them in is worse than losing
+# them, since a redeploy would RESET the live twin registry to a git snapshot.
 
 FROM node:20-slim AS frontend-build
 WORKDIR /app/frontend
@@ -34,8 +38,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PORT=8080 \
-    # The EFS access point is mounted here by the task definition. Overridable; the code
-    # falls back to ./data when unset (local dev).
+    # Working directory for scratch, and the fallback location for records/blobs when
+    # NXR_DATABASE_URL / NXR_S3_BUCKET are unset. An EFS access point can be mounted
+    # here but is no longer required (§7.4). Overridable; the code falls back to ./data
+    # when unset (local dev).
     NXR_DATA_DIR=/data \
     # The 3-D platform (object-photo → GLB) uses its OWN data dir (threed_platform
     # app/config.py). Point it under the SAME mounted volume, or every generated

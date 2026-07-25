@@ -18,26 +18,35 @@ Route 53 ─▶ CloudFront (optional) ─▶ ALB ─▶ ECS Fargate service
                                               └─ N× task: nextxr-twin container (:8080)
                                                    env      ← task definition
                                                    secrets  ← Secrets Manager
-                                                   /data    ← EFS access point (uid/gid 10001)
                                               DESIRED COUNT = 2+  (see §9)
-                                              │
-                  ┌───────────────┬───────────┴───┬──────────────┬────────────────────┐
-                  ▼               ▼               ▼              ▼                     ▼
-            RDS PostgreSQL   Neo4j Aura        EFS          Secrets Manager     RunPod serverless
-            16 (Multi-AZ)    (or EC2)      (scenes+GLBs)    (keys, §5.2/§10)    GPU (TRELLIS) — external
-            via RDS Proxy
+                                              │   THE TASK IS STATELESS
+                  ┌───────────────┬───────────┴──┬──────────────┬───────────────────┐
+                  ▼               ▼              ▼              ▼                    ▼
+          RDS PostgreSQL 16      S3        ElastiCache      Neo4j Aura        RunPod serverless
+            (Multi-AZ)        (blobs:      Redis 7          (or EC2)         GPU (TRELLIS) —
+          via RDS Proxy       GLBs +      (event bus)                            external
+                             artifacts)
 ```
 
-Stateful components that must survive a redeploy: **RDS Postgres** (twin
-registry, change log, agent bundles, checkpoints, scene cache), **Neo4j** (graph
-structure) and the **EFS volume** (reconstructed `scenes/` and generated GLBs).
-Everything else — the API process, the LLM, the GPU worker — is stateless or
-external.
+Four stores, each with one job:
 
-> **Changed from the SQLite design.** Relational state used to be five SQLite
-> files on the EFS mount. SQLite over NFS/EFS is single-writer, so the service
-> was pinned at one task — no scale-out, no rolling deploy. That state now lives
-> in RDS (§7), which is what makes desired count > 1 legal.
+| Store | Holds | §  |
+|---|---|---|
+| **RDS Postgres 16** | records: twin registry, change log, agent bundles, checkpoints, scene cache, 3-D job records | §7 |
+| **S3** | blobs: generated GLBs and 3-D job artifacts | §7.3 |
+| **ElastiCache Redis 7** | the live event bus (one stream per tenant) | §9 |
+| **Neo4j** | the twin's graph: entities, relationships, findings | §6 |
+
+Everything else — the API process, the LLM, the GPU worker — is stateless or
+external. **The ECS task itself holds nothing durable**, which is what makes
+desired count > 1 and rolling deploys safe.
+
+> **Changed from the SQLite/EFS design.** Relational state used to be five SQLite
+> files on an EFS mount and generated models were local files. SQLite over
+> NFS/EFS is single-writer and local files are per-task, so the service was
+> pinned at one task. Moving records to RDS and blobs to S3 is what lifted that.
+> Each store still has a task-local fallback for offline dev — and a required-flag
+> so a deploy cannot land on one by accident (§9).
 
 ---
 
@@ -65,37 +74,48 @@ origin, or hub-embedded assets 404).
 | ECS cluster + Fargate service + task def | runs the container (desired count **2+**) |
 | Application Load Balancer + target group | fronts `:8080`; health check path `/api/v1/health` |
 | **RDS PostgreSQL 16** (Multi-AZ), private subnets | the relational store (§7) |
-| **RDS Proxy** (optional but recommended) | connection pooling across tasks (§7) |
-| EFS filesystem + access point (uid/gid **10001**) | the `/data` volume for blobs (§7.3) |
+| **S3 bucket** | blobs: generated GLBs + 3-D artifacts (§7.3) |
+| **ElastiCache Redis 7** (Multi-AZ), private subnets | the event bus (§9) |
+| **RDS Proxy** (optional but recommended) | connection pooling across tasks (§7.5) |
 | Secrets Manager secrets | API keys, DB URL/password (§5.2, §10) |
 | Neo4j Aura instance (or Neo4j on EC2) | the graph DB (§6) |
 | RunPod serverless endpoint | GPU reconstruction (§8) — external to AWS |
+| EFS filesystem + access point (uid/gid **10001**) | **optional** once S3 is set (§7.4) |
 
-Security groups: the RDS instance should accept 5432 **only** from the ECS task
-security group (and RDS Proxy), and live in the isolated/private subnets — it is
-never publicly addressable.
+Security groups: RDS (5432) and ElastiCache (6379) accept traffic **only** from
+the ECS task security group (and RDS Proxy), and live in the isolated/private
+subnets — neither is ever publicly addressable. Add an **S3 gateway VPC
+endpoint** so blob traffic skips the NAT gateway's per-GB charge.
 
 ---
 
 ## 4. First-deploy checklist (minimum to be safe & durable)
 
-1. **Set `NXR_DATABASE_URL`** to the RDS endpoint, as a *secret* (§7). Unset, the
-   app falls back to per-task SQLite and **nothing fails** — each task just serves
-   a different set of twins. Confirm the `[db] PostgreSQL — …` line in CloudWatch
-   and `database.backend: "postgres"` in `/api/v1/health` after the first deploy.
-2. **Provision the schema**: `python -m db.schema` (§7.1). The app self-provisions
+Full step-by-step with commands is §12; rehearse it locally first with §11. The
+short version — the things whose absence is silent:
+
+1. **Point at all three shared stores**: `NXR_DATABASE_URL` (a *secret*, §7),
+   `NXR_S3_BUCKET` (§7.3), `NXR_REDIS_URL` (§9). Any one left unset falls back to
+   task-local storage and **nothing fails** — you get a fleet that serves
+   different twins, 404s its own models, or stops sending live updates to half
+   the users.
+2. **Set the three guards**: `NXR_REQUIRE_DB=1`, `NXR_REQUIRE_S3=1`,
+   `NXR_REQUIRE_REDIS=1` (§9). This is what converts each of those into a loud
+   startup failure. Do not skip it because "the URLs are set" — that is exactly
+   the assumption the guards exist to check.
+3. **Provision the schema**: `python -m db.schema` (§7.1). The app self-provisions
    on first use, but running it explicitly turns a permissions problem into a
    clear error before traffic arrives.
-3. **Set `NXR_API_KEYS`** (+ optionally `NXR_REQUIRE_AUTH=1`) — closes the fail-open
-   hole (§10). Without it the API is public and unauthenticated.
-4. **Mount EFS at `/data`** and confirm the Dockerfile's `NXR_DATA_DIR=/data` **and**
-   `DATA_DIR=/data/threed` (§7.3) — otherwise generated GLBs are lost on task
-   replacement.
+4. **Set `NXR_API_KEYS`** (+ `NXR_REQUIRE_AUTH=1`) — closes the fail-open hole
+   (§10). Without it the API is public and unauthenticated.
 5. **Move every key to Secrets Manager** (§5.2) — nothing in `.env` on the task.
 6. **Stand up managed Neo4j** and rotate off the `nextxr2026` default (§6).
 7. **Restrict CORS** with `NXR_CORS_ORIGINS` (§10).
 8. **Migrating an existing deployment?** Run `python -m db.migrate --dry-run`,
    then `python -m db.migrate`, before pointing traffic at the new stack (§7.2).
+9. **Read the four posture lines** in CloudWatch after the rollout (§12.9):
+   `[auth]`, `[db]`, `[blobs]`, `[bus]`. They state the posture in plain words
+   and take ten seconds to check.
 
 ---
 
@@ -111,11 +131,15 @@ status for DB visibility.
 ### 5.1 Task definition (essentials)
 
 - **Container port** 8080; ALB → target group → 8080.
-- **User** uid/gid 10001 (baked into the image); the **EFS access point must use the
-  same uid/gid** or the first write to `/data` fails.
-- **Mount** the EFS access point at `/data`.
+- **User** uid/gid 10001 (baked into the image).
+- **Task role** with S3 object read/write on the blob bucket (§7.3) — this is the
+  app's own identity, distinct from the execution role that injects secrets.
+- **No volume required.** Mount EFS only if you want 3-D scratch to survive a
+  task replacement (§7.4); if you do, the access point must use uid/gid **10001**
+  or the first write to `/data` fails.
 - **Logging** to CloudWatch (`awslogs` driver). `PYTHONUNBUFFERED=1` is already set,
-  so stdout (including the `[auth]` posture line, §10) reaches CloudWatch.
+  so stdout — the `[auth]`, `[db]`, `[blobs]` and `[bus]` posture lines — reaches
+  CloudWatch.
 
 ### 5.2 Environment & secrets
 
@@ -124,15 +148,20 @@ Plain **environment** (task-def `environment:`):
 | Var | Value | Notes |
 |---|---|---|
 | `PORT` | `8080` | ALB target port |
-| `NXR_DATA_DIR` | `/data` | EFS mount — blobs only now (§7.3) |
-| `DATA_DIR` | `/data/threed` | 3-D platform artifacts under the same volume (§7.3) |
 | `NEO4J_URI` | `neo4j+s://<aura-id>.databases.neo4j.io` | managed Neo4j (§6) |
 | `NEO4J_USER` | `neo4j` | |
-| `NXR_DB_POOL_MAX` | `10` | per-task pool ceiling; server-side total is tasks × this (§7.4) |
+| `NXR_S3_BUCKET` | `nextxr-twin-blobs` | blob store (§7.3); access via the task role |
+| `NXR_S3_PREFIX` | `prod` | optional — share one bucket across environments |
+| `NXR_REDIS_URL` | `redis://…cache.amazonaws.com:6379/0` | event bus (§9) |
+| `NXR_REQUIRE_DB` | `1` | refuse to start on the SQLite fallback (§9) |
+| `NXR_REQUIRE_S3` | `1` | refuse to start on local-disk blobs (§9) |
+| `NXR_REQUIRE_REDIS` | `1` | refuse to start on the in-memory bus (§9) |
+| `NXR_DB_POOL_MAX` | `10` | per-task pool ceiling; server-side total is tasks × this (§7.5) |
 | `NXR_DB_SSLMODE` | `require` | unless already in the URL (§7) |
 | `NXR_REQUIRE_AUTH` | `1` | enforce auth even before keys load (§10) |
 | `NXR_CORS_ORIGINS` | `https://app…,https://hub…` | allow-list (§10) |
-| `NXR_REDIS_URL` | ElastiCache URL | **required at 2+ tasks** (§9) |
+| `NXR_DATA_DIR` | `/data` | only if you mount EFS (§7.4); scratch, not durable state |
+| `DATA_DIR` | `/data/threed` | ditto — the 3-D platform's own working dir |
 
 **Secrets** (task-def `secrets:` → Secrets Manager / SSM — never in `environment`):
 
@@ -220,23 +249,50 @@ the `events.seq` sequence past the copied rows, and then re-verifies every
 tenant's hash chain in the target, exiting non-zero if any fails. Keep the SQLite
 files until the deployment is confirmed.
 
-### 7.3 What is still on EFS
+### 7.3 Blobs — S3 (`NXR_S3_BUCKET`)
 
-Blobs only:
+Generated GLBs and 3-D job artifacts go to S3, keyed rather than pathed:
 
-- `NXR_DATA_DIR=/data` — reconstructed `scenes/` GLB output (the scene *graphs*
-  are in `scene_cache`; the meshes are files).
-- `DATA_DIR=/data/threed` — the 3-D platform's job artifacts and generated GLBs.
-  This is a **different env var** the platform reads independently; if it is left
-  at its in-image default, photo→3D output goes to ephemeral storage and is lost
-  on task replacement. The `Dockerfile` sets both.
+```
+s3://<bucket>/<prefix>/threed/jobs/<job_id>/input/<original>
+s3://<bucket>/<prefix>/threed/jobs/<job_id>/artifacts/<stage>/model.glb
+```
 
-Mount an **EFS access point** at `/data` with uid/gid **10001**. Concurrent
-readers are fine — the single-writer constraint went away with the SQLite files.
-Moving these blobs to S3 is the remaining step to a fully volume-free task; it is
-independent of everything above.
+Unset, the same code writes under `NXR_DATA_DIR/blobs/`. That is correct offline
+and **wrong on a multi-task deploy**: the task that ran the reconstruction has
+the GLB and every other task 404s it — for a model the user just watched being
+generated. Set `NXR_REQUIRE_S3=1` so that misconfiguration fails at boot.
 
-### 7.4 Connection pooling
+- **Access:** grant the ECS **task role** `s3:GetObject`, `s3:PutObject`,
+  `s3:DeleteObject` on `arn:aws:s3:::<bucket>/*` and `s3:ListBucket` on the
+  bucket. No access keys in the environment.
+- **Health checks the write path**, not just reachability: `/api/v1/health`
+  puts, reads back and deletes a probe object, because a bucket you can list but
+  not write to is the usual IAM mistake and reads fine right up until the first
+  upload.
+- **`GET /api/jobs/{id}/result` redirects to a presigned URL** when the backend
+  is S3, so a 20 MB GLB streams from S3 instead of occupying an API worker.
+- **Bucket settings:** Block Public Access ON (presigned URLs still work),
+  default encryption (SSE-S3 is enough), versioning optional. A lifecycle rule
+  expiring `threed/jobs/*/artifacts/` after 30–90 days is worth adding — the
+  intermediate stage images are debugging aids, not product data.
+
+Mid-pipeline scratch still lands on local disk (`DATA_DIR`) while a stage runs;
+finished artifacts are published to S3 as each stage completes. That is why
+stages can keep using `trimesh.export(path)` unchanged.
+
+### 7.4 EFS — optional once S3 is configured
+
+With `NXR_S3_BUCKET` set, nothing durable is left on the volume: relational state
+is in RDS and blobs are in S3, so **the task is stateless** and you can drop the
+EFS mount entirely. Keep it only if you want the 3-D pipeline's scratch to
+survive a mid-job task replacement (it does not resume anyway, so this is
+rarely worth it).
+
+If you do mount it, use an **EFS access point** at `/data` with uid/gid
+**10001** — the image runs as that user and the first write fails otherwise.
+
+### 7.5 Connection pooling
 
 Each task holds its own pool (`NXR_DB_POOL_MIN`/`NXR_DB_POOL_MAX`, default 1–10),
 so the server-side total is `tasks × NXR_DB_POOL_MAX`. Put **RDS Proxy** in front
@@ -264,22 +320,45 @@ stubs the reconstruction step.
 - **Multi-task is now legal.** With relational state in RDS (§7), desired count
   2+ across two AZs and rolling deploys are safe. That was the single biggest
   architectural constraint and it is gone.
-- **Provision ElastiCache before you scale.** This one is easy to miss: the event
-  bus falls back to an in-memory implementation when `NXR_REDIS_URL` is unset,
-  which is *correct at one task and silently wrong at two* — each task publishes
-  to its own memory and no task sees the others' events. Set `NXR_REDIS_URL` in
-  the same change that raises desired count.
+- **The three per-task fallbacks are the whole risk, and they are now guarded.**
+  Each shared store silently degrades to something task-local when unconfigured.
+  All three are correct at one task and wrong at two, and none of them *errors* —
+  which is why each has a required-flag that turns the mistake into a failed boot:
+
+  | Unset | Silent failure at 2+ tasks | Guard |
+  |---|---|---|
+  | `NXR_DATABASE_URL` | per-task SQLite; each task serves different twins | `NXR_REQUIRE_DB=1` |
+  | `NXR_S3_BUCKET` | model generated on task A 404s on task B | `NXR_REQUIRE_S3=1` |
+  | `NXR_REDIS_URL` | each task sees only its own events; live updates stop for some users | `NXR_REQUIRE_REDIS=1` |
+
+  Set all three flags for any multi-task service. A task that crash-loops with a
+  one-line reason in CloudWatch is a far better outcome than a fleet that serves
+  half the twins and half the models.
 - **Sticky sessions are not required.** Agent checkpoints are in Postgres, so a
   run interrupted for human approval on one task resumes on another.
-- **Live physics runtime state is per-task and in-memory.** Two tasks each run
-  their own machine-twin simulation loop, so a twin's instantaneous sensor values
-  can differ slightly between tasks depending on which one answers. Findings and
-  everything committed through the Graph Writer are shared and consistent; the
-  transient signal values are not. Pin a twin to a task, or move the runtime
-  behind the bus, if you need them identical.
-- **Remaining file state:** `scenes/` meshes and generated GLBs on EFS (§7.3).
-  Concurrent readers are fine; moving them to **S3** is what would make the task
-  fully volume-free.
+- **Live physics has one owner per twin** (`twins/coordinator.py`). The machine-twin
+  runtime is a stateful integrator — wear accumulates, an injected fault persists —
+  so running it in every task would mean every threshold breach written to the graph
+  once per task, and a fault injected on one task invisible from the others. Instead
+  each tenant's simulation is held by whichever task owns a short **Redis lease**:
+
+  - the owner ticks the physics, evaluates the behaviour registry and persists
+    findings **once**, and publishes the authoritative state every second;
+  - other tasks never tick and never persist — they serve the published state, so
+    every task reports identical values, and forward control actions (throttle,
+    fault injection, start/stop) to the owner through a per-tenant command queue;
+  - if an owner dies the lease expires after ~8s and another task **adopts the
+    published state**, continuing the simulation rather than restarting it.
+
+  Ownership is per tenant, so the simulation load still spreads across the fleet
+  and there is no singleton service to keep alive. `/api/v1/health` reports this
+  task's `twin_runtime.owned` list — across the fleet each tenant should appear
+  exactly once. **This is another reason `NXR_REQUIRE_REDIS=1` matters:** without
+  Redis every task believes it owns every twin, which is precisely the duplicate-write
+  behaviour above.
+- **The task is stateless** once RDS + S3 + ElastiCache are configured. Nothing
+  durable is left on local disk or EFS (§7.4), so tasks are disposable and
+  rolling deploys are safe.
 - **Change-log writes serialise per tenant.** `append()` takes a Postgres
   advisory lock for the length of its transaction so a tenant's hash chain cannot
   fork under concurrent writers. Tenants never block each other, but a single
@@ -305,9 +384,279 @@ stubs the reconstruction step.
   (`sslmode=require` in the URL or `NXR_DB_SSLMODE`) — without it psycopg2 will
   quietly accept an unencrypted connection. Rotate the password through Secrets
   Manager, or skip it entirely with RDS IAM auth.
+- **S3:** Block Public Access ON; the task role gets object read/write on this
+  bucket only (§7.3). Presigned URLs still work with public access blocked.
 - **Health check** never 503s by design; add a CloudWatch alarm on the `degraded`
-  status so a broken Neo4j *or Postgres* is visible even though the task stays
-  "healthy". The payload's `database` block reports backend, endpoint (password
-  redacted) and reachability.
+  status so a broken dependency is visible even though the task stays "healthy".
+  The payload reports `database`, `blobs`, `bus` and `neo4j` separately, so the
+  alarm can say *which*.
 - **Secrets** live in Secrets Manager / SSM, injected via the task-def `secrets:`
   block — never baked into the image (`.dockerignore` already excludes `.env` files).
+
+---
+
+## 11. Rehearse the deploy locally (do this first)
+
+`docker compose` runs the same three shared stores the deploy uses — Postgres 16,
+Redis 7 and **MinIO** (S3-compatible). With the required-flags on, a local run
+exercises the exact code paths ECS will, so a configuration mistake surfaces on
+your machine instead of in a rollout.
+
+```powershell
+# 1. Start every dependency (Neo4j, Postgres, Redis, MinIO + bucket creation)
+docker compose up -d
+
+# 2. Point the app at them, in production posture
+$env:NXR_DATABASE_URL   = "postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+$env:NXR_REDIS_URL      = "redis://localhost:6379/0"
+$env:NXR_S3_BUCKET      = "nextxr-blobs"
+$env:NXR_S3_ENDPOINT_URL      = "http://localhost:9000"   # MinIO; unset for real S3
+$env:NXR_S3_ADDRESSING_STYLE  = "path"                    # MinIO needs path style
+$env:AWS_ACCESS_KEY_ID        = "nextxr"
+$env:AWS_SECRET_ACCESS_KEY    = "nextxr2026"
+$env:AWS_REGION               = "us-east-1"
+$env:NXR_REQUIRE_DB = "1"; $env:NXR_REQUIRE_S3 = "1"; $env:NXR_REQUIRE_REDIS = "1"
+
+# 3. Provision the schema, then run
+cd nextxr-ontology
+python -m db.schema
+python -m server.main
+```
+
+> Already running PostgreSQL natively? It owns port 5432 and the container cannot
+> bind it — you will connect "successfully" and get `password authentication
+> failed` from the *other* server. Start with `POSTGRES_PORT=5433 docker compose
+> up -d postgres` and use 5433 in the URL.
+
+**What a correct start looks like.** Four posture lines, and they are the same
+four you will read in CloudWatch:
+
+```
+[auth]  API key enforcement ON - NXR_API_KEYS configured.
+[db]    PostgreSQL - postgresql://nextxr:***@localhost:5432/nextxr (pool 1-10 per task)
+[blobs] S3 - bucket=nextxr-blobs prefix=/ endpoint=http://localhost:9000
+[bus]   Redis Streams - redis://localhost:6379/0
+```
+
+Any line reading `SQLite`, `local filesystem` or `IN-MEMORY` is a task-local
+fallback and must not appear in a multi-task deploy.
+
+**Verify:**
+
+```powershell
+curl http://localhost:8080/api/v1/health     # every component "connected", status "healthy"
+python tools/track3_gate.py                  # write path + hash chain (23 checks)
+python bus/bus_test.py                       # event bus contract (22 checks)
+cd server/threed_platform; python selftest.py   # full photo->GLB, artifacts to S3
+```
+
+`/api/v1/health` must show `status: "healthy"` with `database.backend: postgres`,
+`blobs.backend: s3` and `bus.backend: redis` + `scale_safe: true`. Anything else
+is the thing that would have broken in production.
+
+**Prove the guards work** — each of these must refuse to start:
+
+```powershell
+$env:NXR_DATABASE_URL=""; python -m server.main   # -> NXR_REQUIRE_DB is set but ...
+$env:NXR_S3_BUCKET="";    python -m server.main   # -> NXR_REQUIRE_S3 is set but ...
+$env:NXR_REDIS_URL="redis://localhost:6399/0"; python -m server.main   # -> BusUnavailable
+```
+
+To go back to zero-dependency offline dev, clear those variables: the app falls
+back to SQLite + local files + the in-memory bus, and `start.ps1` works as before.
+
+---
+
+## 12. Deployment steps
+
+Ordered. Each step ends in something you can check. Steps 1–5 are one-time
+infrastructure; 6–10 are the deploy proper and are what you repeat.
+
+### 1. Build and push the image
+
+```bash
+aws ecr create-repository --repository-name nextxr-twin
+aws ecr get-login-password --region $REGION | docker login --username AWS \
+  --password-stdin $ACCT.dkr.ecr.$REGION.amazonaws.com
+docker build -t nextxr-twin .
+docker tag nextxr-twin:latest $ACCT.dkr.ecr.$REGION.amazonaws.com/nextxr-twin:$SHA
+docker push $ACCT.dkr.ecr.$REGION.amazonaws.com/nextxr-twin:$SHA
+```
+
+Tag with the commit SHA, not `latest` — an immutable tag is what makes a rollback
+a task-definition change rather than a rebuild.
+
+### 2. Network
+
+VPC with public subnets (ALB, NAT) and private subnets (ECS tasks, RDS,
+ElastiCache) across **two AZs**. Security groups:
+
+| From | To | Port |
+|---|---|---|
+| ALB SG | task SG | 8080 |
+| task SG | RDS SG | 5432 |
+| task SG | ElastiCache SG | 6379 |
+
+RDS and ElastiCache are **not** publicly reachable. S3 goes over a gateway VPC
+endpoint (free, and keeps blob traffic off the NAT gateway's per-GB charge).
+
+### 3. Create the three shared stores
+
+```bash
+# Postgres 16 — records
+aws rds create-db-instance --db-instance-identifier nextxr-twin \
+  --engine postgres --engine-version 16 --db-instance-class db.t4g.medium \
+  --allocated-storage 50 --storage-type gp3 --storage-encrypted --multi-az \
+  --master-username nextxr --manage-master-user-password \
+  --db-subnet-group-name nextxr-private --vpc-security-group-ids $RDS_SG \
+  --backup-retention-period 7 --no-publicly-accessible
+
+# S3 — blobs
+aws s3api create-bucket --bucket nextxr-twin-blobs --region $REGION
+aws s3api put-public-access-block --bucket nextxr-twin-blobs \
+  --public-access-block-configuration \
+  "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+
+# ElastiCache Redis 7 — event bus
+aws elasticache create-replication-group \
+  --replication-group-id nextxr-twin --replication-group-description "twin bus" \
+  --engine redis --engine-version 7.1 --cache-node-type cache.t4g.micro \
+  --num-cache-clusters 2 --automatic-failover-enabled \
+  --cache-subnet-group-name nextxr-private --security-group-ids $REDIS_SG
+```
+
+Also stand up **Neo4j** (Aura, §6) and add **RDS Proxy** in front of Postgres
+(§7.5) if you expect more than a couple of tasks.
+
+### 4. Secrets
+
+```bash
+aws secretsmanager create-secret --name nextxr/database-url \
+  --secret-string 'postgresql://nextxr:PASS@nextxr-twin.xxxx.rds.amazonaws.com:5432/nextxr?sslmode=require'
+aws secretsmanager create-secret --name nextxr/api-keys \
+  --secret-string '[{"key":"...","tenant":"*","role":"admin","name":"prod"}]'
+aws secretsmanager create-secret --name nextxr/neo4j-password --secret-string '...'
+aws secretsmanager create-secret --name nextxr/anthropic-key   --secret-string 'sk-ant-...'
+```
+
+### 5. IAM
+
+- **Task execution role:** `AmazonECSTaskExecutionRolePolicy` +
+  `secretsmanager:GetSecretValue` on the secrets above (this role injects them).
+- **Task role** (what the app itself uses): `s3:GetObject`, `s3:PutObject`,
+  `s3:DeleteObject` on `arn:aws:s3:::nextxr-twin-blobs/*` and `s3:ListBucket` on
+  the bucket. Nothing else — no S3 keys go in the environment.
+
+### 6. Provision the database schema
+
+From inside the VPC (`ecs execute-command`, or a bastion), against the new RDS
+instance:
+
+```bash
+export NXR_DATABASE_URL='postgresql://nextxr:PASS@...rds.amazonaws.com:5432/nextxr?sslmode=require'
+python -m db.schema                 # create every table (idempotent)
+python -m db.schema --extensions    # optional: pgvector / PostGIS
+python -m db.schema --check         # confirm
+```
+
+Migrating an existing SQLite deployment? Do it now, before traffic:
+`python -m db.migrate --dry-run`, then `python -m db.migrate` (§7.2).
+
+### 7. Task definition
+
+Container port 8080, image from step 1, `awslogs` driver, and:
+
+```jsonc
+"environment": [
+  {"name":"PORT","value":"8080"},
+  {"name":"NEO4J_URI","value":"neo4j+s://xxxx.databases.neo4j.io"},
+  {"name":"NEO4J_USER","value":"neo4j"},
+  {"name":"NXR_REDIS_URL","value":"redis://nextxr-twin.xxxx.cache.amazonaws.com:6379/0"},
+  {"name":"NXR_S3_BUCKET","value":"nextxr-twin-blobs"},
+  {"name":"AWS_REGION","value":"eu-west-1"},
+  {"name":"NXR_REQUIRE_DB","value":"1"},      // the three guards — §9
+  {"name":"NXR_REQUIRE_S3","value":"1"},
+  {"name":"NXR_REQUIRE_REDIS","value":"1"},
+  {"name":"NXR_REQUIRE_AUTH","value":"1"},
+  {"name":"NXR_CORS_ORIGINS","value":"https://app.example.com"},
+  {"name":"NXR_DB_POOL_MAX","value":"10"},
+  {"name":"NXR_DB_SSLMODE","value":"require"}
+],
+"secrets": [
+  {"name":"NXR_DATABASE_URL","valueFrom":"arn:aws:secretsmanager:...:nextxr/database-url"},
+  {"name":"NXR_API_KEYS","valueFrom":"arn:aws:secretsmanager:...:nextxr/api-keys"},
+  {"name":"NEO4J_PASSWORD","valueFrom":"arn:aws:secretsmanager:...:nextxr/neo4j-password"},
+  {"name":"ANTHROPIC_API_KEY","valueFrom":"arn:aws:secretsmanager:...:nextxr/anthropic-key"}
+]
+```
+
+No `NXR_DATA_DIR`/EFS needed once S3 is set (§7.4).
+
+### 8. ALB + service
+
+Target group on 8080, health check `/api/v1/health` (matcher 200), HTTPS
+listener with an ACM certificate. Then:
+
+```bash
+aws ecs create-service --cluster nextxr --service-name twin \
+  --task-definition nextxr-twin --desired-count 2 \
+  --launch-type FARGATE --health-check-grace-period-seconds 60 \
+  --deployment-configuration "minimumHealthyPercent=100,maximumPercent=200" \
+  --network-configuration "awsvpcConfiguration={subnets=[$PRIV_A,$PRIV_B],securityGroups=[$TASK_SG]}" \
+  --load-balancers "targetGroupArn=$TG,containerName=nextxr-twin,containerPort=8080"
+```
+
+`minimumHealthyPercent=100` + `maximumPercent=200` gives a true zero-downtime
+rolling deploy — which is only safe because no store is single-writer any more.
+
+### 9. Verify the rollout
+
+```bash
+# The four posture lines. This is the fastest way to catch a bad config.
+aws logs tail /ecs/nextxr-twin --since 5m --filter-pattern '?[auth] ?[db] ?[blobs] ?[bus]'
+
+curl -s https://twin.example.com/api/v1/health | jq
+```
+
+Every one of these must hold:
+
+| Check | Required value |
+|---|---|
+| `status` | `healthy` |
+| `database.backend` | `postgres` (**not** `sqlite`) |
+| `blobs.backend` | `s3` (**not** `local`) |
+| `bus.backend` / `bus.scale_safe` | `redis` / `true` |
+| `twin_runtime.enabled` | `true` (leases active — each twin has one owner) |
+| `neo4j` | `connected` |
+| `[auth]` log line | enforcement **ON** |
+
+Then three real checks, each aimed at a thing that used to break at 2+ tasks:
+
+1. **Create a twin**, then poll it repeatedly — successive requests land on
+   different tasks and must all show it (this needed RDS).
+2. **Open a machine twin and poll `/api/v1/twin/state`** — the sensor values must
+   not jump between calls, and injecting a fault must persist across refreshes
+   (this needs the runtime leases; §9).
+3. **Run one photo→3D job** and re-fetch the model several times (this needed S3).
+
+Also confirm each tenant appears in exactly one task's `twin_runtime.owned`:
+
+```bash
+for i in 1 2 3 4; do curl -s https://twin.example.com/api/v1/health | jq -c .twin_runtime.owned; done
+# no tenant should appear in two different tasks' lists
+```
+
+### 10. Alarms
+
+- CloudWatch alarm on `/api/v1/health` returning `status != healthy` (the ALB
+  check deliberately cannot see this — §10).
+- RDS: CPU, free storage, connection count vs `max_connections`.
+- ElastiCache: evictions, CPU.
+- ECS: running-task count below desired; any task exiting non-zero — with the
+  guards on (§9), a crash loop means a misconfiguration and the log says which.
+
+### Rollback
+
+`aws ecs update-service --task-definition <previous-revision> --force-new-deployment`.
+Safe by default: schema changes are additive `CREATE TABLE IF NOT EXISTS`, so an
+older image runs against the current database unchanged.

@@ -26,6 +26,9 @@ from feed.simulate import FindingsLoop
 from graph.writer import GraphWriter
 from graph.query import GraphQuery
 from changelog.service import ChangeLog
+from twins.coordinator import (
+    apply_state_dict, get_coordinator, state_to_dict,
+)
 
 
 def _local(sig: str) -> str:
@@ -107,15 +110,99 @@ class LiveTwin:
         self.live = True
         self.lock = threading.Lock()
         self._loop = FindingsLoop(self.registry, writer, _FrameQuery(self))
-        for _ in range(3):              # prime so the twin opens with real numbers
-            self._step(dt=1.0)
+        self._synced_at = 0.0           # ts of the owner state last applied
+        self._adopted = False           # have we taken over the current lease?
+        # Prime so the twin opens with real numbers — but WITHOUT persisting.
+        # _step() normally evaluates the registry and commits findings; doing
+        # that here wrote the same warm-up findings every time a process
+        # hydrated the twin, which with several tasks means several times over.
+        # Warm-up is not an observation of anything.
+        for _ in range(3):
+            self._step(dt=1.0, persist=False)
 
     # ── control + stepping ──
     def _set_control(self, v: float):
         setattr(self.state, self.control, float(v))
 
+    # ── ownership (see twins/coordinator.py) ──
+    def owned(self) -> bool:
+        """Whether THIS process drives this twin's physics. Always True with no
+        Redis configured, i.e. in a single-process run."""
+        return get_coordinator().owns(self.tenant)
+
+    def _apply_owner_state(self, payload: dict) -> None:
+        """Adopt the owner's published state as our own."""
+        with self.lock:
+            try:
+                apply_state_dict(self.state, payload.get("state") or {})
+            except Exception:
+                return
+            self.latest = payload.get("latest") or self.latest
+            self.findings = payload.get("findings") or []
+            self.frames = int(payload.get("frames") or self.frames)
+            self.live = bool(payload.get("live", self.live))
+            self._synced_at = float(payload.get("ts") or 0.0)
+
+    def sync(self) -> None:
+        """Readers pull the owner's state before answering.
+
+        Every read surface goes through this, so `state_dict`, `diagnostics`,
+        `predict_forward`, `project` and `network` all describe the SAME
+        simulation regardless of which task the load balancer picked. Without a
+        published state — no Redis, or a hand-over in progress — we keep serving
+        our own last frame rather than erroring.
+        """
+        if self.owned():
+            return
+        payload = get_coordinator().fetch(self.tenant)
+        if payload and float(payload.get("ts") or 0.0) > self._synced_at:
+            self._apply_owner_state(payload)
+
+    def publish(self) -> None:
+        """Owners hand their state to everyone else."""
+        with self.lock:
+            payload = {
+                "state": state_to_dict(self.state),
+                "latest": dict(self.latest),
+                "findings": list(self.findings),
+                "frames": self.frames,
+                "live": self.live,
+                "ts": time.time(),
+                "owner": get_coordinator().owner_id,
+            }
+        get_coordinator().publish(self.tenant, payload)
+
+    def apply_command(self, cmd: dict) -> None:
+        """Run a control action queued by a task that does not own this twin."""
+        kind = cmd.get("kind")
+        if kind == "simulate":
+            self.simulate(throttle=cmd.get("throttle"), fault=cmd.get("fault"),
+                          severity=float(cmd.get("severity", 0.6)),
+                          dt=float(cmd.get("dt", 1.0)))
+        elif kind == "running":
+            self.live = bool(cmd.get("running", True))
+
+    # ── stepping ──
     def simulate(self, throttle=None, fault=None, severity: float = 0.6,
                  dt: float = 1.0) -> dict:
+        """Advance one step, applying an optional control change / fault.
+
+        Control actions MUST reach the owner: applying a fault locally on a
+        non-owning task would inject it into a copy that nothing else can see
+        and that the next sync overwrites — the "I injected a fault and it
+        vanished on refresh" symptom. So a reader queues the command and returns
+        the owner's current view; the owner applies it on its next tick (~1s).
+        """
+        if not self.owned():
+            queued = get_coordinator().push_command(self.tenant, {
+                "kind": "simulate", "throttle": throttle, "fault": fault,
+                "severity": severity, "dt": dt,
+            })
+            if queued:
+                self.sync()
+                return dict(self.latest)
+            # Redis unreachable: fall through and apply locally. Better a
+            # divergent frame than a control that silently does nothing.
         with self.lock:
             if throttle is not None:
                 self._set_control(throttle)
@@ -127,10 +214,18 @@ class LiveTwin:
                     self.physics.inject(self.state, fault, severity)
             return self._step(dt=dt)
 
-    def _step(self, dt: float = 1.0) -> dict:
+    def _step_owned(self, dt: float = 1.0) -> dict:
+        """The owner's tick: advance physics and persist findings. Called only
+        from the ticker, after the lease has been confirmed."""
+        with self.lock:
+            return self._step(dt=dt)
+
+    def _step(self, dt: float = 1.0, persist: bool = True) -> dict:
         frame = self.physics.forward(self.state, dt=dt)
         self.latest = frame
         self.frames += 1
+        if not persist:
+            return frame
         ts = datetime.now(timezone.utc)
         units = self.spec["units"]
         for sig, val in frame.items():
@@ -165,6 +260,7 @@ class LiveTwin:
         return "critical" if value <= lim else "warning" if value <= lim * 1.1 else "ok"
 
     def state_dict(self) -> dict:
+        self.sync()
         with self.lock:
             frame = dict(self.latest)
             findings = list(self.findings)
@@ -180,6 +276,7 @@ class LiveTwin:
         }
 
     def diagnostics(self) -> dict:
+        self.sync()
         with self.lock:
             frame = dict(self.latest)
             findings = list(self.findings)
@@ -199,6 +296,7 @@ class LiveTwin:
                 "latest": frame, "findings": findings, "incidents": []}
 
     def predict_forward(self, horizon_min: float = 120.0, points: int = 120) -> dict:
+        self.sync()
         with self.lock:
             st = copy.deepcopy(self.state)
         return self.spec["predict"](st, horizon_min=horizon_min, points=points,
@@ -206,6 +304,7 @@ class LiveTwin:
 
     def project(self, fault=None, severity=0.85, control=None,
                 horizon_min=120.0, points=120) -> dict:
+        self.sync()
         with self.lock:
             st = copy.deepcopy(self.state)
         if control is not None:
@@ -218,6 +317,7 @@ class LiveTwin:
     def network(self):
         if not hasattr(self.physics, "network_state"):
             return None
+        self.sync()
         with self.lock:
             payload = self.physics.network_state(self.state)
             payload["latest"] = dict(self.latest)
@@ -240,16 +340,42 @@ class MachineEngine:
             threading.Thread(target=self._tick, daemon=True).start()
 
     def _tick(self):
+        """Advance only the twins THIS task owns.
+
+        The ownership check is the whole point: a task that does not hold the
+        tenant's lease never steps the physics and therefore never evaluates the
+        behaviour registry, so a threshold breach is written to the graph once
+        no matter how many tasks are serving the twin.
+        """
+        coord = get_coordinator()
         while True:
             time.sleep(1.0)
             with self._lock:
-                twins = list(self._twins.values())
-            for tw in twins:
-                if tw.live:
-                    try:
-                        tw.simulate(dt=2.0)
-                    except Exception:
-                        pass  # never kill the ticker
+                twins = list(self._twins.items())
+            for tenant, tw in twins:
+                try:
+                    if not coord.try_own(tenant):
+                        tw._adopted = False         # re-adopt if we regain it
+                        continue                    # another task drives it
+                    self._adopt_if_new_owner(tw)
+                    for cmd in coord.drain_commands(tenant):
+                        tw.apply_command(cmd)       # control from reader tasks
+                    if tw.live:
+                        tw._step_owned(dt=2.0)
+                    tw.publish()
+                except Exception:
+                    pass  # never kill the ticker
+
+    def _adopt_if_new_owner(self, tw: "LiveTwin") -> None:
+        """On taking over a tenant, continue from the previous owner's state
+        instead of from our own stale copy — otherwise a failover shows up as
+        the twin jumping backwards to wherever this task last had it."""
+        if tw._adopted:
+            return
+        tw._adopted = True
+        payload = get_coordinator().fetch(tw.tenant)
+        if payload and float(payload.get("ts") or 0.0) > tw._synced_at:
+            tw._apply_owner_state(payload)
 
     def ensure(self, tenant: str) -> LiveTwin | None:
         """Return the live twin for a tenant, hydrating it from the registry if
@@ -273,15 +399,28 @@ class MachineEngine:
         return tw
 
     def set_running(self, tenant: str, running: bool) -> bool:
+        """Start/stop the simulation. Like a fault injection this is a control
+        action, so it has to reach the owner — setting `live` on a reader would
+        pause a copy nobody looks at and be undone by the next sync."""
         tw = self.ensure(tenant)
         if not tw:
             return False
+        if not tw.owned():
+            if get_coordinator().push_command(
+                    tenant, {"kind": "running", "running": bool(running)}):
+                return True
         tw.live = bool(running)
         return True
 
     def drop(self, tenant: str):
         with self._lock:
             self._twins.pop(tenant, None)
+        get_coordinator().release(tenant)
+
+    def shutdown(self) -> None:
+        """Hand every lease back on the way out, so a rolling deploy transfers
+        ownership in the next tick rather than after the lease times out."""
+        get_coordinator().release_all()
 
 
 _engine: MachineEngine | None = None

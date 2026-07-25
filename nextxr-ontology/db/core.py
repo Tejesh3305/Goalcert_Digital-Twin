@@ -65,6 +65,7 @@ SQLITE_FILES = {
     "bundles":     "bundles.db",
     "checkpoints": "agent_checkpoints.db",
     "scenes":      "scenes.db",
+    "threed":      "threed_jobs.db",
 }
 
 POSTGRES = "postgres"

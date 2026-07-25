@@ -16,8 +16,10 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
+
+import storage
 
 from .config import settings
 from .orchestrator import submit
@@ -92,8 +94,7 @@ async def create_job(
     }.items() if v not in ("", None)}
 
     job = store.create(file.filename, fields)
-    in_path = store.job_dir(job["id"]) / "input" / file.filename
-    in_path.write_bytes(await file.read())
+    in_path = store.save_input(job["id"], file.filename, await file.read())
     store.set_state(job["id"], "input_path", str(in_path))
     store.set_state(job["id"], "filename", file.filename)
     store.set_state(job["id"], "fields", fields)
@@ -116,11 +117,22 @@ def get_job(job_id: str):
 
 @app.get("/api/jobs/{job_id}/file/{path:path}")
 def get_file(job_id: str, path: str):
-    base = store.job_dir(job_id).resolve()
-    target = (base / path).resolve()
-    if not str(target).startswith(str(base)) or not target.is_file():
+    """Serve an artifact from the blob store, falling back to local disk.
+
+    Was a FileResponse off this task's disk, which 404s on every task except the
+    one that ran the job. `read_artifact` resolves blob-first; traversal outside
+    the job's prefix is rejected by the blob key validator and by the local path
+    check behind it.
+    """
+    try:
+        data = store.read_artifact(job_id, path)
+    except ValueError:
+        raise HTTPException(400, "invalid path")
+    if data is None:
         raise HTTPException(404, "no such file")
-    return FileResponse(target)
+    return Response(content=data,
+                    media_type=storage.content_type_for(path),
+                    headers={"Cache-Control": "public, max-age=3600"})
 
 
 @app.get("/api/jobs/{job_id}/result")
@@ -131,6 +143,12 @@ def get_result(job_id: str, request: Request):
     glb = (job.get("state", {}) or {}).get("result_glb")
     if not glb:
         raise HTTPException(404, "no GLB result (drawing route renders in the 2d-to-3d viewer)")
+    # Prefer a presigned S3 URL: a GLB is tens of megabytes, and streaming it
+    # through the API task wastes a worker for the whole download. Falls back to
+    # the artifact route when the backend has no URLs (local filesystem).
+    direct = store.artifact_url(job_id, glb)
+    if direct:
+        return RedirectResponse(direct)
     # Honour the mount prefix (root_path) so the redirect works whether this app
     # is standalone ("") or mounted in the main server ("/api/v1/threed").
     root = request.scope.get("root_path", "")

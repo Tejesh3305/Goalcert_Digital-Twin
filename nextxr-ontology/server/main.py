@@ -818,16 +818,68 @@ def spa_fallback(full_path: str):
 
 # ── Startup ─────────────────────────────────────────────────────────
 
+def _preflight() -> None:
+    """Fail the boot when the deployment is configured to require something it
+    cannot reach. Runs BEFORE the server accepts traffic.
+
+    Only *explicitly required* dependencies are hard failures. Everything else
+    stays best-effort, because the product decision (RUN.md, §10) is that a
+    database blip must not take the UI down. The point of these switches is that
+    the multi-task footguns — an in-memory bus, per-task blobs — cannot be
+    reached by simply forgetting an environment variable:
+
+        NXR_REQUIRE_REDIS=1   the bus must be real Redis, not per-process memory
+        NXR_REQUIRE_S3=1      blobs must be in the object store, not local disk
+        NXR_REQUIRE_DB=1      the relational store must be Postgres, not SQLite
+
+    A crash-looping task with a clear reason in CloudWatch is a far better
+    outcome than a fleet that serves half the twins and half the models.
+    """
+    import bus as bus_pkg
+    import db
+    import storage
+
+    def _truthy(v):
+        return str(v or "").strip().lower() in ("1", "true", "yes", "on")
+
+    if _truthy(os.environ.get("NXR_REQUIRE_DB")) and not db.is_postgres():
+        raise RuntimeError(
+            "NXR_REQUIRE_DB is set but NXR_DATABASE_URL is not — the service "
+            "would fall back to per-task SQLite files, so each task would serve "
+            "a different set of twins.")
+    if _truthy(os.environ.get("NXR_REQUIRE_S3")) and not storage.is_s3():
+        raise RuntimeError(
+            "NXR_REQUIRE_S3 is set but NXR_S3_BUCKET is not — generated models "
+            "would be written to this task's local disk and 404 on every other "
+            "task.")
+
+    # Raises BusUnavailable when Redis is required and unreachable.
+    bus_pkg.get_event_bus()
+
+    if db.is_postgres():
+        ok, detail = db.ping()
+        if not ok and _truthy(os.environ.get("NXR_REQUIRE_DB")):
+            raise RuntimeError(f"NXR_REQUIRE_DB is set but Postgres is "
+                               f"unreachable: {detail}")
+    if storage.is_s3():
+        ok, detail = storage.ping()
+        if not ok and _truthy(os.environ.get("NXR_REQUIRE_S3")):
+            raise RuntimeError(f"NXR_REQUIRE_S3 is set but the bucket is not "
+                               f"usable (needs read AND write): {detail}")
+
+
 @app.on_event("startup")
 def on_startup():
-    """Apply the graph schema on boot, best-effort. If Neo4j is unreachable
-    (e.g. Docker is off), we log and continue — the server still serves the
-    frontend and the bus/schema/twins APIs. Schema is re-applied lazily when a
-    twin is created or the feed starts.
+    """Preflight the required dependencies, then apply the graph schema on boot,
+    best-effort. If Neo4j is unreachable (e.g. Docker is off), we log and
+    continue — the server still serves the frontend and the bus/schema/twins
+    APIs. Schema is re-applied lazily when a twin is created or the feed starts.
 
     Then ensure the standard demo twins exist (idempotent). This runs in a
     background thread so a slow cloud Neo4j (Aura round-trips) never delays the
     server coming up / passing its health check."""
+    _preflight()   # raises -> uvicorn reports startup failure and exits
+
     try:
         _ensure_schema()
     except Exception as e:
@@ -841,6 +893,21 @@ def on_startup():
             print(f"[startup] demo-twin seed skipped: {e}")
 
     threading.Thread(target=_seed, daemon=True).start()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """Release the twin-ownership leases this task holds.
+
+    Without it a rolling deploy leaves each lease to time out, and for those few
+    seconds nobody advances those twins. Handing them back makes the transfer
+    happen on the next tick. Best-effort — a task that is being killed outright
+    just lets the leases expire, which is why they have a TTL at all."""
+    try:
+        from twins.runtime import get_machine_engine
+        get_machine_engine().shutdown()
+    except Exception as e:
+        print(f"[shutdown] twin lease release skipped: {e}")
 
 
 if __name__ == "__main__":

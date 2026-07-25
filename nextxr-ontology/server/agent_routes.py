@@ -358,8 +358,7 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
 
     job = threed_store.create(filename, fields)
     job_id = job["id"]
-    in_path = threed_store.job_dir(job_id) / "input" / filename
-    in_path.write_bytes(image_bytes)
+    in_path = threed_store.save_input(job_id, filename, image_bytes)
     threed_store.set_state(job_id, "input_path", str(in_path))
     threed_store.set_state(job_id, "filename", filename)
     threed_store.set_state(job_id, "fields", fields)
@@ -390,9 +389,10 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
     # A domain-mapped twin is named for its domain; a generic scan for its object.
     twin_name = name or (tpl["label"] if is_machine_domain else None) or asset_type or "Scanned Object"
     # Point straight at the file endpoint (not /result, which 302-redirects) so
-    # the three.js GLTF loader gets the bytes in one hop. The job store persists
-    # on disk, so this URL stays valid for re-loading the model later (dashboard
-    # hero, reopening the twin).
+    # the three.js GLTF loader gets the bytes in one hop. The artifact is in the
+    # blob store, so this URL stays valid for re-loading the model later
+    # (dashboard hero, reopening the twin) — and resolves on ANY task, not just
+    # the one that happened to run the reconstruction.
     model_url = f"/api/v1/threed/api/jobs/{job_id}/file/{result_glb}"
 
     # Commit a real twin. With a machine-domain hint it IS that domain (full
