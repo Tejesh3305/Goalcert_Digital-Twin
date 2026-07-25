@@ -20,10 +20,42 @@ For live frontend development with hot-reload:
 Manual equivalent:
 
 ```powershell
-docker compose up -d            # Neo4j + Redis
+docker compose up -d            # Neo4j + Postgres + Redis
 cd nextxr-ontology
 python -m server.main           # http://localhost:8080
 ```
+
+---
+
+## Where local state goes
+
+By default the twin registry, change log, agent bundles, checkpoints and the BIM
+scene cache are **SQLite files** under `nextxr-ontology/data/`. Nothing extra to
+run — this is the default precisely so you can work offline.
+
+Production uses **RDS PostgreSQL 16** instead (AWS_DEPLOYMENT.md §7). To exercise
+that same code path locally — worth doing before a deploy, since it is a
+different SQL dialect:
+
+```powershell
+docker compose up -d postgres
+$env:NXR_DATABASE_URL="postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+cd nextxr-ontology
+python -m db.schema             # provision (idempotent); --check to inspect
+python -m server.main
+```
+
+The server prints a `[db]` line at startup saying which backend it is on, and
+`/api/v1/health` reports it under `database`. Unset `NXR_DATABASE_URL` to go back
+to the SQLite files — they are untouched by any of this, so you can switch freely.
+
+To copy existing SQLite data into Postgres: `python -m db.migrate --dry-run`,
+then `python -m db.migrate`.
+
+> If port 5432 is already taken by a locally-installed PostgreSQL, either stop it
+> or map the container elsewhere (`ports: "5433:5432"`) and use that port in the
+> URL — the symptom is a confusing `password authentication failed` from the
+> *other* server.
 
 ---
 
@@ -48,7 +80,8 @@ dead*, even though most of the platform doesn't need the database to load.
 
 2. **Read endpoints degrade gracefully.** `/stats`, `/entities`, `/findings`,
    `/topology` return `200` with empty data + `"degraded": true` when the DB is
-   down (the change-log count still works — it's SQLite, not Neo4j). The app
+   down (the change-log count still works — it's the relational store, not
+   Neo4j). The app
    shell, Twins list, Copilot, schema, and the event bus all keep working.
 
 3. **Write endpoints fail cleanly.** Creating a twin or asset needs the DB, so

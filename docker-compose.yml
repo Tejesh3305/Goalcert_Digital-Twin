@@ -20,6 +20,31 @@ services:
       timeout: 5s
       retries: 10
 
+  # The relational store: twin registry, change log, agent bundles, agent
+  # checkpoints and the BIM scene cache. Matches the RDS engine version so a
+  # local run exercises the same dialect the deploy does (AWS_DEPLOYMENT.md §7).
+  #
+  # OPTIONAL locally. With NXR_DATABASE_URL unset the app uses SQLite files under
+  # nextxr-ontology/data/ exactly as before, so nothing here is required to work
+  # offline. Point at it with:
+  #   $env:NXR_DATABASE_URL="postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+  postgres:
+    image: postgres:16-alpine
+    container_name: nxr-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nextxr}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextxr2026}
+      POSTGRES_DB: ${POSTGRES_DB:-nextxr}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextxr} -d ${POSTGRES_DB:-nextxr}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   redis:
     image: redis:7-alpine
     container_name: nxr-redis
@@ -53,6 +78,8 @@ services:
     depends_on:
       neo4j:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     environment:
@@ -60,7 +87,10 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-nextxr2026}
       NXR_REDIS_URL: redis://redis:6379/0
+      # Stands in for the RDS endpoint. Unset this to fall back to SQLite files.
+      NXR_DATABASE_URL: postgresql://${POSTGRES_USER:-nextxr}:${POSTGRES_PASSWORD:-nextxr2026}@postgres:5432/${POSTGRES_DB:-nextxr}
 
 volumes:
   neo4j_data:
+  postgres_data:
   redis_data:

@@ -16,14 +16,14 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, SqliteSaver
+from agents.engine import StateGraph, END, CheckpointSaver
 from agents.state import PluginScaffoldState
 from agents.plugin_agents import (
     plugin_interviewer, plugin_scaffolder,
     route_after_plugin_interview,
 )
 
-_checkpointer = SqliteSaver()
+_checkpointer = CheckpointSaver()
 
 
 def build_plugin_graph():

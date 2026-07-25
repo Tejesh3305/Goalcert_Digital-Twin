@@ -16,14 +16,14 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, SqliteSaver
+from agents.engine import StateGraph, END, CheckpointSaver
 from agents.state import AcceleratorPackState
 from agents.accelerator_agents import (
     pack_interviewer, bundle_selector, pack_assembler,
     route_after_pack_interview,
 )
 
-_checkpointer = SqliteSaver()
+_checkpointer = CheckpointSaver()
 
 
 def build_accelerator_graph():

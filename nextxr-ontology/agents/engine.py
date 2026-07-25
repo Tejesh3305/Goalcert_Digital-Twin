@@ -5,10 +5,10 @@ Implements the slice of the LangGraph API the spec uses, with the SAME names and
 shapes, so agent/graph code reads exactly like the spec and can be swapped for
 the real `langgraph` package by changing imports only:
 
-    from agents.engine import StateGraph, END, SqliteSaver   # in-house
+    from agents.engine import StateGraph, END, CheckpointSaver   # in-house
     # later:
     from langgraph.graph import StateGraph, END
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.postgres import PostgresSaver
 
 Semantics
 ---------
@@ -23,11 +23,15 @@ Semantics
 
 Checkpointing
 -------------
-`SqliteSaver` persists the full state after every node, keyed by a thread_id
+`CheckpointSaver` persists the full state after every node, keyed by a thread_id
 (we use session_id). This makes runs RESUMABLE across process restarts — the
 "yield turn to the human, come back later" pattern the Concierge needs, and the
-human-approval gate the Bundle Author needs. Swap to a Temporal/Postgres saver
-later without touching graph code.
+human-approval gate the Bundle Author needs.
+
+It writes to the shared relational store (db/), so on RDS a run interrupted for
+human approval on one ECS task resumes on whichever task picks up the next
+request. While checkpoints were a local SQLite file this only worked at desired
+count 1: the second task simply had no checkpoint for that thread.
 
 Human-in-the-loop
 -----------------
@@ -39,10 +43,8 @@ continues from the saved checkpoint.
 
 from __future__ import annotations
 
-from paths import data_path
+import db
 
-import json
-import sqlite3
 import threading
 from pathlib import Path
 from typing import Callable, Optional
@@ -53,48 +55,43 @@ END = "__end__"
 # A node returns this to pause the graph for external input.
 INTERRUPT_KEY = "__interrupt__"
 
+_STORE = "checkpoints"
+
 
 # --------------------------------------------------------------------------
 #  Checkpointer
 # --------------------------------------------------------------------------
-class SqliteSaver:
+class CheckpointSaver:
     """Persists graph state per thread_id (we key on session_id). Stores the
     full state JSON plus the node to resume at."""
 
     def __init__(self, db_path: Optional[Path] = None):
-        default = data_path("agent_checkpoints.db")
-        self.db_path = Path(db_path) if db_path else default
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        """`db_path` forces a private SQLite file (offline tools only)."""
+        self.db_path = Path(db_path) if db_path else None
         self._lock = threading.Lock()
         self._init_db()
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        return db.connect(_STORE, path=self.db_path)
 
     def _init_db(self):
+        if self.db_path is None:
+            db.schema.ensure(_STORE)
+            return
         with self._connect() as conn:
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS checkpoints (
-                    thread_id   TEXT PRIMARY KEY,
-                    graph_name  TEXT NOT NULL,
-                    state       TEXT NOT NULL,
-                    resume_at   TEXT,
-                    updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-                )"""
-            )
+            for stmt in db.schema.render(_STORE, db.SQLITE):
+                conn.execute(stmt)
 
     def save(self, thread_id: str, graph_name: str, state: dict,
              resume_at: Optional[str]):
+        # CURRENT_TIMESTAMP, not datetime('now') — the latter is SQLite-only.
         with self._lock, self._connect() as conn:
             conn.execute(
                 "INSERT INTO checkpoints (thread_id, graph_name, state, resume_at) "
                 "VALUES (?,?,?,?) ON CONFLICT(thread_id) DO UPDATE SET "
                 "state=excluded.state, resume_at=excluded.resume_at, "
-                "graph_name=excluded.graph_name, updated_at=datetime('now')",
-                (thread_id, graph_name, json.dumps(state), resume_at),
+                "graph_name=excluded.graph_name, updated_at=CURRENT_TIMESTAMP",
+                (thread_id, graph_name, db.Json(state), resume_at),
             )
 
     def load(self, thread_id: str) -> Optional[dict]:
@@ -105,11 +102,17 @@ class SqliteSaver:
             ).fetchone()
             if not row:
                 return None
-            return {"state": json.loads(row["state"]), "resume_at": row["resume_at"]}
+            return {"state": db.json_load(row["state"]),
+                    "resume_at": row["resume_at"]}
 
     def delete(self, thread_id: str):
         with self._lock, self._connect() as conn:
             conn.execute("DELETE FROM checkpoints WHERE thread_id=?", (thread_id,))
+
+
+# The class was named for its old storage, not its job. Kept as an alias so any
+# out-of-tree import still resolves.
+SqliteSaver = CheckpointSaver
 
 
 # --------------------------------------------------------------------------

@@ -23,6 +23,8 @@ from __future__ import annotations
 
 from paths import data_dir
 
+import db
+
 import json
 import math
 from pathlib import Path
@@ -34,6 +36,16 @@ DC = "https://ontology.nextxr.io/v3/datacenter#"
 
 
 # ── scene cache (so any twin re-renders fully — incl. furniture — per tenant) ──
+#
+# The cache is DATABASE-backed, with the on-disk JSON kept as a mirror. It was
+# file-only, which is per-TASK state: the task that builds a twin caches the
+# scene locally, and the next request — load-balanced to a sibling task — finds
+# nothing and re-renders the generic fallback building. Same reason the twin
+# registry moved to RDS. The files are still written so an existing data
+# directory keeps working and a scene stays inspectable on disk.
+_STORE = "scenes"
+
+
 def _scene_dir() -> Path:
     d = data_dir("scenes")   # reconstructed 3-D models — must persist across deploys
     d.mkdir(parents=True, exist_ok=True)
@@ -46,6 +58,17 @@ def _safe(tenant: str) -> str:
 
 def save_scene_cache(tenant: str, scene: dict) -> None:
     try:
+        db.schema.ensure(_STORE)
+        with db.connect(_STORE) as conn:
+            conn.execute(
+                "INSERT INTO scene_cache (tenant_id, scene) VALUES (?,?) "
+                "ON CONFLICT (tenant_id) DO UPDATE SET scene = excluded.scene, "
+                "updated_at = CURRENT_TIMESTAMP",
+                (_safe(tenant), db.Json(scene)),
+            )
+    except Exception:
+        pass   # best-effort: a missing cache costs a re-render, never a failure
+    try:
         (_scene_dir() / f"{_safe(tenant)}.json").write_text(
             json.dumps(scene), encoding="utf-8")
     except Exception:
@@ -53,6 +76,19 @@ def save_scene_cache(tenant: str, scene: dict) -> None:
 
 
 def load_scene_cache(tenant: str) -> dict | None:
+    try:
+        db.schema.ensure(_STORE)
+        with db.connect(_STORE) as conn:
+            row = conn.execute(
+                "SELECT scene FROM scene_cache WHERE tenant_id = ?",
+                (_safe(tenant),),
+            ).fetchone()
+        if row:
+            return db.json_load(row["scene"])
+    except Exception:
+        pass
+    # Fall back to the file: covers scenes cached before this moved to the DB,
+    # and any local run where the database is not up.
     try:
         p = _scene_dir() / f"{_safe(tenant)}.json"
         if p.exists():

@@ -8,8 +8,9 @@ free-text mapping — no Schema Mapper yet), and the Tier-C rule(s) it ships.
 Two sources, unified behind one API:
   * built-in bundles (e.g. the HVAC pack already in the platform), and
   * PUBLISHED bundles authored by the Bundle Author meta-agent and persisted to
-    SQLite. This is what closes the loop: the Composer can load the very bundle
-    the Bundle Author just published.
+    the shared relational store (db/). This is what closes the loop: the
+    Composer can load the very bundle the Bundle Author just published — and on
+    Postgres, a bundle published by one task is immediately visible to the rest.
 
 API the Capability Composer uses:
     registry.query(domain)      -> [bundle summaries] matching a domain
@@ -19,10 +20,8 @@ API the Capability Composer uses:
 
 from __future__ import annotations
 
-from paths import data_path
+import db
 
-import json
-import sqlite3
 import threading
 from pathlib import Path
 from typing import Optional
@@ -30,10 +29,7 @@ from typing import Optional
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
 
-# Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
-# Computing it from __file__ meant "inside the container image", which on Fargate is
-# ephemeral — this store would be wiped on every redeploy.
-_DEFAULT_DB = data_path("bundles.db")
+_STORE = "bundles"
 
 
 # --------------------------------------------------------------------------
@@ -75,36 +71,28 @@ class BundleRegistry:
     """Unified query/load over built-in + published bundles."""
 
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = Path(db_path) if db_path else _DEFAULT_DB
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        """`db_path` forces a private SQLite file (offline tools only)."""
+        self.db_path = Path(db_path) if db_path else None
         self._lock = threading.Lock()
         self._init_db()
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        return db.connect(_STORE, path=self.db_path)
 
     def _init_db(self):
+        if self.db_path is None:
+            db.schema.ensure(_STORE)
+            return
         with self._connect() as conn:
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS published_bundles (
-                    bundle_id   TEXT PRIMARY KEY,
-                    name        TEXT NOT NULL,
-                    domains     TEXT NOT NULL,   -- json list
-                    payload     TEXT NOT NULL,   -- full bundle json
-                    tenant_id   TEXT,
-                    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
-                )"""
-            )
+            for stmt in db.schema.render(_STORE, db.SQLITE):
+                conn.execute(stmt)
 
     # ---- query / load -------------------------------------------------
     def _published(self) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute("SELECT payload FROM published_bundles "
                                 "ORDER BY created_at DESC").fetchall()
-            return [json.loads(r["payload"]) for r in rows]
+            return [db.json_load(r["payload"]) for r in rows]
 
     def all_bundles(self) -> list[dict]:
         """Every bundle (published first, so a freshly-authored one wins)."""
@@ -142,8 +130,8 @@ class BundleRegistry:
                 "VALUES (?,?,?,?,?) ON CONFLICT(bundle_id) DO UPDATE SET "
                 "name=excluded.name, domains=excluded.domains, payload=excluded.payload",
                 (bid, bundle.get("name", bid),
-                 json.dumps(bundle.get("domains", [])),
-                 json.dumps(bundle), tenant_id),
+                 db.Json(bundle.get("domains", [])),
+                 db.Json(bundle), tenant_id),
             )
         return bid
 

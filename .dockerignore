@@ -1,9 +1,11 @@
 # Keep the build context small and the image free of state and secrets.
 
-# ── Runtime STATE — must come from the EFS volume, never the image ──
-# Baking these in doesn't just waste layers: on redeploy the container would present a
-# stale committed twins.db as the live twin registry, silently reverting every twin a user
-# created. NXR_DATA_DIR (see paths.py) points at the mounted volume instead.
+# ── Runtime STATE — comes from RDS and the EFS volume, never the image ──
+# Relational state lives in RDS Postgres (NXR_DATABASE_URL); blobs come from the volume
+# NXR_DATA_DIR points at. These .db files are the local-dev SQLite fallback, and baking
+# them in doesn't just waste layers: if NXR_DATABASE_URL were ever missing, the container
+# would present a stale committed twins.db as the live twin registry, silently reverting
+# every twin a user created.
 nextxr-ontology/data/
 **/*.db
 **/*.db-journal

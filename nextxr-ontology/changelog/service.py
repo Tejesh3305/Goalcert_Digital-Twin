@@ -16,19 +16,26 @@ Contract (from the LLD event schema):
 The prev_event_hash -> wm_hash linkage is the tamper-evident chain: change
 any stored field of an old event and every wm_hash after it stops matching.
 
-Storage for the backbone is a single SQLite file (stdlib, zero deps). The
-WORM/S3-object-lock ledger and Merkle summarisation from the LLD are
-hardening layered on top later; this is the spine they wrap.
+Storage for the backbone is the shared relational store (db/) — RDS Postgres in
+production, SQLite locally. The WORM/S3-object-lock ledger and Merkle
+summarisation from the LLD are hardening layered on top later; this is the
+spine they wrap.
+
+CONCURRENCY. Appending reads the tenant's last wm_hash and then inserts the next
+event. Two writers interleaving there would produce two events claiming the same
+predecessor and break verify_chain(). On one SQLite file that could not happen —
+the file lock serialised everything. On Postgres, with the API running several
+ECS tasks, it can, so append() takes a per-tenant advisory lock for the length of
+its transaction. Chains stay per-tenant, so tenants never block each other.
 """
 
 from __future__ import annotations
 
-from paths import data_path
+import db
 
 import hashlib
 import json
 import os
-import sqlite3
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -37,10 +44,7 @@ from typing import Optional
 
 GENESIS_HASH = "0" * 64  # prev_event_hash of the first event in any chain
 
-# Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
-# Computing it from __file__ meant "inside the container image", which on Fargate is
-# ephemeral — this store would be wiped on every redeploy.
-_DEFAULT_DB = data_path("changelog.db")
+_STORE = "changelog"
 
 # Crockford base32 alphabet (ULID spec).
 _CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
@@ -104,44 +108,24 @@ class ChangeLog:
     """Append-only, per-tenant hash-chained event store."""
 
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = Path(db_path) if db_path else _DEFAULT_DB
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        """`db_path` forces a private SQLite file even when Postgres is
+        configured. Only offline tools that want a reproducible, throwaway
+        ledger should pass it; the service always uses the shared store."""
+        self.db_path = Path(db_path) if db_path else None
         self._init_db()
 
     # ---- schema -------------------------------------------------------
     def _connect(self):
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        return db.connect(_STORE, path=self.db_path)
 
     def _init_db(self):
+        if self.db_path is None:
+            db.schema.ensure(_STORE)
+            return
+        # Private file: provision it directly, bypassing the shared-store cache.
         with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS events (
-                    seq             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    event_id        TEXT NOT NULL UNIQUE,
-                    tenant_id       TEXT NOT NULL,
-                    entity_id       TEXT NOT NULL,
-                    entity_type     TEXT NOT NULL,
-                    actor           TEXT NOT NULL,
-                    action          TEXT NOT NULL,
-                    field_changes   TEXT NOT NULL,
-                    ts              TEXT NOT NULL,
-                    prev_event_hash TEXT NOT NULL,
-                    wm_hash         TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_tenant "
-                "ON events (tenant_id, seq)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_events_entity "
-                "ON events (tenant_id, entity_id, seq)"
-            )
+            for stmt in db.schema.render(_STORE, db.SQLITE):
+                conn.execute(stmt)
 
     # ---- append -------------------------------------------------------
     def _last_hash(self, conn, tenant_id: str) -> str:
@@ -157,6 +141,10 @@ class ChangeLog:
         """Append one event to the tenant's chain and return it (with its
         ULID event_id and computed wm_hash). This is the ONLY write method."""
         with self._connect() as conn:
+            # Hold the tenant's chain for this transaction: read-last-hash and
+            # insert must be atomic across every task, or two concurrent writes
+            # both claim the same predecessor and verify_chain() fails forever.
+            conn.lock(f"changelog:{tenant_id}")
             prev_hash = self._last_hash(conn, tenant_id)
             ev = Event(
                 event_id=ulid(),
@@ -176,7 +164,7 @@ class ChangeLog:
                 "entity_type, actor, action, field_changes, ts, "
                 "prev_event_hash, wm_hash) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (ev.event_id, ev.tenant_id, ev.entity_id, ev.entity_type,
-                 ev.actor, ev.action, json.dumps(ev.field_changes),
+                 ev.actor, ev.action, db.Json(ev.field_changes),
                  ev.ts, ev.prev_event_hash, ev.wm_hash),
             )
         return ev
@@ -190,7 +178,7 @@ class ChangeLog:
             entity_type=row["entity_type"],
             actor=row["actor"],
             action=row["action"],
-            field_changes=json.loads(row["field_changes"]),
+            field_changes=db.json_load(row["field_changes"]),
             ts=row["ts"],
             prev_event_hash=row["prev_event_hash"],
             wm_hash=row["wm_hash"],
@@ -236,6 +224,21 @@ class ChangeLog:
                 return (False, ev.event_id)            # altered content
             expected_prev = ev.wm_hash
         return (True, None)
+
+    # ---- maintenance --------------------------------------------------
+    def purge_tenant(self, tenant_id: str) -> int:
+        """Drop a tenant's whole chain and return how many events went.
+
+        The ledger is append-only by contract, so this exists for exactly two
+        callers: the exit-test gates, which need a chain that starts at genesis
+        on every run, and deleting a twin. It used to be done by deleting the
+        SQLite file — impossible once every tenant shares one Postgres table.
+        """
+        with self._connect() as conn:
+            conn.lock(f"changelog:{tenant_id}")
+            cur = conn.execute("DELETE FROM events WHERE tenant_id = ?",
+                               (tenant_id,))
+            return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
 
     def count(self, tenant_id: Optional[str] = None) -> int:
         with self._connect() as conn:

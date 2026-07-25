@@ -26,6 +26,7 @@ That is the platform's ONLY LLM: these agent graphs and the embedded agent layer
 """
 
 from .state import TwinBuildState, BundleAuthorState
-from .engine import StateGraph, END, SqliteSaver
+from .engine import StateGraph, END, CheckpointSaver, SqliteSaver
 
-__all__ = ["TwinBuildState", "BundleAuthorState", "StateGraph", "END", "SqliteSaver"]
+__all__ = ["TwinBuildState", "BundleAuthorState", "StateGraph", "END",
+           "CheckpointSaver", "SqliteSaver"]

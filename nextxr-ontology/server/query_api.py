@@ -29,6 +29,7 @@ from graph.connection import get_driver
 from graph.query import GraphQuery, LEGAL_LABELS
 from changelog.service import ChangeLog
 from bus import get_event_bus
+import db
 
 router = APIRouter(prefix="/api/v1", tags=["graph"])
 
@@ -223,7 +224,8 @@ def tenant_changelog(tenant: str, limit: int = 50):
 def stats(tenant: str):
     """Quick KPI summary: entity counts by label, finding counts by severity.
     Degrades gracefully: if Neo4j is down, graph counts are empty but the
-    SQLite-backed change-log count still reports, and `degraded: true` is set."""
+    change-log count (relational store) still reports, and `degraded: true`
+    is set."""
     label_counts = {}
     severity_counts = {}
     latest_findings = []
@@ -262,7 +264,7 @@ def stats(tenant: str):
             raise
         degraded = True
 
-    # Change-log count is SQLite-backed — available even when Neo4j is down.
+    # The change log lives in the relational store — available when Neo4j isn't.
     try:
         event_count = _get_changelog().count(tenant)
     except Exception:
@@ -436,18 +438,31 @@ def health():
     database down" (degraded) from "server unreachable" (network error). The
     body carries the real component status:
 
-      status: "healthy"   — server + Neo4j both up
-              "degraded"  — server up, Neo4j unreachable (e.g. Docker off)
-      neo4j:  "connected" | "unreachable"
-      bus:    event-bus backend stats (redis / memory / null)
+      status:   "healthy"   — server, Neo4j and the relational store all up
+                "degraded"  — server up, a dependency unreachable
+      neo4j:    "connected" | "unreachable"
+      database: relational store (RDS Postgres, or SQLite in dev) — backend,
+                redacted endpoint, pool bounds and reachability
+      bus:      event-bus backend stats (redis / memory / null)
 
     Returning 503 here made the whole UI look dead whenever Neo4j was down,
     even though the app shell, twins registry, schema, and event bus all work.
-    The frontend now shows an amber 'degraded' state instead."""
+    The frontend shows an amber 'degraded' state instead — which is also why
+    the ALB target-group check cannot see a database outage on its own, and
+    why AWS_DEPLOYMENT.md §10 asks for a CloudWatch alarm on this payload."""
     bus_info = get_event_bus().stats()
+    db_info = db.info()
+    detail = None
     try:
         get_driver().verify_connectivity()
-        return {"status": "healthy", "neo4j": "connected", "bus": bus_info}
+        neo4j = "connected"
     except Exception as e:
-        return {"status": "degraded", "neo4j": "unreachable",
-                "bus": bus_info, "detail": str(e)}
+        neo4j = "unreachable"
+        detail = str(e)
+
+    healthy = neo4j == "connected" and db_info.get("status") == "connected"
+    out = {"status": "healthy" if healthy else "degraded",
+           "neo4j": neo4j, "database": db_info, "bus": bus_info}
+    if detail:
+        out["detail"] = detail
+    return out

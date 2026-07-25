@@ -2,7 +2,8 @@
 service.py — the Twin registry + seeding logic.
 
 A Twin is one isolated platform instance, keyed by tenant_id. The registry
-table (SQLite, same zero-dep pattern as the Change Log) holds only metadata:
+table (the shared relational store — RDS Postgres in production, SQLite
+locally) holds only metadata:
 which twins exist, their name, domain template, and seed asset. The entities
 themselves live in Neo4j under the tenant_id and are created EXCLUSIVELY through
 the Graph Writer (validate -> commit -> changelog -> bus), so a seeded twin
@@ -18,10 +19,9 @@ creation. "blank" seeds just a root Site, for building by hand via Add Asset.
 
 from __future__ import annotations
 
-from paths import data_path
+import db
 
 import re
-import sqlite3
 import time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
@@ -37,10 +37,7 @@ EV   = "https://ontology.nextxr.io/v3/ev#"
 DEF  = "https://ontology.nextxr.io/v3/defence#"
 FLEET = "https://ontology.nextxr.io/v3/fleet#"
 
-# Path comes from paths.DATA_DIR so it can live on a mounted volume (EFS on ECS).
-# Computing it from __file__ meant "inside the container image", which on Fargate is
-# ephemeral — this store would be wiped on every redeploy.
-_DEFAULT_DB = data_path("twins.db")
+_STORE = "twins"
 
 # Domain templates: what gets seeded when a twin of this kind is created.
 # Each is a pure description; service.seed() interprets it via the Graph Writer.
@@ -212,7 +209,7 @@ class Twin:
         return asdict(self)
 
 
-# Rehydrate the SQLite registry from the graph at most once per process.
+# Rehydrate the registry from the graph at most once per process.
 _REHYDRATED = False
 
 
@@ -225,17 +222,20 @@ def _graph_session():
 
 
 class TwinRegistry:
-    """SQLite-backed registry of twins. Seeding goes through the Graph Writer.
+    """Registry of twins, in the shared relational store. Seeding goes through
+    the Graph Writer.
 
-    The registry file lives on local disk, which is EPHEMERAL on cloud hosts
-    (Render/Heroku wipe it on every deploy) — while the twins' graph entities
-    live in Neo4j and survive. So every registry row is mirrored to a
-    `(:NxrTwinRegistry)` node, and an empty registry rehydrates from the graph
-    on first use: twins keep showing up after a redeploy."""
+    The graph mirror below predates RDS: with the registry in a local SQLite
+    file, a redeploy wiped it while the twins' Neo4j entities survived. Every
+    registry row is therefore mirrored to a `(:NxrTwinRegistry)` node, and an
+    empty registry rehydrates from the graph on first use. On RDS the registry
+    is itself durable, so this is now a belt-and-braces recovery path rather
+    than the thing that saves the data — but it costs nothing and still covers
+    a restore into an empty database."""
 
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = Path(db_path) if db_path else _DEFAULT_DB
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        """`db_path` forces a private SQLite file (offline tools only)."""
+        self.db_path = Path(db_path) if db_path else None
         self._init_db()
         self._rehydrate_from_graph()
 
@@ -278,10 +278,13 @@ class TwinRegistry:
             with self._connect() as conn:
                 for r in rows:
                     t = r["t"]
+                    # ON CONFLICT DO NOTHING, not INSERT OR IGNORE: the latter
+                    # is SQLite-only. Two tasks can rehydrate concurrently.
                     conn.execute(
-                        "INSERT OR IGNORE INTO twins (tenant_id, name, domain, "
+                        "INSERT INTO twins (tenant_id, name, domain, "
                         "description, created_at, seed_asset_id) "
-                        "VALUES (?,?,?,?,?,?)",
+                        "VALUES (?,?,?,?,?,?) "
+                        "ON CONFLICT (tenant_id) DO NOTHING",
                         (t.get("tenant_id"), t.get("name", ""),
                          t.get("domain", "blank"), t.get("description", ""),
                          t.get("created_at", ""), t.get("seed_asset_id")),
@@ -290,25 +293,15 @@ class TwinRegistry:
             pass  # graph offline — start empty, exactly as before
 
     def _connect(self):
-        conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        return db.connect(_STORE, path=self.db_path)
 
     def _init_db(self):
+        if self.db_path is None:
+            db.schema.ensure(_STORE)
+            return
         with self._connect() as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS twins (
-                    tenant_id     TEXT PRIMARY KEY,
-                    name          TEXT NOT NULL,
-                    domain        TEXT NOT NULL,
-                    description   TEXT NOT NULL DEFAULT '',
-                    created_at    TEXT NOT NULL,
-                    seed_asset_id TEXT
-                )
-                """
-            )
+            for stmt in db.schema.render(_STORE, db.SQLITE):
+                conn.execute(stmt)
 
     # ---- registry CRUD ------------------------------------------------
     def _row_to_twin(self, row) -> Twin:

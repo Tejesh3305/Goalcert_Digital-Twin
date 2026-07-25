@@ -1,29 +1,36 @@
-"""Where this service keeps its state on disk. ONE definition, so it can be moved.
+"""Where this service keeps its FILE state on disk. ONE definition, so it can be moved.
 
 WHY THIS EXISTS
 ---------------
-The twin keeps real, user-created state in a `data/` directory next to the code:
+The twin keeps real, user-created state in a `data/` directory next to the code.
+Each store used to compute its own path from `__file__`, which silently means
+"inside the container image". On a Fargate task that directory is ephemeral: it is
+gone the moment the task is replaced. Deploying that as-is would delete the data on
+each redeploy — and it would look like the product simply forgot, with no error
+anywhere.
 
-    data/twins.db              the TWIN REGISTRY — every twin a user has created
-    data/changelog.db          the governance/change log
-    data/bundles.db            published agent bundles
-    data/agent_checkpoints.db  langgraph checkpoints
-    data/track3_gate.db        gate events
-    data/scenes/               reconstructed 3-D models from Build-a-Twin
+Set NXR_DATA_DIR to a mounted volume (EFS access point on ECS) and it persists.
+Unset, it resolves to the same path as before, so local dev is unchanged.
 
-Each of those used to compute its own path from `__file__`, which silently means
-"inside the container image". On a Fargate task that directory is ephemeral: it is gone
-the moment the task is replaced. Deploying that as-is would delete every twin, every
-reconstructed model and the entire change log on each redeploy — and it would look like
-the product simply forgot, with no error anywhere.
+WHAT IS STILL HERE — AND WHAT MOVED
+-----------------------------------
+The five SQLite stores that used to live here (`twins.db`, `changelog.db`,
+`bundles.db`, `agent_checkpoints.db`, `track3_gate.db`) now live in the shared
+relational store, `db/` — RDS PostgreSQL 16 in production. That is what lifted the
+"desired count = 1" constraint: SQLite over NFS/EFS is safe for a single writer, so
+the API could never be scaled out or rolling-deployed. See AWS_DEPLOYMENT.md §7.
 
-Set NXR_DATA_DIR to a mounted volume (EFS access point on ECS) and all of it persists.
-Unset, it resolves to the same path as before, so local dev and the existing checked-in
-data are unchanged.
+In local dev with no NXR_DATABASE_URL set, `db/` still writes SQLite files under
+this same directory, so the paths below remain the on-disk truth offline.
 
-NOTE: these are SQLite files. SQLite over NFS/EFS is safe for ONE writer; it is not safe
-to run several twin tasks against the same EFS mount. Keep the twin service at desired
-count 1 until this state moves to RDS. See AWS_DEPLOYMENT.md §7.
+What genuinely remains file state:
+
+    data/scenes/    reconstructed 3-D models (mirrored into the DB scene cache,
+                    which is what makes them correct across tasks)
+
+Blobs — the generated GLBs under DATA_DIR (the 3-D platform's own variable) — are
+still on the volume. Moving those to S3 is the remaining step for a fully
+stateless task; the relational move does not depend on it.
 """
 from __future__ import annotations
 

@@ -1,4 +1,3 @@
-from paths import data_path
 #!/usr/bin/env python3
 """
 track3_gate.py — TRACK 3 EXIT TEST (the findings loop, closed).
@@ -23,7 +22,6 @@ Usage:      python tools/track3_gate.py
 
 import contextlib
 import io
-import os
 import sys
 from pathlib import Path
 
@@ -87,11 +85,12 @@ def main():
         schema.apply_schema(dry_run=False)
     driver = get_driver()
 
-    # Fresh per-run change log so the gate is reproducible.
-    gate_db = data_path("track3_gate.db")
-    if gate_db.exists():
-        os.remove(gate_db)
-    cl = ChangeLog(db_path=gate_db)
+    # Fresh per-run chain so the gate is reproducible. This used to delete a
+    # dedicated track3_gate.db file; with every tenant sharing one Postgres
+    # table, reproducibility means purging THIS tenant's chain instead — and it
+    # now exercises the real backend the service runs on.
+    cl = ChangeLog()
+    cl.purge_tenant(TENANT)
 
     clean_tenant(driver, TENANT)
 

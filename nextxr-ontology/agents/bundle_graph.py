@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, SqliteSaver
+from agents.engine import StateGraph, END, CheckpointSaver
 from agents.state import BundleAuthorState
 from agents.bundle_agents import (
     interviewer, ontology_drafter, rule_author, linter, approval_gate, publisher,
@@ -37,7 +37,7 @@ from agents.bundle_agents import (
     route_after_interview, route_after_lint, route_after_gate,
 )
 
-_checkpointer = SqliteSaver()
+_checkpointer = CheckpointSaver()
 
 
 def build_bundle_graph():

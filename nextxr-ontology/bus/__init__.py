@@ -2,7 +2,7 @@
 
 Every mutation that passes the Graph Writer (and is therefore recorded in the
 hash-chained Change Log) is ALSO published to the event bus as a single event.
-The Change Log (SQLite, tamper-evident) remains the durable source of truth;
+The Change Log (Postgres/RDS, tamper-evident) remains the durable source of truth;
 the bus is the decoupling layer that lets downstream consumers — the dashboard
 SSE feed, correlation/diagnosis agents, external adapters — react to changes in
 real time without polling the graph.

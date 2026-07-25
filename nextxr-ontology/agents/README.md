@@ -9,7 +9,7 @@ LangGraph by changing one import.
 ```
 agents/
   state.py          TwinBuildState + BundleAuthorState (the typed contracts)
-  engine.py         StateGraph / END / SqliteSaver — the LangGraph-compatible
+  engine.py         StateGraph / END / CheckpointSaver — the LangGraph-compatible
                     executor + checkpointer (resumable, human-in-the-loop)
   gateway.py        LLMGateway — Claude (Anthropic) via copilot.config, else a
                     deterministic stub. tenant_id-threaded, per-session call cap.

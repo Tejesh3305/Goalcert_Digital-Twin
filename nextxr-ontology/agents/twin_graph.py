@@ -31,7 +31,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, SqliteSaver
+from agents.engine import StateGraph, END, CheckpointSaver
 from agents.state import TwinBuildState
 from agents.twin_agents import (
     concierge_agent, domain_classifier, capability_composer, validator,
@@ -40,7 +40,7 @@ from agents.twin_agents import (
     route_after_graph_writer,
 )
 
-_checkpointer = SqliteSaver()
+_checkpointer = CheckpointSaver()
 
 
 def build_twin_graph():

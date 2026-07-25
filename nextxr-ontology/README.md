@@ -7,7 +7,7 @@ and a live monitoring dashboard.
 ## Quick start
 
 ```bash
-# 1. Start Neo4j
+# 1. Start Neo4j (+ Postgres and Redis)
 docker compose up -d
 
 # 2. Install dependencies
@@ -34,7 +34,7 @@ Telemetry Feed ──> Behavior Registry ──> Graph Writer ──> Neo4j
                    (Tier A/B/C)          (SHACL gate)     (graph)
                                               |
                                          Change Log
-                                         (SQLite, hash-chained)
+                                      (Postgres, hash-chained)
                                               |
                                          REST API ──> Dashboard
 ```
@@ -42,6 +42,14 @@ Telemetry Feed ──> Behavior Registry ──> Graph Writer ──> Neo4j
 **Write discipline:** Every mutation flows through the Graph Writer. The writer
 validates via SHACL, commits to Neo4j, logs to the change log, and stamps the
 event reference. Nothing else writes directly.
+
+**Two databases, different jobs.** Neo4j holds the twin's *graph* — entities,
+relationships, findings. The relational store (`db/`) holds everything that is a
+record rather than a graph: the twin registry, the hash-chained change log,
+published agent bundles, agent checkpoints and the BIM scene cache. That is RDS
+PostgreSQL 16 in production and SQLite files under `data/` when
+`NXR_DATABASE_URL` is unset, so local dev needs no database server. See
+`db/core.py` and AWS_DEPLOYMENT.md §7.
 
 ## API endpoints
 

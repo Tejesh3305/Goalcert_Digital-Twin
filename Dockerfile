@@ -7,12 +7,19 @@
 # copy baked in here just goes unused there, since traffic to the ECS task's "/" isn't
 # what serves the AWS frontend.
 #
-# STATE LIVES ON A VOLUME, NOT IN THIS IMAGE.
-# The twin keeps its twin registry, change log, agent bundles, checkpoints and the
-# reconstructed 3-D models under a data directory. Baking those into the image (the old
-# `COPY nextxr-ontology/` did, .db files and all) is worse than losing them: every redeploy
-# would RESET the live twin registry to whatever snapshot was committed to git. .dockerignore
-# keeps them out; NXR_DATA_DIR points at the EFS mount instead.
+# STATE LIVES IN RDS AND ON A VOLUME, NOT IN THIS IMAGE.
+# Relational state — twin registry, change log, agent bundles, agent checkpoints, BIM
+# scene cache — lives in RDS PostgreSQL 16. NXR_DATABASE_URL is deliberately NOT set
+# here: it carries a password, so it is injected as a task-definition SECRET from
+# Secrets Manager (AWS_DEPLOYMENT.md §5.2/§7). Left unset the app silently falls back
+# to per-task SQLite files, which is correct for local dev and wrong for a deploy —
+# check the `[db]` line and /api/v1/health after the first rollout.
+#
+# Blobs — reconstructed 3-D models and generated GLBs — remain on the mounted volume.
+# Baking those into the image (the old `COPY nextxr-ontology/` did, .db files and all)
+# is worse than losing them: every redeploy would RESET the live twin registry to
+# whatever snapshot was committed to git. .dockerignore keeps them out; NXR_DATA_DIR
+# points at the EFS mount instead.
 
 FROM node:20-slim AS frontend-build
 WORKDIR /app/frontend

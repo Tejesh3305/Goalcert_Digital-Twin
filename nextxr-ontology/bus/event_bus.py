@@ -11,7 +11,7 @@ are created per stream when needed.
 Event shape (BusEvent)
 ----------------------
 A bus event mirrors the Change Log event so consumers get the same canonical
-facts without re-reading SQLite::
+facts without re-reading the change log::
 
     event_id     ULID of the Change Log event this mutation produced
     tenant_id    isolation key (also encoded in the stream name)

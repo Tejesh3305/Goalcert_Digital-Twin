@@ -24,10 +24,19 @@ pydantic>=2.0
 anthropic>=0.111
 python-dotenv>=1.0
 
-# Change Log + Graph Writer + Behavior Registry + findings loop (Track 3):
-# stdlib only (sqlite3, hashlib, json, math) — no new dependencies.
-# Optional Tier-B upgrade: scikit-learn (IsolationForest) slots behind the
-# same Behavior interface; the shipped z-score baseline is dependency-free.
+# Relational store (db/) — the twin registry, change log, agent bundles,
+# checkpoints and BIM scene cache. RDS PostgreSQL 16 in production; SQLite
+# (stdlib) when NXR_DATABASE_URL is unset, so local dev needs no server.
+#
+# psycopg2 is therefore only needed for a Postgres deploy — the app imports it
+# lazily and runs fine without it. It stays in this file because the container
+# image IS the deploy artifact and must not have to install it at boot.
+psycopg2-binary>=2.9.9
+
+# Behavior Registry + findings loop (Track 3): stdlib only (hashlib, json,
+# math) — no new dependencies. Optional Tier-B upgrade: scikit-learn
+# (IsolationForest) slots behind the same Behavior interface; the shipped
+# z-score baseline is dependency-free.
 
 # Event bus (Redis Streams). The bus is best-effort with an automatic
 # in-memory fallback, so this dependency is OPTIONAL at runtime: if redis

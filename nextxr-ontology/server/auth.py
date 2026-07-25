@@ -87,13 +87,20 @@ def log_auth_posture() -> None:
     """Announce the auth posture once at startup so an open deployment cannot hide.
     Fires from AuthMiddleware.__init__ when the app is assembled."""
     if os.getenv("NXR_API_KEYS"):
-        print("[auth] API key enforcement ON — NXR_API_KEYS configured.", flush=True)
+        print("[auth] API key enforcement ON - NXR_API_KEYS configured.", flush=True)
     elif _require_auth():
-        print("[auth] API key enforcement ON — NXR_REQUIRE_AUTH set but NXR_API_KEYS "
+        print("[auth] API key enforcement ON - NXR_REQUIRE_AUTH set but NXR_API_KEYS "
               "is empty, so every /api call will be rejected until keys are configured.",
               flush=True)
     else:
-        print("[auth] ⚠ API IS OPEN — no NXR_API_KEYS set and NXR_REQUIRE_AUTH unset. "
+        # ASCII only, deliberately. This runs when the middleware stack is built,
+        # i.e. on the first request — and stdout is a redirected pipe under
+        # CloudWatch (and under `python -m server.main > log` on Windows). A
+        # character the stream's encoding can't represent raised UnicodeEncodeError
+        # *inside middleware construction*, which surfaced as HTTP 500 on every
+        # request. The one line warning that the API is open must never be the
+        # thing that takes the API down.
+        print("[auth] !! API IS OPEN - no NXR_API_KEYS set and NXR_REQUIRE_AUTH unset. "
               "Every /api request (including LLM-billing /copilot endpoints) is served "
               "without a key. Set NXR_API_KEYS before exposing this service publicly.",
               flush=True)
@@ -160,6 +167,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         log_auth_posture()
+        # Same reasoning as the auth line: a misconfigured deploy must announce
+        # itself at boot rather than be discovered when twins go missing.
+        try:
+            import db
+            db.log_posture()
+        except Exception:
+            pass
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path

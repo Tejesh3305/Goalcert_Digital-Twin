@@ -21,14 +21,14 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, SqliteSaver
+from agents.engine import StateGraph, END, CheckpointSaver
 from agents.state import OperationalState
 from agents.operational_agents import (
     context_gatherer, diagnosis_agent, recommender_agent,
     route_after_gather, route_after_diagnose,
 )
 
-_checkpointer = SqliteSaver()
+_checkpointer = CheckpointSaver()
 
 
 def build_operational_graph():
