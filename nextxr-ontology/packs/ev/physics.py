@@ -27,6 +27,10 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from packs._core.physics import (
+    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+)
+
 # ────────────────────────────────────────────────────────────────────
 #  Signals (charging-network domain)
 # ────────────────────────────────────────────────────────────────────
@@ -275,6 +279,9 @@ class EVNetworkState:
     solar_curtail: float = 0.0           # 0..1 solar output loss
     price_spike: float = 0.0             # 0..1 spot-price event
     shed: float = 0.0                    # 0..1 load shed applied
+    fleet_soc: float = 55.0              # % — aggregate connected-fleet SoC (evolves)
+    fleet_soh: float = 93.5              # % — aggregate SoH (fades via degradation engine)
+    connector_temp: float = 30.0         # °C — connector thermal state (lags)
     energy_kwh: float = 0.0
     hours: float = 0.0
     fault: str = "none"
@@ -349,20 +356,33 @@ class EVChargingNetworkPhysics:
         state.solar_curtail = 0.0
         state.price_spike = 0.0
         state.shed = 0.0
+        state.connector_temp = 30.0
 
     def forward(self, state: EVNetworkState, dt: float = 1.0) -> dict:
         rng = state.rng()
-        D = max(0.0, min(1.0, state.demand_level))
-        state.hours += dt / 3600.0
-        state.hour = (state.hour + dt / 3600.0) % 24.0
+        D = clamp(state.demand_level)
+        dt_h = dt / 3600.0
+        state.hours += dt_h
+        state.hour = (state.hour + dt_h) % 24.0
 
-        # ── charging demand ──
         cap = _TRANSFORMER_RATED_KW
         faulted = int(state.charger_faults)
         available = max(0, self.total_chargers - faulted)
         active = min(available, round(self.total_chargers * (0.3 + 0.5 * D)))
-        # effective installed demand (diversified), reduced by any load shed
-        raw_load = 2600.0 * (0.22 + 0.55 * D)
+
+        # Representative cell temperature (warms with connector heat from the
+        # previous tick); shared by the charging and degradation engines.
+        cell_c = 25.0 + 0.3 * max(0.0, state.connector_temp - 30.0)
+
+        # ── charging demand from the real CC-CV engine ──
+        # A representative session at the fleet's current SoC draws constant
+        # current below the CV knee and tapers above it, and derates as the
+        # connector heats — so the aggregate network load reflects charging
+        # physics, not a flat demand curve.
+        chg = charging_dynamics(soc=state.fleet_soc / 100.0, temp_c=cell_c,
+                                pack_voltage=400.0, connector_temp_c=state.connector_temp)
+        per_session_kw = chg["power_kw"]
+        raw_load = active * per_session_kw * 0.85            # diversified aggregate
         network_load = raw_load * (1.0 - 0.35 * state.shed)
         avg_power = network_load / max(1, active)
 
@@ -374,22 +394,26 @@ class EVChargingNetworkPhysics:
         self_consumption = 100.0 * min(solar_kw, network_load) / max(1.0, solar_kw) if solar_kw > 1 else 0.0
 
         # ── transformer (IEC 60076-7) ──
-        transformer_load = min(170.0, 100.0 * (grid_import / cap) + 45.0 * state.transformer_extra)
-        # grid-overload shedding keeps the transformer under its rating (updated
-        # for the NEXT tick from this tick's loading)
+        # transformer_extra models DEGRADED COOLING: it raises the thermal rise for
+        # the same load THROUGH the model, so the hot-spot comes from the IEC
+        # equation itself — not a fudge added on top of the model's output.
+        transformer_load = min(170.0, 100.0 * (grid_import / cap))
         overloaded = transformer_load > 92.0 or state.fault == "grid_overload"
         state.shed = min(1.0, state.shed + 0.15) if overloaded else max(0.0, state.shed - 0.05)
-        tr = grid_transformer_aging(transformer_load, ambient_c=25.0 + 8.0 * _solar_fraction(state.hour))
-        hotspot = tr["hotspot_c"] + 50.0 * state.transformer_extra
-        aging = 2.0 ** ((hotspot - 98.0) / 6.0)
+        rise = 78.0 * (1.0 + 2.0 * state.transformer_extra)
+        tr = grid_transformer_aging(transformer_load, ambient_c=25.0 + 8.0 * _solar_fraction(state.hour),
+                                    total_rise_k=rise)
+        hotspot = tr["hotspot_c"]
+        aging = tr["aging_rate"]
 
         # ── grid quality ──
         grid_voltage = 100.0 - 6.0 * max(0.0, transformer_load - 80.0) / 20.0 - 15.0 * state.grid_sag
         grid_frequency = 50.0 - 0.15 * state.grid_sag - 0.05 * max(0.0, transformer_load - 90.0) / 10.0
 
-        # ── connectors ──
-        connector_temp = 28.0 + 22.0 * (avg_power / 200.0) + 40.0 * state.connector_extra
-        charger_derate = 1.0 if connector_temp < 50.0 else max(0.3, 1.0 - (connector_temp - 50.0) / 40.0)
+        # ── connectors: a thermal state with real inertia (first-order lag) ──
+        conn_ss = 28.0 + 22.0 * (avg_power / 200.0) + 40.0 * state.connector_extra
+        state.connector_temp = first_order_lag(state.connector_temp, conn_ss, 120.0, dt)
+        connector_temp = state.connector_temp
 
         # ── V2G ──
         price = _price_at(state.hour, state.price_spike)
@@ -397,14 +421,19 @@ class EVChargingNetworkPhysics:
         v2g_export = (120.0 + 180.0 * state.price_spike) * (1.0 if v2g_worth else 0.0)
         v2g_revenue = v2g_export * price / 1000.0
 
-        # ── fleet ──
-        fleet_soc = 68.0 - 18.0 * D + 6.0 * (sun > 0.3)
-        fleet_soh = 93.5
+        # ── fleet SoC (demand-dependent equilibrium) + SoH fade via the engine ──
+        soc_target = clamp(0.70 - 0.30 * D, 0.15, 0.90) * 100.0
+        state.fleet_soc = first_order_lag(state.fleet_soc, soc_target, 900.0, dt)
+        deg = battery_degradation(temp_c=cell_c, soc=state.fleet_soc / 100.0,
+                                  c_rate=per_session_kw / 75.0, dt_h=dt_h, soh=state.fleet_soh)
+        state.fleet_soh = deg["soh"]
+        fleet_soc = state.fleet_soc
+        fleet_soh = state.fleet_soh
 
-        state.energy_kwh += network_load * dt / 3600.0
+        state.energy_kwh += network_load * dt_h
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["network_load"]:       round(max(0.0, j(network_load, 0.02)), 1),
@@ -438,22 +467,14 @@ class EVChargingNetworkPhysics:
     def health_index(self, frame: dict) -> float:
         if not frame:
             return 1.0
-
-        def hi(v, nominal, limit):
-            return max(0.0, min(1.0, (limit - v) / (limit - nominal)))
-
-        def lo(v, nominal, limit):
-            return max(0.0, min(1.0, (v - limit) / (nominal - limit)))
-
-        margins = [
-            hi(frame.get(SIGNALS["transformer_load"], 65.0), 65.0, redlines.transformer_load_max),
-            hi(frame.get(SIGNALS["transformer_hotspot"], 60.0), 60.0, redlines.transformer_hotspot_max),
-            hi(frame.get(SIGNALS["transformer_aging"], 0.2), 0.2, redlines.transformer_aging_max),
-            lo(frame.get(SIGNALS["grid_voltage"], 100.0), 100.0, redlines.grid_voltage_min),
-            hi(frame.get(SIGNALS["connector_temp"], 34.0), 34.0, redlines.connector_temp_max),
-            lo(frame.get(SIGNALS["available_chargers"], 100.0), 100.0, redlines.available_chargers_min),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_hi(frame.get(SIGNALS["transformer_load"], 65.0), 65.0, redlines.transformer_load_max),
+            margin_hi(frame.get(SIGNALS["transformer_hotspot"], 60.0), 60.0, redlines.transformer_hotspot_max),
+            margin_hi(frame.get(SIGNALS["transformer_aging"], 0.2), 0.2, redlines.transformer_aging_max),
+            margin_lo(frame.get(SIGNALS["grid_voltage"], 100.0), 100.0, redlines.grid_voltage_min),
+            margin_hi(frame.get(SIGNALS["connector_temp"], 34.0), 34.0, redlines.connector_temp_max),
+            margin_lo(frame.get(SIGNALS["available_chargers"], 100.0), 100.0, redlines.available_chargers_min),
+        ]), 3)
 
     # ── live views: geo map + grid load curve + V2G trading ──
     def _stations(self, state: EVNetworkState) -> list:

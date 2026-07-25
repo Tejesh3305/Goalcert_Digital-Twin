@@ -16,9 +16,18 @@ import random
 from dataclasses import dataclass, field
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+from packs._core.physics import (
+    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+    status_from_health,
+)
 from .physics import (
     train_dynamics, wheel_rail_contact, SIGNALS as NET_SIGNALS,
 )
+
+# Thermal time constants (s): the traction motor is a large thermal mass; the
+# brake discs a smaller one — both ramp toward their steady value, never snap.
+_TAU_MOTOR = 180.0
+_TAU_BRAKE = 90.0
 
 SIGNALS = {
     "speed":         "rail:trainSpeed",
@@ -75,6 +84,8 @@ class TrainsetState:
     earth_fault: float = 0.0         # 0..1 insulation/earth fault → overcurrent
     hvac_fault: float = 0.0          # 0..1 saloon HVAC loss
     aux_fault: float = 0.0           # 0..1 auxiliary converter fault
+    motor_temp: float = 0.0          # °C — winding thermal state (0 ⇒ snap first tick)
+    brake_temp: float = 0.0          # °C — brake-disc thermal state
     hours: float = 0.0
     fault: str = "none"
     fault_severity: float = 0.0
@@ -132,11 +143,14 @@ class TrainsetPhysics:
 
     def forward(self, state: TrainsetState, dt: float = 1.0) -> dict:
         rng = state.rng()
-        notch = max(0.0, min(1.0, state.throttle))
+        notch = clamp(state.throttle)
         state.hours += dt / 3600.0
-        state.brake_wear = min(100.0, state.brake_wear + dt * (0.0015 + 0.004 * notch))
+        # Wear advances here (not in predict) and accelerates under an active
+        # fault, so the live twin and predict() age on the same curve.
+        _wear_mult = 1.0 + 2.0 * (state.fault_severity if state.fault != "none" else 0.0)
+        state.brake_wear = min(100.0, state.brake_wear + dt * _wear_mult * (0.0015 + 0.004 * notch))
         if state.wheel_flat > 0:
-            state.wheel_flat = min(6.0, state.wheel_flat + dt * 4e-5)
+            state.wheel_flat = min(6.0, state.wheel_flat + dt * _wear_mult * 4e-5)
 
         # duty cycle: a nominal line speed from the commanded notch
         speed = 25.0 + 55.0 * notch
@@ -151,23 +165,38 @@ class TrainsetPhysics:
         line_current = base_current * (1.0 + 1.4 * state.earth_fault)   # earth fault → overcurrent
         motor_current = line_current / 4.0                              # 4 motored axles
 
+        # Traction-motor winding temperature: a thermal STATE with real inertia
+        # (I²R-driven steady value, cooled by ventilation) that ramps toward its
+        # steady value rather than snapping with the notch.
         cooling = 1.0 - 0.7 * state.motor_derate
-        motor_temp = 55.0 + 65.0 * notch + 28.0 * state.heat \
+        motor_ss = 55.0 + 65.0 * notch + 28.0 * state.heat \
             + 45.0 * state.motor_derate + 20.0 * state.earth_fault
-        motor_temp = 40.0 + (motor_temp - 40.0) / max(0.3, cooling)
+        motor_ss = 40.0 + (motor_ss - 40.0) / max(0.3, cooling)
+        state.motor_temp = motor_ss if state.motor_temp <= 0.0 else first_order_lag(
+            state.motor_temp, motor_ss, _TAU_MOTOR, dt)
+        motor_temp = state.motor_temp
 
         wr = wheel_rail_contact(axle_load_kn=160.0,
                                 speed_kmh=speed, wheel_flat_mm=state.wheel_flat)
         wheel_qp = wr["derailment_quotient"]
         bogie_vib = 2.0 + 1.9 * state.wheel_flat + 0.02 * speed + 0.012 * state.brake_wear + 1.0 * state.heat
 
-        brake_temp = 45.0 + 0.9 * state.brake_wear + 180.0 * (notch < 0.25) * (speed > 40) + 40.0 * state.heat
+        # Brake-disc temperature: friction braking dissipates kinetic energy at a
+        # rate that rises smoothly as the notch drops below coasting while moving
+        # (∝ v²), replacing the old discontinuous — and self-contradictory —
+        # 180·(notch<0.25)·(speed>40) step. Also a thermal state (convective cooling).
+        brake_frac = max(0.0, 0.35 - notch) / 0.35
+        brake_ss = (45.0 + 0.9 * state.brake_wear
+                    + brake_frac * (speed / 80.0) ** 2 * 300.0 + 40.0 * state.heat)
+        state.brake_temp = brake_ss if state.brake_temp <= 0.0 else first_order_lag(
+            state.brake_temp, brake_ss, _TAU_BRAKE, dt)
+        brake_temp = state.brake_temp
         car_hvac = 22.0 + 6.0 * state.hvac_fault + 3.0 * state.heat + 0.01 * (40.0 * notch)
         aux_v = 110.0 - 30.0 * state.aux_fault - 3.0 * state.heat
         regen = max(0.0, 32.0 - 18.0 * state.heat) * (1.0 - state.earth_fault)
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["speed"]:         round(max(0.0, j(speed, 0.02)), 1),
@@ -192,28 +221,19 @@ class TrainsetPhysics:
     def health_index(self, frame: dict) -> float:
         if not frame:
             return 1.0
-
-        def hi(v, nominal, limit):
-            return max(0.0, min(1.0, (limit - v) / (limit - nominal)))
-
-        def lo(v, nominal, limit):
-            return max(0.0, min(1.0, (v - limit) / (nominal - limit)))
-
-        margins = [
-            hi(frame.get(SIGNALS["motor_temp"], 90.0), 90.0, redlines.motor_temp_max),
-            hi(frame.get(SIGNALS["bogie_vib"], 3.4), 3.4, redlines.bogie_vib_max),
-            hi(frame.get(SIGNALS["wheel_qp"], 0.28), 0.28, redlines.wheel_qp_max),
-            hi(frame.get(SIGNALS["brake_temp"], 70.0), 70.0, redlines.brake_temp_max),
-            hi(frame.get(SIGNALS["brake_wear"], 15.0), 15.0, redlines.brake_wear_max),
-            lo(frame.get(SIGNALS["aux_v"], 110.0), 110.0, redlines.aux_v_min),
-            hi(frame.get(SIGNALS["line_current"], 2200.0), 2200.0, redlines.line_current_max),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_hi(frame.get(SIGNALS["motor_temp"], 90.0), 90.0, redlines.motor_temp_max),
+            margin_hi(frame.get(SIGNALS["bogie_vib"], 3.4), 3.4, redlines.bogie_vib_max),
+            margin_hi(frame.get(SIGNALS["wheel_qp"], 0.28), 0.28, redlines.wheel_qp_max),
+            margin_hi(frame.get(SIGNALS["brake_temp"], 70.0), 70.0, redlines.brake_temp_max),
+            margin_hi(frame.get(SIGNALS["brake_wear"], 15.0), 15.0, redlines.brake_wear_max),
+            margin_lo(frame.get(SIGNALS["aux_v"], 110.0), 110.0, redlines.aux_v_min),
+            margin_hi(frame.get(SIGNALS["line_current"], 2200.0), 2200.0, redlines.line_current_max),
+        ]), 3)
 
 
 # ── health rollup + prediction ──
-def _status(h):
-    return "critical" if h < 0.4 else "warning" if h < 0.72 else "ok"
+_status = status_from_health
 
 
 def component_health(state, frame, physics) -> dict:
@@ -264,13 +284,10 @@ def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) 
     dt_min = horizon_min / max(1, points)
     dt_s = dt_min * 60.0
     trajectory, events, rul = [], [], {}
-    sev = getattr(st, "fault_severity", 0.0) or 0.0
     for i in range(points):
         t_min = round(i * dt_min, 2)
-        g = dt_s * (1.0 + 2.0 * sev)
-        st.brake_wear = min(120.0, st.brake_wear + g * (2.2e-4 + 3e-6 * st.brake_wear))
-        if st.wheel_flat > 0:
-            st.wheel_flat = min(6.0, st.wheel_flat + g * 8e-6)
+        # No separate ramp: physics.forward advances wear itself (accelerated by
+        # an active fault), so the projection follows the twin's own dynamics.
         frame = physics.forward(st, dt=dt_s)
         trajectory.append({
             "t": t_min,

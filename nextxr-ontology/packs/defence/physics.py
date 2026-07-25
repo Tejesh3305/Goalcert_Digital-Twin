@@ -24,6 +24,8 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from packs._core.physics import clamp, jitter, margin_hi, margin_lo, worst_health
+
 # ────────────────────────────────────────────────────────────────────
 #  Signals (base / C4ISR domain)
 # ────────────────────────────────────────────────────────────────────
@@ -349,7 +351,7 @@ class DefenceBasePhysics:
                                 - 8.0 * (state.nbc_release > 0.4) - 6.0 * (aircraft_avail < 50.0))
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["threat_level"]:       round(state.threat, 1),
@@ -379,24 +381,17 @@ class DefenceBasePhysics:
         if not frame:
             return 1.0
 
-        def hi(v, nominal, limit):
-            return max(0.0, min(1.0, (limit - v) / (limit - nominal)))
-
-        def lo(v, nominal, limit):
-            return max(0.0, min(1.0, (v - limit) / (nominal - limit)))
-
-        margins = [
-            lo(frame.get(SIGNALS["radar_coverage"], 90.0), 90.0, redlines.radar_coverage_min),
-            lo(frame.get(SIGNALS["comms_availability"], 98.0), 98.0, redlines.comms_min),
-            lo(frame.get(SIGNALS["cookoff_margin"], 30.0), 30.0, redlines.cookoff_margin_min),
-            lo(frame.get(SIGNALS["fuel_level"], 82.0), 82.0, redlines.fuel_min),
-            hi(frame.get(SIGNALS["nbc_reading"], 0.0), 0.0, redlines.nbc_max),
-            hi(frame.get(SIGNALS["jamming_level"], 0.0), 0.0, redlines.jamming_max),
-            hi(frame.get(SIGNALS["perimeter_breaches"], 0), 0, 3),
-            lo(frame.get(SIGNALS["mission_readiness"], 95.0), 95.0, redlines.mission_readiness_min),
-            lo(frame.get(SIGNALS["flight_hours"], 42.0), 42.0, redlines.flight_hours_min),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_lo(frame.get(SIGNALS["radar_coverage"], 90.0), 90.0, redlines.radar_coverage_min),
+            margin_lo(frame.get(SIGNALS["comms_availability"], 98.0), 98.0, redlines.comms_min),
+            margin_lo(frame.get(SIGNALS["cookoff_margin"], 30.0), 30.0, redlines.cookoff_margin_min),
+            margin_lo(frame.get(SIGNALS["fuel_level"], 82.0), 82.0, redlines.fuel_min),
+            margin_hi(frame.get(SIGNALS["nbc_reading"], 0.0), 0.0, redlines.nbc_max),
+            margin_hi(frame.get(SIGNALS["jamming_level"], 0.0), 0.0, redlines.jamming_max),
+            margin_hi(frame.get(SIGNALS["perimeter_breaches"], 0), 0, 3),
+            margin_lo(frame.get(SIGNALS["mission_readiness"], 95.0), 95.0, redlines.mission_readiness_min),
+            margin_lo(frame.get(SIGNALS["flight_hours"], 42.0), 42.0, redlines.flight_hours_min),
+        ]), 3)
 
     # ── live tactical map + mission board ──
     def _assets(self, state: DefenceBaseState) -> list:

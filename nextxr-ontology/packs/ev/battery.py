@@ -12,6 +12,9 @@ import copy
 import random
 from dataclasses import dataclass, field
 
+from packs._core.physics import (
+    clamp, jitter, margin_hi, margin_lo, worst_health, status_from_health,
+)
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
 from .physics import (
     battery_ecm, battery_thermal, battery_degradation, charging_dynamics, soc_ocv,
@@ -176,7 +179,7 @@ class EVBatteryPackPhysics:
             + 0.0004 * max(0.0, state.temp - 40.0)
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["soc"]:          round(state.soc, 1),
@@ -197,21 +200,14 @@ class EVBatteryPackPhysics:
         if not frame:
             return 1.0
 
-        def hi(v, nominal, limit):
-            return max(0.0, min(1.0, (limit - v) / (limit - nominal)))
-
-        def lo(v, nominal, limit):
-            return max(0.0, min(1.0, (v - limit) / (nominal - limit)))
-
-        margins = [
-            hi(frame.get(SIGNALS["cell_v_delta"], 0.01), 0.01, redlines.cell_v_delta_max),
-            hi(frame.get(SIGNALS["cell_temp"], 30.0), 30.0, redlines.cell_temp_max),
-            hi(frame.get(SIGNALS["cell_temp_rise"], 1.0), 1.0, redlines.cell_temp_rise_max),
-            hi(frame.get(SIGNALS["pack_current"], 240.0), 240.0, redlines.pack_current_max),
-            lo(frame.get(SIGNALS["soh"], 93.0), 93.0, redlines.soh_min),
-            hi(frame.get(SIGNALS["coolant_temp"], 25.0), 25.0, redlines.coolant_max),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_hi(frame.get(SIGNALS["cell_v_delta"], 0.01), 0.01, redlines.cell_v_delta_max),
+            margin_hi(frame.get(SIGNALS["cell_temp"], 30.0), 30.0, redlines.cell_temp_max),
+            margin_hi(frame.get(SIGNALS["cell_temp_rise"], 1.0), 1.0, redlines.cell_temp_rise_max),
+            margin_hi(frame.get(SIGNALS["pack_current"], 240.0), 240.0, redlines.pack_current_max),
+            margin_lo(frame.get(SIGNALS["soh"], 93.0), 93.0, redlines.soh_min),
+            margin_hi(frame.get(SIGNALS["coolant_temp"], 25.0), 25.0, redlines.coolant_max),
+        ]), 3)
 
     # ── live cell heatmap (P2-021) ──
     def network_state(self, state: BatteryState) -> dict:
@@ -244,8 +240,7 @@ class EVBatteryPackPhysics:
 
 
 # ── health rollup + prediction ──
-def _status(h):
-    return "critical" if h < 0.4 else "warning" if h < 0.72 else "ok"
+_status = status_from_health
 
 
 def component_health(state, frame, physics) -> dict:

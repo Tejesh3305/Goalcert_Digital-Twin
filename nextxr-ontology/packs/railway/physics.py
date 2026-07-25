@@ -28,6 +28,8 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from packs._core.physics import clamp, jitter
+
 # ────────────────────────────────────────────────────────────────────
 #  Signals
 # ────────────────────────────────────────────────────────────────────
@@ -111,22 +113,25 @@ def traction_power_flow(trains_in_section: float, train_kw: float = 1000.0,
                         feed_voltage: float = 750.0, feeder_ohm: float = 0.006,
                         regen_kw: float = 0.0, receptive_fraction: float = 1.0,
                         substation_rating_kw: float = 6000.0,
-                        overvoltage_gain: float = 14.0) -> dict:
+                        rheostat_ceiling_v: float = 1000.0, absorb_frac: float = 0.10) -> dict:
     """750 V DC third-rail power flow via a lumped Kirchhoff feeder.
 
     Each in-section train draws `train_kw`; the resulting current sags the rail
     voltage across the conductor-rail resistance (V = V_feed − I·R). Regenerative
     braking power that no other train can absorb (the non-receptive fraction) has
-    nowhere to go and instead *raises* the rail voltage (`overvoltage_gain` scales
-    the rise by the effective electrical distance to the nearest absorbing load) —
-    the overvoltage mechanism that trips the P0 rule when receptivity collapses.
+    nowhere to dissipate, so it RAISES the DC-link voltage toward the on-board
+    braking-rheostat ceiling, which clamps it. The rise saturates with the surplus
+    fraction of substation rating (half-rise at `absorb_frac`) — a receptivity
+    collapse drives the rail toward the ceiling rather than through an arbitrary
+    gain factor.
     """
     demand_kw = max(0.0, trains_in_section) * train_kw
     demand_a = demand_kw * 1000.0 / feed_voltage
     v_sag = demand_a * feeder_ohm
     surplus_kw = max(0.0, regen_kw) * (1.0 - max(0.0, min(1.0, receptive_fraction)))
-    surplus_a = surplus_kw * 1000.0 / feed_voltage
-    voltage = feed_voltage - v_sag + surplus_a * feeder_ohm * overvoltage_gain
+    surplus_frac = surplus_kw / max(1.0, substation_rating_kw)
+    rise = (rheostat_ceiling_v - feed_voltage) * (surplus_frac / (surplus_frac + absorb_frac))
+    voltage = min(rheostat_ceiling_v, feed_voltage - v_sag + rise)
     sub_load = min(160.0, 100.0 * (demand_kw + surplus_kw) / substation_rating_kw)
     return {"voltage": voltage, "current_a": demand_a,
             "substation_load": sub_load, "demand_kw": demand_kw}
@@ -247,21 +252,23 @@ def wheel_rail_contact(axle_load_kn: float = 160.0, speed_kmh: float = 60.0,
     p0_pa = (6.0 * wheel_load_n * e_star ** 2 / (math.pi ** 3 * wheel_radius_m ** 2)) ** (1.0 / 3.0)
     contact_stress_mpa = p0_pa / 1e6
     impact = 1.0 + wheel_flat_mm * 0.35 + speed_kmh * 0.002       # dynamic factor
-    # Lateral (guiding) force grows with a wheel flat and curving/hunting speed,
-    # while the vertical reference stays near static — so Q/P climbs toward the
-    # Nadal limit as the flat worsens.
-    if lateral_kn is not None:
-        lateral_n = lateral_kn * 1000.0
-        qp = lateral_n / max(1.0, wheel_load_n)
-    else:
-        qp = 0.20 + 0.10 * wheel_flat_mm + 0.0012 * speed_kmh
-        lateral_n = qp * wheel_load_n
     b = math.radians(flange_angle_deg)
     nadal = (math.tan(b) - friction) / (1.0 + friction * math.tan(b))
+    # Q/P from a lateral/vertical force balance, measured against the Nadal
+    # flange-climb limit. The vertical reference is the static wheel load (the
+    # basis of the Nadal criterion); the lateral guiding force grows with
+    # curving/hunting speed and is amplified by the wheel-flat dynamic impact.
+    if lateral_kn is not None:
+        lateral_n = lateral_kn * 1000.0
+    else:
+        lateral_n = (wheel_load_n * (0.12 + 0.0015 * speed_kmh) * impact
+                     + wheel_flat_mm * 0.04 * wheel_load_n)
+    qp = lateral_n / max(1.0, wheel_load_n)
+    nadal_utilisation = qp / nadal if nadal > 0 else 0.0   # ≥1 ⇒ flange climb
     wear_index = contact_stress_mpa * (lateral_n / 1000.0) * speed_kmh * 1e-4
     return {"contact_stress_mpa": contact_stress_mpa, "derailment_quotient": qp,
-            "nadal_limit": nadal, "wear_index": wear_index,
-            "dynamic_factor": impact}
+            "nadal_limit": nadal, "nadal_utilisation": nadal_utilisation,
+            "wear_index": wear_index, "dynamic_factor": impact}
 
 
 _LOS_BANDS = [(0.30, "A", 1), (0.50, "B", 2), (0.72, "C", 3),
@@ -564,7 +571,7 @@ class RailwayPhysics:
                      + int(wheel_qp >= 0.7) + int(rail_stress >= redlines.rail_stress_max))
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["otp"]:                  round(j(otp, 0.008), 1),

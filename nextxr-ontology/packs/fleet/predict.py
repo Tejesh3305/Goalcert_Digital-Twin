@@ -26,9 +26,9 @@ def _clamp(x: float) -> float:
     return max(0.0, min(1.0, x))
 
 
-def _status(h: float) -> str:
-    return ("good" if h >= 0.8 else "fair" if h >= 0.6
-            else "degraded" if h >= 0.4 else "critical")
+# Unified to the platform status vocabulary (ok/warning/critical) so fleet
+# components render through the same severity styles as every other twin.
+from packs._core.physics import status_from_health as _status
 
 
 def component_health(state: FleetState, frame: dict,

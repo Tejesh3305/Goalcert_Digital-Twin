@@ -9,8 +9,7 @@ import copy
 from .physics import SIGNALS, redlines
 
 
-def _status(h: float) -> str:
-    return "critical" if h < 0.4 else "warning" if h < 0.72 else "ok"
+from packs._core.physics import status_from_health as _status
 
 
 def component_health(state, frame, physics) -> dict:
@@ -61,16 +60,11 @@ def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) 
     dt_s = dt_min * 60.0
 
     trajectory, events, rul = [], [], {}
-    sev = getattr(st, "fault_severity", 0.0) or 0.0
     for i in range(points):
         t_min = round(i * dt_min, 2)
-        g = dt_s * (1.0 + 3.0 * sev)
-        st.filter_clog = min(1.6, st.filter_clog + g * (1.5e-5 + 5e-5 * st.filter_clog))
-        st.resin_depletion = min(1.6, st.resin_depletion + g * (1.2e-5 + 5e-5 * st.resin_depletion))
-        st.guide_wear = min(1.6, st.guide_wear + g * (1.0e-5 + 5e-5 * st.guide_wear))
-        st.debris = min(1.6, st.debris + g * (1.5e-5 + 6e-5 * st.debris))
-        st.chiller_health = max(0.0, st.chiller_health - g * 1.0e-5 * (0.5 + sev))
-
+        # No separate ramp: physics.forward advances degradation itself (via
+        # _degrade), so the projection follows the twin's own dynamics — an active
+        # fault accelerates the accumulators exactly as it does live.
         frame = physics.forward(st, dt=dt_s)
         trajectory.append({
             "t": t_min,

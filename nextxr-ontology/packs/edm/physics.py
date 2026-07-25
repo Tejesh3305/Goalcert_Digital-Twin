@@ -120,9 +120,9 @@ class EDMPhysics:
         I = clamp(state.intensity)
         state.hours += dt / 3600.0
 
-        # Wire wears with use + worn guides; guides creep with intensity.
-        state.wire_wear = min(100.0, state.wire_wear + dt * (0.0016 + 0.004 * I + 0.02 * state.guide_wear))
-        state.guide_wear = min(1.5, state.guide_wear + dt * 1.2e-6 * (0.5 + I))
+        # Contamination + wear advance HERE (not in predict), so the live twin and
+        # predict() age on the same curve; an active fault accelerates the path.
+        self._degrade(state, dt, I)
 
         clog, resin, gw, deb = state.filter_clog, state.resin_depletion, state.guide_wear, state.debris
         chill = state.chiller_health
@@ -183,6 +183,21 @@ class EDMPhysics:
             SIGNALS["ra"]:           round(max(0.0, j(ra, 0.02)), 2),
             SIGNALS["break_risk"]:   round(max(0.0, min(100.0, j(break_risk, 0.03))), 1),
         }
+
+    def _degrade(self, state: EDMState, dt: float, I: float) -> None:
+        """Advance contamination/wear. Slow when healthy — the twin barely ages in
+        a demo — and multiplied by an active fault so a projection reaches a limit
+        within the horizon. forward() and predict() call this identically, so the
+        RUL trajectory matches the live twin's."""
+        sev = state.fault_severity if state.fault != "none" else 0.0
+        mult = 1.0 + 4.0 * sev
+        state.filter_clog = min(1.6, state.filter_clog + dt * mult * (1.0e-6 + 5.0e-5 * state.filter_clog))
+        state.resin_depletion = min(1.6, state.resin_depletion + dt * mult * (1.0e-6 + 5.0e-5 * state.resin_depletion))
+        state.debris = min(1.6, state.debris + dt * mult * (1.5e-6 + 6.0e-5 * state.debris))
+        state.guide_wear = min(1.6, state.guide_wear
+                               + dt * mult * (5.0e-7 + 5.0e-5 * state.guide_wear) + dt * 1.2e-6 * (0.5 + I))
+        state.chiller_health = max(0.0, state.chiller_health - dt * mult * 1.0e-6 * (0.5 + sev))
+        state.wire_wear = min(100.0, state.wire_wear + dt * (0.0016 + 0.004 * I + 0.02 * state.guide_wear))
 
     def residuals(self, frame: dict) -> dict:
         """Tier-A residuals: gap voltage below the clean value for its intensity

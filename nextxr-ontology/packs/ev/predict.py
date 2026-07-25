@@ -9,8 +9,7 @@ import copy
 from .physics import SIGNALS, redlines
 
 
-def _status(h: float) -> str:
-    return "critical" if h < 0.4 else "warning" if h < 0.72 else "ok"
+from packs._core.physics import status_from_health as _status
 
 
 def component_health(state, frame, physics) -> dict:

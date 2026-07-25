@@ -9,8 +9,7 @@ import copy
 from .physics import SIGNALS, redlines
 
 
-def _status(h: float) -> str:
-    return "critical" if h < 0.4 else "warning" if h < 0.72 else "ok"
+from packs._core.physics import status_from_health as _status
 
 
 def component_health(state, frame, physics) -> dict:
@@ -89,14 +88,10 @@ def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) 
     dt_s = dt_min * 60.0
 
     trajectory, events, rul = [], [], {}
-    sev = getattr(st, "fault_severity", 0.0) or 0.0
     for i in range(points):
         t_min = round(i * dt_min, 2)
-        g = dt_s * (1.0 + 2.0 * sev)
-        st.brake_wear = min(120.0, st.brake_wear + g * (2.0e-4 + 3e-6 * st.brake_wear))
-        if st.wheel_flat > 0:
-            st.wheel_flat = min(6.0, st.wheel_flat + g * 6e-6)
-
+        # No separate ramp: physics.forward advances wear itself (accelerated by
+        # an active fault), so the projection follows the twin's own dynamics.
         frame = physics.forward(st, dt=dt_s)
         trajectory.append({
             "t": t_min,

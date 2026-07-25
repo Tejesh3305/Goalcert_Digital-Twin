@@ -32,6 +32,8 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from packs._core.physics import clamp, jitter
+
 # ────────────────────────────────────────────────────────────────────
 #  Signals
 # ────────────────────────────────────────────────────────────────────
@@ -442,7 +444,7 @@ class HospitalCampusPhysics:
         or_util = min(100.0, 55.0 + 32.0 * P)
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["or_pressure"]:    round(j(or_pressure, 0.02), 1),
