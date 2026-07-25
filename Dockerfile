@@ -29,7 +29,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PORT=8080 \
     # The EFS access point is mounted here by the task definition. Overridable; the code
     # falls back to ./data when unset (local dev).
-    NXR_DATA_DIR=/data
+    NXR_DATA_DIR=/data \
+    # The 3-D platform (object-photo → GLB) uses its OWN data dir (threed_platform
+    # app/config.py). Point it under the SAME mounted volume, or every generated
+    # model is written to an ephemeral in-image path and lost on task replacement.
+    DATA_DIR=/data/threed
 
 WORKDIR /app
 

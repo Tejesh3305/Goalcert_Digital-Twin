@@ -11,7 +11,7 @@ agents/
   state.py          TwinBuildState + BundleAuthorState (the typed contracts)
   engine.py         StateGraph / END / SqliteSaver — the LangGraph-compatible
                     executor + checkpointer (resumable, human-in-the-loop)
-  gateway.py        LLMGateway — OpenAI when OPENAI_API_KEY is set, else a
+  gateway.py        LLMGateway — Claude (Anthropic) via copilot.config, else a
                     deterministic stub. tenant_id-threaded, per-session call cap.
   registry.py       BundleRegistry — query/load/publish capability bundles
                     (built-in HVAC + bundles the Bundle Author publishes)
@@ -69,11 +69,14 @@ Prove it: `python -m agents.loop_test` (needs `docker compose up -d neo4j redis`
 
 ## LLM layer
 
-`gateway.py` uses OpenAI (`OPENAI_API_KEY` from `.env`, model `NXR_LLM_MODEL`,
-default `gpt-4o-mini`) and falls back to deterministic stubs if no key / on any
-API error — so the whole flow runs keyless too. Per-session cap:
-`NXR_LLM_MAX_CALLS` (default 100). To swap to Anthropic Gateway, change
-`gateway.py` only.
+`gateway.py` is the single Claude (Anthropic) choke-point for the agent graphs.
+It shares ONE key and model policy with the rest of the platform through
+`copilot.config` (`ANTHROPIC_API_KEY`, model `NXR_CLAUDE_MODEL`) — the platform is
+Claude-only; the earlier OpenAI path was retired. A legacy `NXR_LLM_MODEL`
+override is honoured *only* if it names a Claude model, otherwise the
+platform-wide choice wins. It falls back to deterministic stubs if there is no
+key / on any API error, so the whole flow runs keyless too. Per-session cap:
+`NXR_LLM_MAX_CALLS` (default 100).
 
 ## HTTP API (mounted in server/main.py)
 
@@ -89,8 +92,8 @@ in FastAPI's threadpool and don't stall the event loop.
 ## UI
 
 - **Build a Twin** (`/build`) — Concierge chat + a live agent-pipeline rail.
-- **Bundle Author** (`/bundle-author`) — author a vertical, see the drafted
-  ontology + Tier-C rule, and the **Approve & Publish** human gate.
+- **Bundle Author** — no dedicated UI panel currently ships; the flow is driven
+  over the agents HTTP API above (`/bundle/start | /bundle/message | /bundle/approve`).
 
 ## Notes / caveats
 

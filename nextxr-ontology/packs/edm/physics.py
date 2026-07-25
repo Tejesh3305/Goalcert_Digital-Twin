@@ -15,6 +15,8 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
+from packs._core.physics import clamp, jitter, margin_hi, margin_lo, worst_health
+
 SIGNALS = {
     "gap_v":        "edm:gapVoltage",
     "peak_i":       "edm:peakCurrent",
@@ -115,7 +117,7 @@ class EDMPhysics:
 
     def forward(self, state: EDMState, dt: float = 1.0) -> dict:
         rng = state.rng()
-        I = max(0.0, min(1.0, state.intensity))
+        I = clamp(state.intensity)
         state.hours += dt / 3600.0
 
         # Wire wears with use + worn guides; guides creep with intensity.
@@ -135,12 +137,18 @@ class EDMPhysics:
         short_rate = 2.5 + 30.0 * deb + 12.0 * clog + 10.0 * max(0.0, I - 0.7)
         gap_v = 58.0 - 26.0 * deb - 0.5 * short_rate      # collapses as it shorts
 
-        # Discharge generator.
+        # Discharge generator. ton/toff are µs, peak_i is A, gap_v is V.
         peak_i = 8.0 + 34.0 * I
         ton = 2.0 + 10.0 * I
         toff = max(2.0, 12.0 - 6.0 * I)
-        spark_freq = max(5.0, 45.0 + 60.0 * I - 0.9 * short_rate)
-        energy = 0.5 * peak_i * ton * 0.12
+        # Spark frequency is DERIVED from the pulse train, not an independent map:
+        # f = 1/(ton + toff + ignition_delay). Shorting/misfires lengthen the
+        # ignition delay, so the rate falls as the gap destabilises. (µs → kHz.)
+        ignition_delay = 1.5 + 0.15 * short_rate
+        spark_freq = 1000.0 / max(1.0, ton + toff + ignition_delay)
+        # Single-discharge energy E = V_gap · I_peak · t_on (V·A·µs → mJ), so it
+        # scales with the actual gap voltage the model computes, not a fudge factor.
+        energy = gap_v * peak_i * ton * 1e-3
 
         # Wire transport & guides.
         wire_tension = 12.5 - 3.2 * gw - 0.02 * short_rate
@@ -153,7 +161,7 @@ class EDMPhysics:
         ra = 0.8 + 1.4 * I + 0.04 * short_rate
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["gap_v"]:        round(max(0.0, j(gap_v, 0.01)), 1),
@@ -190,20 +198,12 @@ class EDMPhysics:
     def health_index(self, frame: dict) -> float:
         if not frame:
             return 1.0
-
-        def hi(v, nominal, limit):
-            return max(0.0, min(1.0, (limit - v) / (limit - nominal)))
-
-        def lo(v, nominal, limit):
-            return max(0.0, min(1.0, (v - limit) / (nominal - limit)))
-
-        margins = [
-            hi(frame.get(SIGNALS["short_rate"], 0.0), 4.0, redlines.short_rate),
-            hi(frame.get(SIGNALS["break_risk"], 0.0), 8.0, redlines.break_risk),
-            hi(frame.get(SIGNALS["die_temp"], 0.0), 28.0, redlines.die_temp),
-            hi(frame.get(SIGNALS["die_cond"], 0.0), 10.0, redlines.die_cond),
-            lo(frame.get(SIGNALS["die_press"], 6.0), 6.0, redlines.die_press_min),
-            lo(frame.get(SIGNALS["wire_tension"], 12.0), 12.0, redlines.wire_tension_min),
-            lo(frame.get(SIGNALS["gap_v"], 55.0), 55.0, redlines.gap_v_min),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_hi(frame.get(SIGNALS["short_rate"], 0.0), 4.0, redlines.short_rate),
+            margin_hi(frame.get(SIGNALS["break_risk"], 0.0), 8.0, redlines.break_risk),
+            margin_hi(frame.get(SIGNALS["die_temp"], 0.0), 28.0, redlines.die_temp),
+            margin_hi(frame.get(SIGNALS["die_cond"], 0.0), 10.0, redlines.die_cond),
+            margin_lo(frame.get(SIGNALS["die_press"], 6.0), 6.0, redlines.die_press_min),
+            margin_lo(frame.get(SIGNALS["wire_tension"], 12.0), 12.0, redlines.wire_tension_min),
+            margin_lo(frame.get(SIGNALS["gap_v"], 55.0), 55.0, redlines.gap_v_min),
+        ]), 3)

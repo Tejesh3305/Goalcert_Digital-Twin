@@ -15,11 +15,8 @@ from __future__ import annotations
 
 import copy
 
+from packs._core.physics import status_from_health as _status
 from .physics import SIGNALS, redlines
-
-
-def _status(health: float) -> str:
-    return "critical" if health < 0.4 else "warning" if health < 0.72 else "ok"
 
 
 def component_health(state, frame, physics) -> dict:
@@ -70,16 +67,11 @@ def predict(state, horizon_min: float = 120.0, points: int = 120, physics=None) 
     events = []
     rul = {}  # subsystem -> minutes to its first crossing
 
-    sev_now = getattr(st, "fault_severity", 0.0) or 0.0
     for i in range(points):
         t_min = round(i * dt_min, 2)
-        # Degradation grows ∝ (baseline + current level) — worn parts worsen faster.
-        growth = dt_s * (1.0 + 3.0 * sev_now)
-        st.bearing_wear = min(1.6, st.bearing_wear + growth * (2.5e-5 + 6e-5 * st.bearing_wear))
-        st.compressor_fouling = min(1.6, st.compressor_fouling + growth * (2.0e-5 + 4e-5 * st.compressor_fouling))
-        st.combustor_distress = min(1.6, st.combustor_distress + growth * (1.5e-5 + 5e-5 * st.combustor_distress))
-        st.oil_leak = min(1.2, st.oil_leak + growth * (1.0e-5 + 8e-5 * st.oil_leak))
-
+        # No separate degradation ramp here: physics.forward advances wear itself
+        # (via _degrade), so the projection follows the twin's own dynamics — an
+        # active fault accelerates the accumulators exactly as it does live.
         frame = physics.forward(st, dt=dt_s)
         trajectory.append({
             "t": t_min,

@@ -70,6 +70,35 @@ def _resolve_key(api_key: str) -> Optional[ApiKeyInfo]:
     return _key_store.get(api_key)
 
 
+def _truthy(val: Optional[str]) -> bool:
+    return str(val or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _require_auth() -> bool:
+    """Production posture. When NXR_REQUIRE_AUTH is set, a missing/blank X-API-Key
+    is always rejected — even if NXR_API_KEYS is not configured. This closes the
+    dev-mode fail-open bypass for a real deployment without changing the local
+    default (open), so exposing the service to the internet is an explicit opt-in
+    to enforcement rather than a silent default-open."""
+    return _truthy(os.getenv("NXR_REQUIRE_AUTH"))
+
+
+def log_auth_posture() -> None:
+    """Announce the auth posture once at startup so an open deployment cannot hide.
+    Fires from AuthMiddleware.__init__ when the app is assembled."""
+    if os.getenv("NXR_API_KEYS"):
+        print("[auth] API key enforcement ON — NXR_API_KEYS configured.", flush=True)
+    elif _require_auth():
+        print("[auth] API key enforcement ON — NXR_REQUIRE_AUTH set but NXR_API_KEYS "
+              "is empty, so every /api call will be rejected until keys are configured.",
+              flush=True)
+    else:
+        print("[auth] ⚠ API IS OPEN — no NXR_API_KEYS set and NXR_REQUIRE_AUTH unset. "
+              "Every /api request (including LLM-billing /copilot endpoints) is served "
+              "without a key. Set NXR_API_KEYS before exposing this service publicly.",
+              flush=True)
+
+
 def check_tenant_access(key_info: ApiKeyInfo, requested_tenant: str) -> bool:
     """Check if this key can access the requested tenant."""
     if key_info.tenant == "*":
@@ -128,6 +157,10 @@ def _deny(status_code: int, detail: str) -> JSONResponse:
 class AuthMiddleware(BaseHTTPMiddleware):
     """FastAPI middleware that enforces API key authentication."""
 
+    def __init__(self, app):
+        super().__init__(app)
+        log_auth_posture()
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
 
@@ -148,8 +181,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # Require API key
         api_key = request.headers.get("X-API-Key")
         if not api_key:
-            # Allow requests without key in dev mode (no NXR_API_KEYS env set)
-            if not os.getenv("NXR_API_KEYS"):
+            # No key on the request. In dev (no NXR_API_KEYS configured) we let it
+            # through — UNLESS auth is explicitly required (NXR_REQUIRE_AUTH), the
+            # production posture. That closes the fail-open hole for a real deploy
+            # while leaving local-dev behaviour (open) unchanged.
+            if not os.getenv("NXR_API_KEYS") and not _require_auth():
                 return await call_next(request)
             return _deny(401, "Missing X-API-Key header")
 

@@ -15,50 +15,8 @@ from __future__ import annotations
 from collections import defaultdict, deque
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+from packs._core.physics import Latch as _Latch, HardLimit as _HardLimit
 from .physics import SIGNALS, redlines, _EGT_AMBIENT, _EGT_SPAN, _EPR_100
-
-
-class _Latch:
-    """Per-entity edge detector: True only on the false→true transition."""
-    def __init__(self):
-        self._on: dict[str, bool] = {}
-
-    def rising(self, key: str, cond: bool) -> bool:
-        prev = self._on.get(key, False)
-        self._on[key] = cond
-        return cond and not prev
-
-
-class _HardLimit(Behavior):
-    """Tier-C hard-limit rule: fire when a signal crosses its redline."""
-    tier = Tier.C
-
-    def __init__(self, behavior_id, signal, limit, direction, label, unit):
-        self.behavior_id = behavior_id
-        self.watches = [signal]
-        self.reads = [f"{label} vs redline"]
-        self.emits = f"{label} out of limits"
-        self._limit = limit
-        self._dir = direction
-        self._label = label
-        self._unit = unit
-        self._latch = _Latch()
-
-    def evaluate(self, sample, query) -> list:
-        breach = (sample.value >= self._limit if self._dir == "above"
-                  else sample.value <= self._limit)
-        if not self._latch.rising(sample.entity_id, breach):
-            return []
-        rel = "≥" if self._dir == "above" else "≤"
-        return [Finding(
-            behavior_id=self.behavior_id, tier=self.tier, flags=sample.entity_id,
-            severity="critical",
-            message=f"{self._label} out of limits: {sample.value:.1f}{self._unit} "
-                    f"{rel} {self._limit:.0f}{self._unit}",
-            confidence=1.0,
-            evidence={"value": sample.value, "limit": self._limit,
-                      "signal": sample.signal, "unit": self._unit},
-        )]
 
 
 class TurbineEGTDivergence(Behavior):

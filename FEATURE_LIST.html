@@ -1,0 +1,597 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>NextXR Digital Twin — Executive Feature List</title>
+<style>
+  @page { size: A4; margin: 18mm 15mm; }
+
+  :root {
+    --navy: #1F3864;
+    --navy-head: #1F3864;
+    --rule: #000;
+    --accent: #2E74B5;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 28px 32px 60px;
+    background: #f4f4f6;
+    font-family: Calibri, "Segoe UI", Arial, sans-serif;
+    font-size: 11pt;
+    color: #000;
+    line-height: 1.35;
+  }
+
+  .page {
+    max-width: 210mm;
+    margin: 0 auto 22px;
+    background: #fff;
+    padding: 22mm 18mm;
+    box-shadow: 0 2px 18px rgba(0,0,0,.12);
+  }
+
+  /* ── Cover ───────────────────────────────────────────── */
+  .cover-title {
+    text-align: center;
+    font-family: "Times New Roman", Times, serif;
+    font-weight: 700;
+    font-size: 34pt;
+    color: var(--navy);
+    line-height: 1.25;
+    margin: 90px 0 70px;
+  }
+  .cover-title span { display: block; }
+
+  table { border-collapse: collapse; width: 100%; }
+
+  /* Document-control table (plain bordered, serif — matches the source doc) */
+  table.control {
+    font-family: "Times New Roman", Times, serif;
+    font-size: 12pt;
+    margin-bottom: 34px;
+  }
+  table.control td {
+    border: 1px solid var(--rule);
+    padding: 3px 7px;
+    vertical-align: top;
+  }
+  table.control td:first-child { width: 33%; }
+
+  h2.section {
+    font-family: Calibri, "Segoe UI", Arial, sans-serif;
+    color: var(--accent);
+    font-size: 14pt;
+    font-weight: 700;
+    margin: 0 0 10px;
+  }
+
+  /* Banded tables with a navy header row */
+  table.grid { font-size: 10.5pt; }
+  table.grid th {
+    background: var(--navy-head);
+    color: #fff;
+    text-align: left;
+    font-weight: 700;
+    padding: 6px 8px;
+    border: 1px solid var(--navy-head);
+    vertical-align: top;
+  }
+  table.grid td {
+    border: 1px solid #000;
+    padding: 5px 8px;
+    vertical-align: top;
+  }
+  table.grid td.idx { text-align: left; width: 46px; }
+  table.grid td.main {
+    text-align: center;
+    vertical-align: middle;
+    font-weight: 400;
+    width: 132px;
+  }
+  table.grid td.sub { width: 148px; }
+
+  table.revision td { height: 34px; }
+
+  /* Feature table */
+  table.features { font-size: 10pt; }
+  table.features thead th { position: sticky; top: 0; }
+
+  .footnote {
+    font-size: 9pt;
+    color: #444;
+    margin-top: 14px;
+    line-height: 1.45;
+  }
+  .footnote b { color: #000; }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .page { box-shadow: none; margin: 0; padding: 0; max-width: none; }
+    .page + .page { page-break-before: always; }
+    table.features thead th { position: static; }
+    tr { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════ COVER ═══════════════ -->
+<div class="page">
+  <div class="cover-title">
+    <span>NextXR Digital Twin</span>
+    <span>Executive Feature List</span>
+  </div>
+
+  <table class="control">
+    <tr><td>Document Title</td><td>NextXR Digital Twin — Executive Feature List</td></tr>
+    <tr><td>Document Type</td><td>Feature Catalogue</td></tr>
+    <tr><td>Version</td><td>1.0</td></tr>
+    <tr><td>Status</td><td>Draft</td></tr>
+    <tr><td>Prepared By</td><td>Tejesh</td></tr>
+    <tr><td>Reviewed By</td><td>—</td></tr>
+    <tr><td>Approved By</td><td>—</td></tr>
+    <tr><td>Date</td><td>24th July 2026</td></tr>
+    <tr><td>Classification</td><td>Internal – Confidential</td></tr>
+  </table>
+
+  <h2 class="section">Document Revision History</h2>
+  <table class="grid revision">
+    <thead>
+      <tr>
+        <th style="width:70px">Version</th>
+        <th style="width:78px">Date</th>
+        <th style="width:82px">Author</th>
+        <th>Change Description</th>
+        <th style="width:92px">Reviewed/ Approved by</th>
+        <th style="width:88px">Date Approved</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1.0</td>
+        <td>24th July 2026</td>
+        <td>Tejesh</td>
+        <td>Initial version — feature catalogue compiled directly from the NextXR
+            Digital Twin v3 codebase (branch <i>demo/client-preview</i>, head
+            commit <i>ba17da9</i>): FastAPI platform services, domain packs,
+            embedded copilot agent layer and the React twin application.</td>
+        <td></td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════ FEATURE SUMMARY ═══════════════ -->
+<div class="page">
+  <h2 class="section">NextXR Digital Twin — Executive Feature Summary</h2>
+
+  <table class="grid features">
+    <thead>
+      <tr>
+        <th style="width:44px">Index</th>
+        <th style="width:130px">Main Feature</th>
+        <th style="width:150px">Sub Feature</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <!-- 1 · Dashboard & Overview -->
+      <tr>
+        <td class="idx">1</td>
+        <td class="main" rowspan="8">Dashboard &amp; Overview</td>
+        <td class="sub">Operations Overview</td>
+        <td>Live overview of the active twin — risk score, total entities, active findings and change-log volume, refreshed continuously from the knowledge graph.</td>
+      </tr>
+      <tr><td class="idx">2</td><td class="sub">Machine Twin Dashboard</td>
+        <td>A single live page for any physics twin: health ring, risk score, 3-D scene, streaming telemetry, subsystem condition, findings and the embedded AI co-pilot.</td></tr>
+      <tr><td class="idx">3</td><td class="sub">Active Findings Feed</td>
+        <td>Rolling list of every finding raised against the twin, with severity, originating behaviour rule and detection tier.</td></tr>
+      <tr><td class="idx">4</td><td class="sub">Severity Distribution</td>
+        <td>Breakdown of findings by critical / warning / informational severity for at-a-glance risk posture.</td></tr>
+      <tr><td class="idx">5</td><td class="sub">Entity Breakdown</td>
+        <td>Counts of every governed entity category — physical assets, locations, incidents, processes, documents, actors and mobile assets.</td></tr>
+      <tr><td class="idx">6</td><td class="sub">Platform Status Bar</td>
+        <td>Persistent header showing entity, asset and audit-event counts, the active event-bus backend, and a health indicator that distinguishes healthy, database-offline and server-unreachable states.</td></tr>
+      <tr><td class="idx">7</td><td class="sub">Command Palette</td>
+        <td>Ctrl / Cmd + K spotlight search to jump to any page, open any twin, and toggle dark mode without leaving the keyboard.</td></tr>
+      <tr><td class="idx">8</td><td class="sub">Twin Switcher</td>
+        <td>Header dropdown to change the active twin; every page in the application re-binds to the selected twin instantly.</td></tr>
+
+      <!-- 2 · Twin Library & Lifecycle -->
+      <tr>
+        <td class="idx">9</td>
+        <td class="main" rowspan="6">Twin Library &amp; Lifecycle</td>
+        <td class="sub">Twin Library</td>
+        <td>Card view of every twin that exists, showing its domain, entity count, creation date and which one is currently active.</td></tr>
+      <tr><td class="idx">10</td><td class="sub">Twin Creation</td>
+        <td>New twins are created and seeded through the platform's single governed write path, so a twin honours validation, audit and event guarantees from the moment it is born.</td></tr>
+      <tr><td class="idx">11</td><td class="sub">Twin Deletion</td>
+        <td>Removes a twin's graph entities and registry record while deliberately preserving its change log as the permanent audit record.</td></tr>
+      <tr><td class="idx">12</td><td class="sub">Domain Templates</td>
+        <td>Fourteen shipped twin templates — HVAC facility, generic facility, nine machine domains, scanned object and blank — each describing exactly what gets seeded.</td></tr>
+      <tr><td class="idx">13</td><td class="sub">Built-in Demonstration Twins</td>
+        <td>Two always-available simulated twins (Helix Data Center, Forge Plant 7) that stream telemetry with no infrastructure required — identical look and behaviour to a live twin.</td></tr>
+      <tr><td class="idx">14</td><td class="sub">Durable Twin Registry</td>
+        <td>Twins persist in a durable registry on a mounted data volume and re-hydrate automatically after a server restart or redeployment.</td></tr>
+
+      <!-- 3 · Build a Twin -->
+      <tr>
+        <td class="idx">15</td>
+        <td class="main" rowspan="9">Build a Twin</td>
+        <td class="sub">Guided Twin Builder</td>
+        <td>Conversational builder that is the single entry point for creating a twin; it asks only the specifics a chosen domain genuinely needs.</td></tr>
+      <tr><td class="idx">16</td><td class="sub">Domain Selection</td>
+        <td>Eleven one-click domain choices covering turbine, wire-EDM, tram, metro, rolling stock, hospital, EV charging, EV battery, defence base, warship and generic facility.</td></tr>
+      <tr><td class="idx">17</td><td class="sub">Domain-Specific Questions</td>
+        <td>Each domain asks its own grounded questions — engine platform, cell chemistry, campus scale, charge-point count, vessel class — rather than a generic form.</td></tr>
+      <tr><td class="idx">18</td><td class="sub">Natural-Language Understanding</td>
+        <td>Describing an asset in plain English infers the correct domain automatically and starts the questionnaire.</td></tr>
+      <tr><td class="idx">19</td><td class="sub">Live Domain Blueprint</td>
+        <td>As a domain is chosen the builder displays the real components, sensors with units, physics model and injectable fault catalogue it will map from that domain's pack.</td></tr>
+      <tr><td class="idx">20</td><td class="sub">Floor Plan Upload</td>
+        <td>Attach a 2-D floor plan (PNG, JPG or PDF) and the builder reconstructs a full 3-D building twin from it.</td></tr>
+      <tr><td class="idx">21</td><td class="sub">Object Photo Upload</td>
+        <td>Attach a photograph of a physical object and the builder reconstructs it in 3-D and maps it onto the chosen domain's physics.</td></tr>
+      <tr><td class="idx">22</td><td class="sub">Build Progress Log</td>
+        <td>Step-by-step build narration — component mapping, ontology binding, validation, physics wiring and go-live — so the user sees what was actually built.</td></tr>
+      <tr><td class="idx">23</td><td class="sub">Long-Running Build Jobs</td>
+        <td>Reconstruction runs as a background job with status polling, so multi-minute 3-D generation is never lost to a request timeout.</td></tr>
+
+      <!-- 4 · 3-D Twin Viewer -->
+      <tr>
+        <td class="idx">24</td>
+        <td class="main" rowspan="9">3-D Twin Viewer</td>
+        <td class="sub">Interactive Building Viewer</td>
+        <td>Architectural-quality 3-D rendering of the twin's building with orbit, pan and zoom, image-based lighting, contact shadows and bloom.</td></tr>
+      <tr><td class="idx">25</td><td class="sub">Wall Display Modes</td>
+        <td>Switch walls between solid, glass and hidden to inspect internal layout and equipment.</td></tr>
+      <tr><td class="idx">26</td><td class="sub">Floor Isolation</td>
+        <td>Isolate any single floor of a multi-storey building to declutter the view.</td></tr>
+      <tr><td class="idx">27</td><td class="sub">Live Severity Colouring</td>
+        <td>Rooms and equipment are colour-coded by live finding severity, so a rule firing lights up the actual physical location in the scene.</td></tr>
+      <tr><td class="idx">28</td><td class="sub">Click-to-Inspect Panel</td>
+        <td>Clicking any asset opens its detail panel: health and condition index, active findings, live physics-computed sensor values, and asset metadata (manufacturer, model, serial, install date, warranty, runtime hours).</td></tr>
+      <tr><td class="idx">29</td><td class="sub">Equipment Gallery</td>
+        <td>The twin's equipment as a catalogue — one 3-D card per asset type, rolled-up worst-case health across instances, opening onto the least-healthy example.</td></tr>
+      <tr><td class="idx">30</td><td class="sub">Reconstructed Model Viewer</td>
+        <td>Twins built from a photograph render their generated 3-D mesh as the twin's own model instead of a stock asset.</td></tr>
+      <tr><td class="idx">31</td><td class="sub">Domain 3-D Scenes</td>
+        <td>Purpose-built live scenes per domain — animated gas-turbine model, wire-EDM machine cell and a full energy-site world for EV charging.</td></tr>
+      <tr><td class="idx">32</td><td class="sub">Scene Persistence</td>
+        <td>Every reconstructed scene is cached per twin on the persistent data volume, so a twin re-renders identically across restarts and redeployments.</td></tr>
+
+      <!-- 5 · Live Physics Runtime -->
+      <tr>
+        <td class="idx">33</td>
+        <td class="main" rowspan="8">Live Physics Runtime</td>
+        <td class="sub">Continuous Physics Ticker</td>
+        <td>A background runtime advances every live twin's physics roughly once per second and keeps the latest frame available to every read surface.</td></tr>
+      <tr><td class="idx">34</td><td class="sub">Forward Physics Models</td>
+        <td>Each domain ships real engineering models — Brayton cycle, traction power flow, Wells-Riley infection spread, Thevenin battery equivalent circuit, ship stability, radar propagation and more.</td></tr>
+      <tr><td class="idx">35</td><td class="sub">Fault Injection</td>
+        <td>Inject any fault from the domain's catalogue at a chosen severity and watch telemetry, health and findings respond in real time; clear back to healthy at any point.</td></tr>
+      <tr><td class="idx">36</td><td class="sub">Start / Stop Control</td>
+        <td>Pause and resume a twin's live simulation without losing its accumulated state.</td></tr>
+      <tr><td class="idx">37</td><td class="sub">Health Index</td>
+        <td>A physics-derived condition index for the whole asset, computed from the live frame rather than from rule counts.</td></tr>
+      <tr><td class="idx">38</td><td class="sub">Subsystem Condition</td>
+        <td>Per-subsystem health and status — for example compressor, combustor, turbine, rotor and lubrication on a gas turbine.</td></tr>
+      <tr><td class="idx">39</td><td class="sub">Physics Residuals</td>
+        <td>Observed-versus-expected residuals per signal, exposing drift before a threshold is ever crossed.</td></tr>
+      <tr><td class="idx">40</td><td class="sub">What-If Projection</td>
+        <td>Non-destructively project the twin forward under a hypothetical fault or control setting, leaving the live twin untouched.</td></tr>
+
+      <!-- 6 · Telemetry & Monitoring -->
+      <tr>
+        <td class="idx">41</td>
+        <td class="main" rowspan="6">Telemetry &amp; Monitoring</td>
+        <td class="sub">Live Telemetry Tiles</td>
+        <td>Every sensor as a live tile with value, engineering unit, status colouring and a rolling sparkline of recent history.</td></tr>
+      <tr><td class="idx">42</td><td class="sub">Signal Heatmap</td>
+        <td>A 60-second anomaly heatmap across all signals, making a developing excursion visible before it becomes a finding.</td></tr>
+      <tr><td class="idx">43</td><td class="sub">Sensor Limits &amp; Status</td>
+        <td>Per-signal redlines classify each reading as normal, warning or critical, in the correct direction for the signal.</td></tr>
+      <tr><td class="idx">44</td><td class="sub">Coupled Dynamics Feed</td>
+        <td>A generative telemetry engine that couples assets through their real graph relationships — producers update before consumers — with a configurable time-acceleration multiplier.</td></tr>
+      <tr><td class="idx">45</td><td class="sub">On-Demand Asset Telemetry</td>
+        <td>Live, physics-computed signals for any individual asset, available on request without a running feed.</td></tr>
+      <tr><td class="idx">46</td><td class="sub">Feed Control</td>
+        <td>Start, stop and monitor the simulated telemetry feed in either scripted or coupled-dynamics mode.</td></tr>
+
+      <!-- 7 · Behaviour & Findings Engine -->
+      <tr>
+        <td class="idx">47</td>
+        <td class="main" rowspan="5">Behaviour &amp; Findings Engine</td>
+        <td class="sub">Three-Tier Detection</td>
+        <td>Every twin runs three classes of detection side by side: Tier A physics rules, Tier B statistical baselines and Tier C operational rules.</td></tr>
+      <tr><td class="idx">48</td><td class="sub">Monitoring Archetypes</td>
+        <td>Six reusable, data-driven rule kinds — threshold, sustained threshold, rate-of-change, z-score baseline, physics residual and state / heartbeat — so new monitoring needs no new code.</td></tr>
+      <tr><td class="idx">49</td><td class="sub">Governed Finding Persistence</td>
+        <td>Every finding is written through the same validated write path as any other entity, so it is queryable, auditable and appears in topology.</td></tr>
+      <tr><td class="idx">50</td><td class="sub">Incident Escalation</td>
+        <td>Critical findings are surfaced separately as incidents on the dashboard and in the twin's live state.</td></tr>
+      <tr><td class="idx">51</td><td class="sub">Diagnosis Pass</td>
+        <td>A periodic reasoning pass correlates active findings across the twin and records the resulting assessment.</td></tr>
+
+      <!-- 8 · Prediction & Forecasting -->
+      <tr>
+        <td class="idx">52</td>
+        <td class="main" rowspan="5">Prediction &amp; Forecasting</td>
+        <td class="sub">Forward Trajectory</td>
+        <td>Signal-by-signal projection over selectable horizons from one hour to three days, integrated from the twin's own physics model.</td></tr>
+      <tr><td class="idx">53</td><td class="sub">Remaining Useful Life</td>
+        <td>Time-to-limit per component, with the earliest constraint identified as the one that sets the maintenance window.</td></tr>
+      <tr><td class="idx">54</td><td class="sub">Forecast Charts</td>
+        <td>Per-signal trajectory charts with the present value marked, plus a projected health curve.</td></tr>
+      <tr><td class="idx">55</td><td class="sub">Plain-Language Inference</td>
+        <td>A deterministic summary of what is driving the risk, the recommended action and a confidence figure — derived from the forecast, not generated prose.</td></tr>
+      <tr><td class="idx">56</td><td class="sub">Facility Outlook</td>
+        <td>Twins without a physics model still receive a findings-driven forecast with severity and heuristic service windows.</td></tr>
+
+      <!-- 9 · Twin Copilot — Assess -->
+      <tr>
+        <td class="idx">57</td>
+        <td class="main" rowspan="6">Twin Copilot — Assess</td>
+        <td class="sub">Diagnosis Agent</td>
+        <td>Assesses component health and out-of-band sensors, identifies the likely root cause and prioritises corrective actions against the domain's compliance regime.</td></tr>
+      <tr><td class="idx">58</td><td class="sub">Analysis Agent</td>
+        <td>Combines the present state with the projected assessment over a chosen horizon, using the twin's own forward physics rather than a language-model guess.</td></tr>
+      <tr><td class="idx">59</td><td class="sub">Cascade Analysis</td>
+        <td>Reasons about whether degradation in one subsystem will propagate into another and how long that takes, rendered as a propagation graph.</td></tr>
+      <tr><td class="idx">60</td><td class="sub">Live Narration</td>
+        <td>A running plain-language commentary on what the twin is currently doing, refreshed on a deliberately slow cadence matched to how fast the physics actually moves.</td></tr>
+      <tr><td class="idx">61</td><td class="sub">Predictive Alert</td>
+        <td>Raises a warning only when an operating limit is genuinely projected to be crossed, and stays silent otherwise.</td></tr>
+      <tr><td class="idx">62</td><td class="sub">AI Provenance Badge</td>
+        <td>Every agent answer is labelled with its source — real model reasoning, deterministic fallback, or nothing-to-report — together with the model used and token consumption, so a fallback can never be mistaken for a real assessment.</td></tr>
+
+      <!-- 10 · Twin Copilot — Act -->
+      <tr>
+        <td class="idx">63</td>
+        <td class="main" rowspan="3">Twin Copilot — Act</td>
+        <td class="sub">Work Order Generation</td>
+        <td>Produces a compliant maintenance work order from the current diagnosis: ordered steps, acceptance criteria, safety warnings, required parts and sign-off authority.</td></tr>
+      <tr><td class="idx">64</td><td class="sub">Parts Procurement</td>
+        <td>Converts the work order into part numbers, quantities, unit costs, lead times and sources.</td></tr>
+      <tr><td class="idx">65</td><td class="sub">Incident Reporting</td>
+        <td>Generates a formal incident report with classification, symptoms, physics evidence, probable cause, regulatory closure references and return-to-service criteria.</td></tr>
+
+      <!-- 11 · Twin Copilot — Train & Ask -->
+      <tr>
+        <td class="idx">66</td>
+        <td class="main" rowspan="5">Twin Copilot — Train &amp; Ask</td>
+        <td class="sub">Repair Procedure Trainer</td>
+        <td>Builds the correctly-ordered repair procedure for a selected fault, where each step states what goes wrong if it is skipped and what goes wrong if it is done out of order; steps are ticked off to enforce sequencing.</td></tr>
+      <tr><td class="idx">67</td><td class="sub">Dashboard Copilot Chat</td>
+        <td>Conversational question-and-answer grounded in the twin's current telemetry and findings, available both on the dashboard and in the copilot console.</td></tr>
+      <tr><td class="idx">68</td><td class="sub">AI Mechanic</td>
+        <td>Multi-turn troubleshooting that asks the technician diagnostic questions back and tracks a working hypothesis across the conversation.</td></tr>
+      <tr><td class="idx">69</td><td class="sub">Horizon Selection</td>
+        <td>Assessment and action agents can be run against any horizon from one hour to one week.</td></tr>
+      <tr><td class="idx">70</td><td class="sub">Snapshot Mode</td>
+        <td>Every agent can be run either against a live twin or against caller-supplied telemetry, with the response declaring which source was used.</td></tr>
+
+      <!-- 12 · AI Maintenance Director -->
+      <tr>
+        <td class="idx">71</td>
+        <td class="main" rowspan="4">AI Maintenance Director</td>
+        <td class="sub">Guided Repair Takeover</td>
+        <td>A full-screen, cinematic mode in which the assistant takes control of the twin, flies the camera to the fault and walks the repair through to completion.</td></tr>
+      <tr><td class="idx">72</td><td class="sub">Component Highlighting</td>
+        <td>The failing subsystem is isolated and highlighted in the 3-D scene as the explanation proceeds.</td></tr>
+      <tr><td class="idx">73</td><td class="sub">Method Panels</td>
+        <td>Step-by-step repair method presented alongside the machine, with live telemetry visibly recovering as each step is completed.</td></tr>
+      <tr><td class="idx">74</td><td class="sub">Domain Repair Plans</td>
+        <td>Ships repair plans for turbine, wire-EDM, EV energy site, hospital, data-centre and manufacturing domains.</td></tr>
+
+      <!-- 13 · Machine-Twin Domain Packs -->
+      <tr>
+        <td class="idx">75</td>
+        <td class="main" rowspan="11">Domain Packs</td>
+        <td class="sub">Gas Turbine Engine</td>
+        <td>Exhaust gas temperature, dual shaft speeds, fuel flow, vibration, pressure ratio and oil signals across five subsystems, with health and remaining-useful-life.</td></tr>
+      <tr><td class="idx">76</td><td class="sub">Wire EDM Machine</td>
+        <td>Eighteen discharge, dielectric, wire-transport and axis signals across four subsystems, including wire-break risk and surface finish.</td></tr>
+      <tr><td class="idx">77</td><td class="sub">Metro Rail Network</td>
+        <td>A whole MRT network — lines, stations, platforms, permanent way, third-rail traction power, signalling and station services — with on-time performance, headway and passenger load.</td></tr>
+      <tr><td class="idx">78</td><td class="sub">Rolling Stock</td>
+        <td>A single train set at vehicle level: traction, bogies, braking, doors and auxiliaries with health and remaining-useful-life.</td></tr>
+      <tr><td class="idx">79</td><td class="sub">Tram / Light-Rail Network</td>
+        <td>A complete tram network with rolling stock, overhead-line traction power, substations, track and points, signalling and service operations, including live per-vehicle positions.</td></tr>
+      <tr><td class="idx">80</td><td class="sub">Hospital Campus</td>
+        <td>Theatres, ICU, emergency, pharmacy, wards, medical gas, water safety, power resilience, sterilisation, infection control and patient flow as one governed twin.</td></tr>
+      <tr><td class="idx">81</td><td class="sub">EV Charging Network</td>
+        <td>Stations, chargers, grid connection, transformer ageing, on-site solar and vehicle-to-grid export with live tariff and revenue.</td></tr>
+      <tr><td class="idx">82</td><td class="sub">EV Battery Pack</td>
+        <td>Cell-level modelling with equivalent-circuit electrical behaviour, thermal coupling and degradation, monitoring imbalance, state-of-health and thermal-runaway risk.</td></tr>
+      <tr><td class="idx">83</td><td class="sub">Military Base (C4ISR)</td>
+        <td>Perimeter, command centre, radar, hangars, runways, fuel and ammunition storage and NBC monitoring with mission readiness and force protection.</td></tr>
+      <tr><td class="idx">84</td><td class="sub">Warship</td>
+        <td>Naval surface combatant with gas-turbine propulsion, stability under progressive flooding and hull structural fatigue.</td></tr>
+      <tr><td class="idx">85</td><td class="sub">Facility Packs</td>
+        <td>HVAC, common-facilities, data-centre and BIM packs supply the building substrate — eighty-plus entity classes across eleven building systems — used by the plan-reconstruction path.</td></tr>
+
+      <!-- 14 · Domain Operations Views -->
+      <tr>
+        <td class="idx">86</td>
+        <td class="main" rowspan="6">Domain Operations Views</td>
+        <td class="sub">Live Network Map</td>
+        <td>Geographic live map for metro and tram networks showing line status, station condition and per-vehicle position.</td></tr>
+      <tr><td class="idx">87</td><td class="sub">Depot Board</td>
+        <td>Fleet availability board with predicted vehicle readiness by depot.</td></tr>
+      <tr><td class="idx">88</td><td class="sub">Clinical Views</td>
+        <td>Five hospital-specific views: bed board, operating-theatre calendar, patient-flow funnel, infection-risk map and medical-gas schematic.</td></tr>
+      <tr><td class="idx">89</td><td class="sub">Energy Views</td>
+        <td>Four EV-specific views: charging geographic map, grid load curve, vehicle-to-grid trading view and cell-level battery heatmap with solar simulation.</td></tr>
+      <tr><td class="idx">90</td><td class="sub">Defence Views</td>
+        <td>Three defence-specific views: NATO APP-6 tactical map, mission readiness board and warship damage-control diagram.</td></tr>
+      <tr><td class="idx">91</td><td class="sub">Manufacturing &amp; Data-Centre Views</td>
+        <td>Rack-level and production-line scenes with cooling, power and OEE telemetry for the built-in demonstration twins.</td></tr>
+
+      <!-- 15 · Plan-to-3D Building Reconstruction -->
+      <tr>
+        <td class="idx">92</td>
+        <td class="main" rowspan="8">Plan-to-3D Reconstruction</td>
+        <td class="sub">Floor Plan Interpretation</td>
+        <td>A vision model reads an uploaded 2-D plan and extracts rooms, walls and equipment.</td></tr>
+      <tr><td class="idx">93</td><td class="sub">Building Geometry Generation</td>
+        <td>Extracted rooms and walls become a metric 3-D scene graph with correct storey heights and multi-floor support.</td></tr>
+      <tr><td class="idx">94</td><td class="sub">Room Classification</td>
+        <td>Rooms are classified by function so the right equipment, services and monitoring are applied.</td></tr>
+      <tr><td class="idx">95</td><td class="sub">Equipment Classification</td>
+        <td>Every detected item is mapped to a canonical ontology class and a 3-D viewer asset, separating monitored equipment from decorative fit-out.</td></tr>
+      <tr><td class="idx">96</td><td class="sub">Automatic Furnishing</td>
+        <td>Rooms are furnished automatically from a shared 3-D catalogue so a reconstructed building reads as a real space.</td></tr>
+      <tr><td class="idx">97</td><td class="sub">Service Auto-Wiring</td>
+        <td>Power, HVAC, water, fire and network services are generated and connected to the rooms they serve, producing a coupled twin rather than a static model.</td></tr>
+      <tr><td class="idx">98</td><td class="sub">Hospital Campus Generator</td>
+        <td>A purpose-built two-storey hospital generator laying out real clinical wings — emergency, imaging, surgical suite, sterile supply, pharmacy, blood bank, ICU, wards and isolation — with sector tagging and plausible asset metadata.</td></tr>
+      <tr><td class="idx">99</td><td class="sub">Resilient Fallback Model</td>
+        <td>If a plan cannot be parsed, a plausible building of the right facility type is synthesised so the twin always renders.</td></tr>
+
+      <!-- 16 · Object Reconstruction -->
+      <tr>
+        <td class="idx">100</td>
+        <td class="main" rowspan="5">Object Reconstruction</td>
+        <td class="sub">Photograph to 3-D Model</td>
+        <td>A single photograph of an object is reconstructed into a textured 3-D mesh using a hosted generative reconstruction service.</td></tr>
+      <tr><td class="idx">101</td><td class="sub">Multi-Stage Pipeline</td>
+        <td>Understand, segment, prior retrieval, reconstruct, mesh repair, refine, enhance, validate and export run as discrete inspectable stages.</td></tr>
+      <tr><td class="idx">102</td><td class="sub">Geometry Prior Library</td>
+        <td>A curated library of reference geometries improves reconstruction fidelity for known asset types.</td></tr>
+      <tr><td class="idx">103</td><td class="sub">Job Store &amp; Artifacts</td>
+        <td>Every reconstruction is a tracked job with per-stage status and downloadable artifacts, including the final model file.</td></tr>
+      <tr><td class="idx">104</td><td class="sub">Scan-to-Twin Mapping</td>
+        <td>A scanned object can be bound to a domain so the generated mesh becomes the visual body of a fully live physics twin.</td></tr>
+
+      <!-- 17 · Ontology & Schema Governance -->
+      <tr>
+        <td class="idx">105</td>
+        <td class="main" rowspan="6">Ontology &amp; Governance</td>
+        <td class="sub">Ontology Schema Service</td>
+        <td>Machine-readable access to the platform ontology — version, classes, taxonomy categories, predicates, per-class properties and behaviours.</td></tr>
+      <tr><td class="idx">106</td><td class="sub">Validation Gate</td>
+        <td>Every mutation is validated against SHACL shapes before it can touch the graph; invalid data is rejected outright with no partial write and no audit entry.</td></tr>
+      <tr><td class="idx">107</td><td class="sub">Single Write Path</td>
+        <td>All writers — user interface, agents, behaviours and the telemetry feed — go through one governed writer that validates, commits, records the change and publishes the event.</td></tr>
+      <tr><td class="idx">108</td><td class="sub">Archetype &amp; Asset Catalogue</td>
+        <td>A published catalogue of behaviour archetypes and asset types available for binding to any twin.</td></tr>
+      <tr><td class="idx">109</td><td class="sub">Ontology Defaults</td>
+        <td>Ontology obligations such as what a sensor observes are injected automatically, so no caller has to encode ontology knowledge.</td></tr>
+      <tr><td class="idx">110</td><td class="sub">Self-Contained Domain Packs</td>
+        <td>Each vertical is one folder containing its ontology, shapes, physics, behaviours and prediction, so a new domain is added without touching the platform core.</td></tr>
+
+      <!-- 18 · Change Log & Audit -->
+      <tr>
+        <td class="idx">111</td>
+        <td class="main" rowspan="4">Change Log &amp; Audit</td>
+        <td class="sub">Tamper-Evident Ledger</td>
+        <td>Every committed mutation is recorded in a SHA-256 hash-chained ledger; altering any historical entry invalidates every hash after it.</td></tr>
+      <tr><td class="idx">112</td><td class="sub">Change Log Viewer</td>
+        <td>Live audit view of every create, update and delete with actor, entity and timestamp.</td></tr>
+      <tr><td class="idx">113</td><td class="sub">Per-Entity History</td>
+        <td>The full change history of any individual entity, including field-level before-and-after values.</td></tr>
+      <tr><td class="idx">114</td><td class="sub">Audit Retention</td>
+        <td>Deleting a twin never deletes its audit chain — the record of what happened survives the thing it happened to.</td></tr>
+
+      <!-- 19 · Graph Data APIs -->
+      <tr>
+        <td class="idx">115</td>
+        <td class="main" rowspan="6">Graph Data Services</td>
+        <td class="sub">Entity Queries</td>
+        <td>Tenant-scoped listing and retrieval of entities by category, with relationships resolved.</td></tr>
+      <tr><td class="idx">116</td><td class="sub">Findings Queries</td>
+        <td>Query findings across the twin or for a specific asset, with severity filtering.</td></tr>
+      <tr><td class="idx">117</td><td class="sub">Topology Graph</td>
+        <td>The twin's infrastructure nodes and edges with finding counts aggregated onto the entities they flag.</td></tr>
+      <tr><td class="idx">118</td><td class="sub">Key Metrics</td>
+        <td>Entity counts, finding severity distribution and audit-event totals as a single metrics call.</td></tr>
+      <tr><td class="idx">119</td><td class="sub">Write Services</td>
+        <td>Create, update, delete and relate entities through the governed write path, with validation applied to every call.</td></tr>
+      <tr><td class="idx">120</td><td class="sub">Graceful Degradation</td>
+        <td>When the database is unreachable, read services return valid empty results flagged as degraded rather than failing, so the application stays usable and honest about its state.</td></tr>
+
+      <!-- 20 · Event Bus & Real-Time -->
+      <tr>
+        <td class="idx">121</td>
+        <td class="main" rowspan="4">Event Bus &amp; Real-Time</td>
+        <td class="sub">Per-Tenant Event Streams</td>
+        <td>Each twin gets its own event stream, so a consumer reading one twin's events can never observe another's.</td></tr>
+      <tr><td class="idx">122</td><td class="sub">Live Event Subscription</td>
+        <td>Browser clients subscribe to a twin's committed mutations over a server-sent event stream and update in real time.</td></tr>
+      <tr><td class="idx">123</td><td class="sub">Bus Telemetry</td>
+        <td>Published, failed and dropped event counts with recent-event inspection for operational visibility.</td></tr>
+      <tr><td class="idx">124</td><td class="sub">Non-Blocking Delivery</td>
+        <td>Event publication is best-effort and never affects the write that produced it; a message-broker outage degrades live fan-out only.</td></tr>
+
+      <!-- 21 · Security & Multi-Tenancy -->
+      <tr>
+        <td class="idx">125</td>
+        <td class="main" rowspan="4">Security &amp; Multi-Tenancy</td>
+        <td class="sub">API Key Authentication</td>
+        <td>Every request is authenticated by API key, configured through environment settings rather than stored in code.</td></tr>
+      <tr><td class="idx">126</td><td class="sub">Role-Based Access</td>
+        <td>Keys carry an administrator, write or read-only role that governs what operations they may perform.</td></tr>
+      <tr><td class="idx">127</td><td class="sub">Tenant Isolation</td>
+        <td>A key scoped to one tenant cannot read or write another tenant's data; every write path is tenant-scoped by construction.</td></tr>
+      <tr><td class="idx">128</td><td class="sub">Public Health Endpoints</td>
+        <td>Health and readiness checks are reachable without credentials so platform monitoring works without privileged keys.</td></tr>
+
+      <!-- 22 · Integration & Embedding -->
+      <tr>
+        <td class="idx">129</td>
+        <td class="main" rowspan="5">Integration &amp; Embedding</td>
+        <td class="sub">Embeddable Application</td>
+        <td>The twin application runs both standalone and embedded inside a host portal as a federated remote module, sharing routing with the host.</td></tr>
+      <tr><td class="idx">130</td><td class="sub">Isolated Mounting</td>
+        <td>The embedded view mounts under its own rendering root, guaranteeing that 3-D content behaves identically inside a host application and standalone.</td></tr>
+      <tr><td class="idx">131</td><td class="sub">Twin Snapshot Service</td>
+        <td>A single call returns a twin's metadata together with its latest telemetry, findings and health — the integration surface a host portal polls.</td></tr>
+      <tr><td class="idx">132</td><td class="sub">Prediction Service</td>
+        <td>Forecast and remaining-useful-life for any twin exposed as a standalone service call for external consumers.</td></tr>
+      <tr><td class="idx">133</td><td class="sub">AR Overlay Service</td>
+        <td>Versioned augmented-reality maintenance steps for any asset, grounded in its type and its live findings.</td></tr>
+
+      <!-- 23 · Deployment & Operations -->
+      <tr>
+        <td class="idx">134</td>
+        <td class="main" rowspan="5">Deployment &amp; Operations</td>
+        <td class="sub">Single-Container Deployment</td>
+        <td>The application and all platform services build into one container image serving both the interface and the API from a single address.</td></tr>
+      <tr><td class="idx">135</td><td class="sub">Local Development Stack</td>
+        <td>A one-command local stack brings up the database, message broker and platform services together.</td></tr>
+      <tr><td class="idx">136</td><td class="sub">Persistent Data Volume</td>
+        <td>Twin registry, audit ledger and reconstructed scenes are written to a mounted volume so nothing is lost on redeployment.</td></tr>
+      <tr><td class="idx">137</td><td class="sub">Platform Health</td>
+        <td>A health service reports database connectivity, event-bus backend and overall platform status.</td></tr>
+      <tr><td class="idx">138</td><td class="sub">Degraded-Mode Operation</td>
+        <td>With the database offline the interface still loads, twins still list and the user is told precisely what is unavailable and why.</td></tr>
+
+      <!-- 24 · Pack Marketplace -->
+      <tr>
+        <td class="idx">139</td>
+        <td class="main">Pack Marketplace</td>
+        <td class="sub">Domain Pack Catalogue</td>
+        <td>Catalogue of installed and available domain packs and capability modules. Presentation layer only at this version — runtime install and unload of packs is not yet wired to the pack loader.</td></tr>
+
+    </tbody>
+  </table>
+
+  <div class="footnote">
+    <b>Note.</b> Index 139 (Pack Marketplace) is the only entry in this catalogue that is
+    not fully wired end to end; every other feature listed is implemented in the
+    current codebase. The platform ships ten live machine-twin domains and four
+    ontology / functional building packs, fourteen shipped twin templates,
+    fourteen embedded AI agents, and two always-on demonstration twins that
+    require no infrastructure.
+  </div>
+</div>
+
+</body>
+</html>

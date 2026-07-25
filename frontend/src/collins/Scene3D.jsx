@@ -3,7 +3,7 @@
 // streams real telemetry onto all domain subsystems (not just EDM).
 import React, { useEffect, useRef } from 'react'
 import './collins.css'
-import { createViewer } from './scene/engine.js'
+import { createViewer } from '../three/collinsEngine'
 import { SIG, sevClass, fmt } from './lib.jsx'
 import api from './api'
 

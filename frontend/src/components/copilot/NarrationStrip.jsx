@@ -1,35 +1,43 @@
 /**
- * NarrationStrip — the AI co-pilot's running commentary on the live twin, plus
- * a predictive alert when an operating limit is projected to be crossed.
+ * NarrationStrip — an on-demand AI co-pilot reading of the live twin, plus a
+ * predictive alert when an operating limit is projected to be crossed.
  *
- * Narration is polled rather than streamed: each call is a fresh observation on
- * the current frame, and the interval is deliberately slow (60s default). This
- * is a real model call per tick — polling it every few seconds would burn tokens
- * for no operational benefit, since the physics moves far slower than that.
+ * This used to monitor continuously: it fetched on mount and re-polled the
+ * co-pilot on a slow interval. It no longer does — nothing is fetched until the
+ * user explicitly asks for a reading. Each call is a real model call on the
+ * current frame, so keeping it click-driven stops it burning tokens in the
+ * background (the physics moves far slower than any useful poll rate anyway).
  *
- * The alert is the part that matters operationally, so it renders above the
- * narration and only appears when there is genuinely something to warn about
- * (the agent returns nothing when no limit is projected to be crossed).
+ * Once invoked, the alert renders above the narration and only appears when
+ * there is genuinely something to warn about (the agent returns nothing when no
+ * limit is projected to be crossed). A twin switch retires the reading so the
+ * co-pilot goes back to waiting rather than showing stale narration.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AiBadge } from './AiBadge'
 import api from '../../api/client'
 
-export default function NarrationStrip({ tenant, machine, intervalMs = 60000, horizon = '6 hours' }) {
+export default function NarrationStrip({ tenant, machine, horizon = '6 hours' }) {
+  const [active, setActive] = useState(false)
   const [narration, setNarration] = useState(null)
   const [ai, setAi] = useState(null)
   const [alert, setAlert] = useState(null)
   const [loading, setLoading] = useState(false)
   const alive = useRef(true)
 
-  // Reset alive in the effect body — a ref survives StrictMode's dev
-  // remount, so relying on useRef(true) alone leaves this false after the
-  // first cleanup and every setNarration is then skipped (strip stuck on
-  // "Reading the live telemetry…"). See useAgent.js for the same fix.
+  // Reset alive in the effect body — a ref survives StrictMode's dev remount,
+  // so relying on useRef(true) alone leaves this false after the first cleanup
+  // and every setNarration is then skipped. See useAgent.js for the same fix.
   useEffect(() => {
     alive.current = true
     return () => { alive.current = false }
   }, [])
+
+  // Switching twins retires the previous reading: the co-pilot goes back to
+  // waiting to be asked, rather than showing another twin's stale narration.
+  useEffect(() => {
+    setActive(false); setNarration(null); setAi(null); setAlert(null)
+  }, [tenant, machine])
 
   const tick = useCallback(async () => {
     if (!tenant) return
@@ -47,14 +55,30 @@ export default function NarrationStrip({ tenant, machine, intervalMs = 60000, ho
     }
   }, [tenant, machine, horizon])
 
-  useEffect(() => {
-    setNarration(null); setAlert(null)
-    tick()
-    const id = setInterval(tick, intervalMs)
-    return () => clearInterval(id)
-  }, [tick, intervalMs])
+  const activate = () => { setActive(true); tick() }
 
   if (!tenant) return null
+
+  // Idle: nothing fetched yet. Offer a trigger, not a background monitor.
+  if (!active) {
+    return (
+      <div className="narration-strip">
+        <div className="narration-row">
+          <div className="narration-icon"><i className="ti ti-eye" /></div>
+          <div className="narration-body">
+            <div className="narration-label">AI co-pilot</div>
+            <div className="narration-text hint">
+              Ask the co-pilot to read this twin’s live telemetry.
+            </div>
+          </div>
+          <button className="btn btn-primary narration-refresh" onClick={activate}
+                  title="Read the live telemetry now">
+            <i className="ti ti-eye" /> Read now
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="narration-strip">

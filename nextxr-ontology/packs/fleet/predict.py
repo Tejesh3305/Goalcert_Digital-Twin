@@ -146,7 +146,7 @@ def predict(start_state: FleetState, horizon_min: float = 120.0,
             for f in registry.evaluate(s, q):
                 if f.behavior_id not in fired:
                     fired.add(f.behavior_id)
-                    events.append({"t_min": t_min, "behavior_id": f.behavior_id,
+                    events.append({"t": t_min, "t_min": t_min, "behavior_id": f.behavior_id,
                                    "severity": f.severity, "message": f.message})
 
         for key, sig, direction, lim_fn, _label in _LIMITS:
@@ -158,6 +158,7 @@ def predict(start_state: FleetState, horizon_min: float = 120.0,
                     ttl[key] = t_min
 
         trajectory.append({
+            "t": t_min,
             "t_min": t_min,
             "otp": frame[SIGNALS["otp"]],
             "headway": frame[SIGNALS["headway"]],
@@ -191,11 +192,21 @@ def predict(start_state: FleetState, horizon_min: float = 120.0,
         "overall": {"health": last["health"], "status": _status(last["health"])},
     }
 
+    # RUL normalised to the shared 7-pack shape ({component, minutes, hours}) so
+    # the Predict panel renders fleet like every other twin, while KEEPING the
+    # fleet-specific fields ({mode, time_to_limit_min, within_horizon}) the
+    # copilot analysis reads. Only modes that actually reach their limit are
+    # listed, exactly like the other packs' rul_list.
     rul = []
     label_map = {k[0]: k[4] for k in _LIMITS}
     for key, t in ttl.items():
-        rul.append({"mode": label_map[key], "time_to_limit_min": t,
-                    "within_horizon": t is not None})
+        if t is None:
+            continue
+        rul.append({
+            "component": key, "minutes": t, "hours": round(t / 60.0, 2),
+            "mode": label_map[key], "time_to_limit_min": t, "within_horizon": True,
+        })
+    rul.sort(key=lambda r: r["minutes"])
 
     return {
         "horizon_min": horizon_min,

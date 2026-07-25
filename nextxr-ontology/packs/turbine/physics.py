@@ -20,9 +20,12 @@ and RUL surfaces behave correctly for the demo.
 """
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass, field
+
+from packs._core.physics import (
+    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+)
 
 # ── Signal catalogue ────────────────────────────────────────────────
 SIGNALS = {
@@ -68,6 +71,11 @@ _EGT_SPAN = 820.0     # ΔT from idle→full at health
 _FUEL_100 = 2600.0    # kg/h at full power
 _EPR_100 = 1.62
 
+# Thermal time constants (s): EGT responds within tens of seconds to a fuel/power
+# change; the oil system is a larger thermal mass and lags further behind.
+_TAU_EGT = 22.0
+_TAU_OIL = 90.0
+
 
 @dataclass
 class TurbineState:
@@ -77,6 +85,10 @@ class TurbineState:
     bearing_wear: float = 0.04           # raises vibration & oil temp
     oil_leak: float = 0.0                # bleeds oil pressure
     combustor_distress: float = 0.03     # raises EGT hot-streak
+    # Thermal states carried between ticks so they can lag (0 = uninitialised;
+    # the first forward() snaps them to their steady value).
+    egt: float = 0.0
+    oil_temp: float = 0.0
     hours: float = 0.0                   # accumulated running hours (sim)
     fault: str = "none"
     fault_severity: float = 0.0
@@ -128,12 +140,12 @@ class TurbinePhysics:
     # ── one integration step ──
     def forward(self, state: TurbineState, dt: float = 1.0) -> dict:
         rng = state.rng()
-        thr = max(0.0, min(1.05, state.throttle))
+        thr = clamp(state.throttle, 0.0, 1.05)
         state.hours += dt / 3600.0
 
-        # Slow, ever-present wear so an untouched engine still ages a little.
-        state.bearing_wear = min(1.5, state.bearing_wear + 3e-6 * dt * (0.5 + thr))
-        state.compressor_fouling = min(1.5, state.compressor_fouling + 2e-6 * dt)
+        # Stress- and fault-driven wear. forward() and predict() call the SAME
+        # law, so the projected RUL trajectory matches the live twin's.
+        self._degrade(state, dt)
 
         foul = state.compressor_fouling
         wear = state.bearing_wear
@@ -143,9 +155,17 @@ class TurbinePhysics:
         n1 = _N1_100 * (0.32 + 0.68 * thr) * (1.0 - 0.01 * foul)
         n2 = _N2_100 * (0.55 + 0.45 * thr) * (1.0 + 0.03 * foul)
 
-        # EGT rises with power, fouling (poor compression) and combustor distress.
-        egt = (_EGT_AMBIENT + _EGT_SPAN * (0.25 + 0.75 * thr)
-               + 140.0 * foul + 180.0 * comb)
+        # EGT and oil temperature are THERMAL states with real inertia: they lag
+        # their steady value with a time constant instead of jumping with throttle.
+        # Steady EGT rises with power, fouling (poor compression) and combustor
+        # distress; steady oil temp with load and bearing friction.
+        egt_ss = (_EGT_AMBIENT + _EGT_SPAN * (0.25 + 0.75 * thr)
+                  + 140.0 * foul + 180.0 * comb)
+        oil_ss = 78.0 + 42.0 * thr + 55.0 * wear
+        state.egt = egt_ss if state.egt <= 0.0 else first_order_lag(state.egt, egt_ss, _TAU_EGT, dt)
+        state.oil_temp = oil_ss if state.oil_temp <= 0.0 else first_order_lag(state.oil_temp, oil_ss, _TAU_OIL, dt)
+        egt = state.egt
+        oil_temp = state.oil_temp
 
         # Fuel flow ~ power, penalised by fouling (lower efficiency).
         fuel = _FUEL_100 * (0.18 + 0.82 * thr) * (1.0 + 0.12 * foul)
@@ -156,24 +176,39 @@ class TurbinePhysics:
         # Vibration grows sharply with bearing wear (and a touch with speed).
         vib = 0.16 + 0.10 * thr + 0.95 * wear * wear + 0.05 * comb
 
-        # Oil: hotter with load + bearing friction; pressure bleeds with leaks.
-        oil_temp = 78.0 + 42.0 * thr + 55.0 * wear
+        # Oil pressure bleeds with leaks.
         oil_press = 62.0 * (0.4 + 0.6 * thr) - 40.0 * state.oil_leak
 
-        def j(v, frac):  # multiplicative jitter
-            return v * (1.0 + rng.uniform(-frac, frac))
-
         frame = {
-            SIGNALS["egt"]:       round(j(egt, 0.006), 1),
-            SIGNALS["n1"]:        round(j(n1, 0.004), 0),
-            SIGNALS["n2"]:        round(j(n2, 0.004), 0),
-            SIGNALS["fuel"]:      round(j(fuel, 0.01), 1),
-            SIGNALS["vib"]:       round(max(0.0, j(vib, 0.03)), 3),
-            SIGNALS["epr"]:       round(j(epr, 0.005), 3),
-            SIGNALS["oil_temp"]:  round(j(oil_temp, 0.006), 1),
-            SIGNALS["oil_press"]: round(max(0.0, j(oil_press, 0.01)), 1),
+            SIGNALS["egt"]:       round(jitter(rng, egt, 0.006), 1),
+            SIGNALS["n1"]:        round(jitter(rng, n1, 0.004), 0),
+            SIGNALS["n2"]:        round(jitter(rng, n2, 0.004), 0),
+            SIGNALS["fuel"]:      round(jitter(rng, fuel, 0.01), 1),
+            SIGNALS["vib"]:       round(max(0.0, jitter(rng, vib, 0.03)), 3),
+            SIGNALS["epr"]:       round(jitter(rng, epr, 0.005), 3),
+            SIGNALS["oil_temp"]:  round(jitter(rng, oil_temp, 0.006), 1),
+            SIGNALS["oil_press"]: round(max(0.0, jitter(rng, oil_press, 0.01)), 1),
         }
         return frame
+
+    def _degrade(self, state: TurbineState, dt: float) -> None:
+        """Advance the degradation accumulators. Base wear is slow — an untouched
+        engine barely ages within a demo — while an active fault multiplies the
+        rate so a projection reaches a redline within the forecast horizon. Called
+        from forward() every tick, so the live twin and predict() age on the SAME
+        curve and the RUL trajectory reflects what the twin will actually do."""
+        thr = clamp(state.throttle, 0.0, 1.05)
+        sev = state.fault_severity if state.fault != "none" else 0.0
+        load = 0.5 + thr
+        mult = 1.0 + 8.0 * sev
+        state.bearing_wear = min(1.6, state.bearing_wear
+                                 + dt * load * mult * (2.0e-6 + 1.2e-5 * state.bearing_wear))
+        state.compressor_fouling = min(1.6, state.compressor_fouling
+                                       + dt * mult * (1.5e-6 + 6.0e-6 * state.compressor_fouling))
+        state.combustor_distress = min(1.6, state.combustor_distress
+                                       + dt * mult * (1.0e-6 + 5.0e-6 * state.combustor_distress))
+        state.oil_leak = min(1.2, state.oil_leak
+                             + dt * mult * (5.0e-7 + 8.0e-6 * state.oil_leak))
 
     # ── Tier-A physics residuals (expected vs modelled ideal) ──
     def residuals(self, frame: dict) -> dict:
@@ -198,17 +233,9 @@ class TurbinePhysics:
         1.0 and only collapses as a signal approaches its limit."""
         if not frame:
             return 1.0
-
-        def hi(value, nominal, limit):   # "lower is worse as it rises to limit"
-            return max(0.0, min(1.0, (limit - value) / (limit - nominal)))
-
-        def lo(value, nominal, limit):   # "lower is worse as it falls to limit"
-            return max(0.0, min(1.0, (value - limit) / (nominal - limit)))
-
-        margins = [
-            hi(frame.get(SIGNALS["egt"], 0.0), 660.0, redlines.egt),
-            hi(frame.get(SIGNALS["vib"], 0.0), 0.28, redlines.vib),
-            hi(frame.get(SIGNALS["oil_temp"], 0.0), 112.0, redlines.oil_temp),
-            lo(frame.get(SIGNALS["oil_press"], 48.0), 48.0, redlines.oil_press_min),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_hi(frame.get(SIGNALS["egt"], 0.0), 660.0, redlines.egt),
+            margin_hi(frame.get(SIGNALS["vib"], 0.0), 0.28, redlines.vib),
+            margin_hi(frame.get(SIGNALS["oil_temp"], 0.0), 112.0, redlines.oil_temp),
+            margin_lo(frame.get(SIGNALS["oil_press"], 48.0), 48.0, redlines.oil_press_min),
+        ]), 3)

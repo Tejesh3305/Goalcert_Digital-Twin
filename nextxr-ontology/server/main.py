@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 import sys
 import threading
 import time
@@ -83,9 +84,13 @@ app = FastAPI(
     description="Live dashboard + REST API for the NextXR Digital Twin.",
 )
 
+# CORS origins default to "*" (unchanged for local dev and the federated hub).
+# In production set NXR_CORS_ORIGINS to a comma-separated allow-list to lock the
+# API down to known origins.
+_cors_origins = [o.strip() for o in os.getenv("NXR_CORS_ORIGINS", "*").split(",") if o.strip()] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

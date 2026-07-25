@@ -7,7 +7,7 @@
 // holographic "core", and everything is screen-space animation, component
 // highlights, and method panels beside the machine — all GPU-cheap and smooth.
 import React, { useEffect, useLayoutEffect, useCallback, useMemo, useRef, useState } from 'react'
-import { createViewer } from './scene/engine.js'
+import { createViewer } from '../three/collinsEngine'
 import ModelViewer from './ModelViewer.jsx'
 import EVWorld from './EVWorld.jsx'
 import { SIG, sevClass, fmt } from './lib.jsx'

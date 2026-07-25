@@ -7,8 +7,7 @@ nothing to keep in sync.
 
 ```
 HTTP  →  server/copilot_routes.py  →  copilot/agents.py  →  Anthropic API
-                    │                        │
-                    │                        └─ copilot/knowledge.py  (RAG + memory)
+                    │
                     └─ twins/runtime.py  get_machine_engine().ensure(tenant)
                           └─ the SAME LiveTwin the 3-D scene and findings read
 ```
@@ -35,8 +34,6 @@ network boundary that may already be stale.
 | 12 | Maintenance Procedure | `build_procedure` | `POST /procedure` |
 | 13 | AI Mechanic | `troubleshoot_chat` | `POST /troubleshoot` |
 | 14 | Dashboard Copilot | `dashboard_chat` | `POST /dashboard-chat` |
-| 15 | Knowledge Retrieval | `retrieve_context` | `GET /knowledge/search` |
-| 16 | Resolution Memory | `remember_resolution` | `POST /knowledge/remember` |
 
 All paths are under `/api/v1/copilot`.
 
@@ -88,7 +85,6 @@ trust — a stubbed work order looks like a real one. So every response carries:
 | `ANTHROPIC_API_KEY` | — | Enables real reasoning. Unset ⇒ everything stubs. |
 | `NXR_CLAUDE_MODEL` | `claude-sonnet-5` | Model override — e.g. `claude-opus-4-8` where deep-agent output quality matters more than the token bill. |
 | `NXR_COPILOT_EFFORT` | `high` | Effort for the deep agents (`low`…`max`). |
-| `NXR_DATA_DIR` | `nextxr-ontology/data` | Where `knowledge/knowledge.json` persists. |
 
 ### Latency, and why it varies
 
@@ -106,25 +102,15 @@ Don't put the 30 s+ agents behind a synchronous button with no progress state.
 If you need them faster, drop `NXR_COPILOT_EFFORT` to `medium` before you reach
 for a smaller model — effort costs less quality than a downgrade does.
 
-## Knowledge and the learning loop
-
-`knowledge.py` holds a seeded fault library and compliance rules per domain,
-searched by cosine similarity over keyword vectors (no ML dependency). Retrieval
-is a hard dependency of the Diagnosis, Work Order and Troubleshoot agents — it is
-what lets them cite a real standard instead of inventing a clause number.
+## Domain normalisation
 
 Domains are this platform's pack keys (`turbine-engine`, `railway-metro`,
 `hospital-campus`, …). The prototype's names (`mrt-line`, `ev-network`,
 `hospital`) are accepted and normalised — see `DOMAIN_ALIASES`.
 
-A domain with no seeded library falls back to a cross-domain search held to a
-much higher relevance bar, and those hits are labelled in the prompt as analogies
-that do not bind the asset. A loosely-matching fault from another industry is
-worse than nothing: it invites the agent to cite a standard that does not apply.
-
-`POST /knowledge/remember` closes the loop — a resolved incident is written back
-and is retrievable by every future diagnosis on that domain.
-
-> Swapping in Qdrant + real embeddings is a change inside `knowledge.py` only,
-> as long as `search_faults` / `search_compliance` / `recall_incidents` /
-> `remember_incident` keep their shapes.
+> The seeded RAG knowledge store (fault library / compliance rules / incident
+> memory) that used to ground Diagnosis, Work Order and Troubleshoot was
+> **retired** from the twin. `retrieve_context` remains as a no-op so those
+> agents' call sites are unchanged; they now reason from the live twin's own
+> diagnostics and the domain's compliance regime rather than a similarity search.
+> The `/knowledge/*` endpoints and the Resolution-Memory agent were removed with it.

@@ -13,6 +13,10 @@ import random
 from dataclasses import dataclass, field
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+from packs._core.physics import (
+    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+    status_from_health,
+)
 from .physics import gas_turbine_brayton, ship_stability, structural_fatigue
 
 SIGNALS = {
@@ -73,7 +77,9 @@ class WarshipState:
     speed_demand: float = 0.5            # control 0..1 (propulsion setting)
     displacement_t: float = 6000.0
     gt_degradation: float = 0.0          # 0..1
-    flood_tonnes: float = 0.0
+    flood_tonnes: float = 0.0            # water taken on so far (integrated)
+    flood_capacity_t: float = 0.0        # breached compartment volume (fill target)
+    flood_tau: float = 0.0               # ingress time constant, s (0 = no breach)
     heel_bias: float = 0.0               # deg (asymmetric loading)
     hull_load: float = 0.55              # 0..1 sea-state loading
     crack_mm: float = 1.2
@@ -92,8 +98,8 @@ class WarshipState:
 
 
 _FAULTS = {
-    "hull_breach":    {"flood_tonnes": 520.0, "_compartment": True},
-    "asymmetric_list": {"heel_bias": 12.0, "flood_tonnes": 220.0, "_compartment": True},
+    "hull_breach":    {"flood_capacity_t": 520.0, "_compartment": True},
+    "asymmetric_list": {"heel_bias": 12.0, "flood_capacity_t": 220.0, "_compartment": True},
     "gt_overtemp":    {"gt_degradation": 0.85},
     "fatigue_crack":  {"crack_mm": 18.0, "hull_load": 0.9},
     "heavy_seas":     {"hull_load": 0.95},
@@ -118,6 +124,11 @@ class DefenceWarshipPhysics:
         for attr, amount in _FAULTS.get(fault, {}).items():
             if attr == "_compartment":
                 state.flood_target = _COMPARTMENTS[rng.randrange(5)]["id"]  # a lower compartment
+            elif attr == "flood_capacity_t":
+                # The compartment volume is fixed; severity sets the breach SIZE,
+                # i.e. how fast it floods (smaller tau = faster ingress).
+                state.flood_capacity_t = getattr(state, attr) + amount
+                state.flood_tau = 300.0 + 1500.0 * (1.0 - eff)
             elif attr == "speed_demand":
                 state.speed_demand = max(state.speed_demand, amount * eff)
             elif attr == "crack_mm":
@@ -133,12 +144,14 @@ class DefenceWarshipPhysics:
         state.flood_target = ""
         state.gt_degradation = 0.0
         state.flood_tonnes = 0.0
+        state.flood_capacity_t = 0.0
+        state.flood_tau = 0.0
         state.heel_bias = 0.0
         state.hull_load = 0.55
 
     def forward(self, state: WarshipState, dt: float = 1.0) -> dict:
         rng = state.rng()
-        S = max(0.0, min(1.0, state.speed_demand))
+        S = clamp(state.speed_demand)
         state.hours += dt / 3600.0
         cyc_inc = dt * (60.0 + 120.0 * state.hull_load)         # wave-encounter cycles this tick
         state.cycles += cyc_inc
@@ -148,10 +161,19 @@ class DefenceWarshipPhysics:
                                  degradation=state.gt_degradation)
         speed_kn = 6.0 + 24.0 * S
 
+        # ── flooding (progressive) ──
+        # Water ingresses toward the breached compartment's capacity with a time
+        # constant set by the breach size, so flooding RISES over time instead of
+        # appearing in full instantly. Ingress slows as the compartment fills and
+        # the head equalises — a first-order approach captures that.
+        if state.flood_tau > 0.0 and state.flood_capacity_t > 0.0:
+            state.flood_tonnes = first_order_lag(state.flood_tonnes, state.flood_capacity_t,
+                                                 state.flood_tau, dt)
+        flooding_pct = min(100.0, state.flood_tonnes / 20.0)
+
         # ── stability ──
         ss = ship_stability(displacement_t=state.displacement_t, gm_m=1.4,
                             heel_deg=state.heel_bias, flood_tonnes=state.flood_tonnes)
-        flooding_pct = min(100.0, state.flood_tonnes / 20.0)
 
         # ── structural fatigue ──
         hull_stress = 60.0 + 150.0 * state.hull_load + 0.3 * speed_kn
@@ -160,7 +182,7 @@ class DefenceWarshipPhysics:
         state.crack_mm = min(300.0, sf["crack_mm"])
 
         def j(v, frac):
-            return v * (1.0 + rng.uniform(-frac, frac))
+            return jitter(rng, v, frac)
 
         return {
             SIGNALS["gt_power"]:       round(max(0.0, j(gt["power_mw"], 0.02)), 2),
@@ -185,24 +207,16 @@ class DefenceWarshipPhysics:
     def health_index(self, frame: dict) -> float:
         if not frame:
             return 1.0
-
-        def hi(v, nominal, limit):
-            return max(0.0, min(1.0, (limit - v) / (limit - nominal)))
-
-        def lo(v, nominal, limit):
-            return max(0.0, min(1.0, (v - limit) / (nominal - limit)))
-
-        margins = [
-            hi(frame.get(SIGNALS["gt_egt"], 560.0), 560.0, redlines.gt_egt_max),
-            lo(frame.get(SIGNALS["gt_efficiency"], 34.0), 34.0, redlines.gt_efficiency_min),
-            hi(frame.get(SIGNALS["list_angle"], 1.0), 1.0, redlines.list_angle_max),
-            hi(frame.get(SIGNALS["flooding"], 0.0), 0.0, redlines.flooding_max),
-            lo(frame.get(SIGNALS["fatigue_life"], 80.0), 80.0, redlines.fatigue_life_min),
-            hi(frame.get(SIGNALS["crack_length"], 1.5), 1.5, redlines.crack_max),
-            hi(frame.get(SIGNALS["hull_stress"], 140.0), 140.0, redlines.hull_stress_max),
-            lo(frame.get(SIGNALS["freeboard"], 4.0), 4.0, redlines.freeboard_min),
-        ]
-        return round(min(margins), 3)
+        return round(worst_health([
+            margin_hi(frame.get(SIGNALS["gt_egt"], 560.0), 560.0, redlines.gt_egt_max),
+            margin_lo(frame.get(SIGNALS["gt_efficiency"], 34.0), 34.0, redlines.gt_efficiency_min),
+            margin_hi(frame.get(SIGNALS["list_angle"], 1.0), 1.0, redlines.list_angle_max),
+            margin_hi(frame.get(SIGNALS["flooding"], 0.0), 0.0, redlines.flooding_max),
+            margin_lo(frame.get(SIGNALS["fatigue_life"], 80.0), 80.0, redlines.fatigue_life_min),
+            margin_hi(frame.get(SIGNALS["crack_length"], 1.5), 1.5, redlines.crack_max),
+            margin_hi(frame.get(SIGNALS["hull_stress"], 140.0), 140.0, redlines.hull_stress_max),
+            margin_lo(frame.get(SIGNALS["freeboard"], 4.0), 4.0, redlines.freeboard_min),
+        ]), 3)
 
     # ── live damage-control compartment cross-section ──
     def network_state(self, state: WarshipState) -> dict:
@@ -223,8 +237,7 @@ class DefenceWarshipPhysics:
 
 
 # ── health rollup + prediction ──
-def _status(h):
-    return "critical" if h < 0.4 else "warning" if h < 0.72 else "ok"
+_status = status_from_health
 
 
 def component_health(state, frame, physics) -> dict:
