@@ -30,10 +30,22 @@ from starlette.responses import JSONResponse, Response
 
 @dataclass
 class ApiKeyInfo:
+    """One configured API key and what it may reach.
+
+    `tenant` is the original single-tenant field and still works. `tenants` and
+    `tenant_prefix` were added because the single field could not express "this
+    customer owns 50 twins" without granting `"*"` — which also grants every
+    OTHER customer's data. Serving a real enterprise account therefore required
+    over-granting. See `server/tenancy.py` for how these project onto a Scope,
+    and note that ALL authorization decisions are made there: this dataclass is
+    configuration, not policy.
+    """
     key: str
-    tenant: str      # "*" for admin (all tenants)
-    role: str         # "admin", "write", "read"
-    name: str         # human label
+    tenant: str                       # "*" for admin (all tenants)
+    role: str                         # "admin", "write", "read"
+    name: str                         # human label
+    tenants: tuple[str, ...] = ()     # explicit multi-tenant set
+    tenant_prefix: str = ""           # every tenant id under this prefix
 
 
 # Default keys for development — override with NXR_API_KEYS env var
@@ -56,9 +68,14 @@ def _load_keys():
     _key_store = {
         k["key"]: ApiKeyInfo(
             key=k["key"],
-            tenant=k.get("tenant", "*"),
+            # Default to "" rather than "*": a key entry that forgets to declare
+            # its scope must reach nothing, not everything. The old default
+            # meant a typo'd field name silently produced an admin key.
+            tenant=k.get("tenant", ""),
             role=k.get("role", "read"),
             name=k.get("name", "unknown"),
+            tenants=tuple(k.get("tenants") or ()),
+            tenant_prefix=k.get("tenant_prefix", "") or "",
         )
         for k in keys
     }
@@ -107,10 +124,22 @@ def log_auth_posture() -> None:
 
 
 def check_tenant_access(key_info: ApiKeyInfo, requested_tenant: str) -> bool:
-    """Check if this key can access the requested tenant."""
-    if key_info.tenant == "*":
-        return True
-    return key_info.tenant == requested_tenant
+    """Check if this key can access the requested tenant.
+
+    Delegates to `server/tenancy.py` so there is exactly ONE implementation of
+    the rule. This used to compare `key_info.tenant == requested_tenant`
+    directly, which is now wrong twice over: it cannot see a `tenants` set or a
+    `tenant_prefix`, so a correctly-configured multi-twin enterprise key would
+    be refused its own data.
+
+    The middleware still calls this on the query-string tenant as
+    defence-in-depth. Real enforcement — across path, query AND body — is the
+    global `enforce_tenant_scope` dependency, because middleware runs before
+    routing and therefore cannot see `{tenant}` path parameters at all. That
+    blind spot was the original cross-tenant hole.
+    """
+    from server.tenancy import _scope_from_key
+    return _scope_from_key(key_info).allows(requested_tenant)
 
 
 def check_write_access(key_info: ApiKeyInfo) -> bool:
@@ -120,6 +149,26 @@ def check_write_access(key_info: ApiKeyInfo) -> bool:
 
 # Paths that don't require auth
 _PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/redoc"}
+
+# Paths where an `X-Device-Token` is an acceptable credential INSTEAD of an
+# X-API-Key. Deliberately a tiny, explicit allow-list of append-only telemetry
+# endpoints.
+#
+# A telemetry gateway cannot hold a tenant API key: that key reads every asset,
+# drives the physics runtime, deletes entities and bills the LLM endpoints, and
+# the gateway is hardware in a plant room that anyone with a screwdriver can walk
+# off with (see ingest/devices.py). So it authenticates as itself — but the
+# middleware previously demanded an X-API-Key on every /api path, which rejected
+# the device before its own route could ever authenticate it.
+#
+# Everything about that stays narrow on purpose: a device token is accepted ONLY
+# for these two paths, and `server/tenancy.py` pins the resulting scope to that
+# device's single tenant with write-only rights, so a device that somehow reached
+# another route still could not read across the fleet.
+_DEVICE_TOKEN_PATHS = {
+    "/api/v1/ingest/telemetry",
+    "/api/v1/ingest/telemetry/bulk",
+}
 
 # API paths that must stay reachable WITHOUT a key. Platform health probes
 # (Render, the Dockerfile HEALTHCHECK, an ECS target group) cannot send an
@@ -167,12 +216,20 @@ class AuthMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         log_auth_posture()
+        # Tenant-scope posture sits next to the auth line: "enforcement ON" and
+        # "every key is admin-scoped" are different deployments, and an operator
+        # reading CloudWatch after a rollout needs to see both.
+        try:
+            from server.tenancy import log_posture as _tenancy_posture
+            _tenancy_posture()
+        except Exception as e:
+            print(f"[tenancy] posture unavailable: {e}", flush=True)
         # Same reasoning as the auth line: a misconfigured deploy must announce
         # itself at boot rather than be discovered when twins go missing, models
         # 404 on half the tasks, or live updates quietly stop for some users.
         # These four lines are the deployment posture, and AWS_DEPLOYMENT.md §11
         # tells operators to read them in CloudWatch after every rollout.
-        for mod in ("db", "storage", "bus"):
+        for mod in ("db", "storage", "bus", "historian"):
             try:
                 __import__(mod).log_posture()
             except Exception as e:
@@ -198,6 +255,28 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Public paths (frontend app, assets, docs)
         if _is_public(path, request.method):
+            return await call_next(request)
+
+        # Device credential: authenticate HERE so the ingest hot path does one
+        # registry lookup rather than two, and stash the device so
+        # tenancy.scope_of() can pin the request to that device's tenant.
+        # Note `is not None`, not truthiness. A client that SENDS the header is
+        # attempting device authentication, so an empty value must fail as a bad
+        # device token rather than falling through to "Missing X-API-Key header" —
+        # two different messages for two malformed credentials is a distinction an
+        # attacker can probe, and a confusing mixed signal for an operator.
+        device_token = request.headers.get("X-Device-Token")
+        if device_token is not None and path.rstrip("/") in _DEVICE_TOKEN_PATHS:
+            try:
+                from ingest import devices as _devices
+                request.state.device = _devices.authenticate(device_token)
+            except Exception as e:
+                # Coarse on purpose: distinguishing "unknown token" from
+                # "disabled" from "expired" confirms to whoever is holding stolen
+                # hardware that the token is real.
+                if type(e).__name__ != "DeviceAuthError":
+                    return _deny(503, f"Device registry unavailable: {e}")
+                return _deny(401, "Invalid or inactive device token")
             return await call_next(request)
 
         # Require API key

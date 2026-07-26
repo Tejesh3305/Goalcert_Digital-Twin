@@ -127,6 +127,44 @@ DDL: dict[str, list[str]] = {
         "CREATE INDEX IF NOT EXISTS idx_threed_updated "
         "ON threed_jobs (updated DESC)",
     ],
+    # Ingest devices — the identities that push telemetry.
+    #
+    # A device MUST NOT authenticate with a tenant API key. Those keys are read
+    # and write credentials for the whole twin: a gateway sitting in a plant room,
+    # flashed onto hardware an electrician can unscrew, would then be able to read
+    # every asset, drive the physics runtime and bill the LLM endpoints. A device
+    # credential instead grants exactly one verb (append telemetry) in exactly
+    # one tenant, and can be revoked on its own without rotating anything a human
+    # uses.
+    #
+    # Only the token HASH is stored. A registry an operator can read back is a
+    # registry an attacker can read once, so the plaintext is returned exactly
+    # once at creation and never recoverable — the same posture as an SSH
+    # authorized_keys file or a GitHub PAT.
+    "devices": [
+        """CREATE TABLE IF NOT EXISTS ingest_devices (
+               device_id     TEXT PRIMARY KEY,
+               tenant_id     TEXT NOT NULL,
+               name          TEXT NOT NULL DEFAULT '',
+               token_hash    TEXT NOT NULL,
+               asset_prefix  TEXT NOT NULL DEFAULT '',
+               enabled       INTEGER NOT NULL DEFAULT 1,
+               created_at    TEXT NOT NULL,
+               created_by    TEXT NOT NULL DEFAULT '',
+               expires_at    TEXT,
+               last_seen_at  TEXT,
+               last_seen_ip  TEXT,
+               samples_total {float} NOT NULL DEFAULT 0,
+               rejected_total {float} NOT NULL DEFAULT 0
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_devices_tenant "
+        "ON ingest_devices (tenant_id)",
+        # Authentication looks a device up BY HASH, because the presented token is
+        # all we have — there is no device_id on the wire to narrow it first.
+        # Without this index every ingest request is a full table scan.
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_token "
+        "ON ingest_devices (token_hash)",
+    ],
 }
 
 # Optional Postgres extensions. Not used by any query today; they are the

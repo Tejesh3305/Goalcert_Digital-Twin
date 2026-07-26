@@ -30,6 +30,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+from . import spend
 from .config import config
 # Domain-name normalisation (the copilot agents' one shared helper). The
 # knowledge/RAG store this used to live beside was removed; the alias map stays
@@ -181,78 +182,174 @@ _THINKING_ON = {"type": "adaptive"}
 _THINKING_OFF = {"type": "disabled"}
 
 
+def _account(agent: str, resp) -> dict:
+    """Bill one response to the ledger and return the per-call usage summary
+    that `agent_trace()` surfaces on the API response.
+
+    Cached and freshly-written prompt tokens are reported separately because
+    they are priced differently (0.1x and 1.25x of the input rate) and are NOT
+    included in `input_tokens` — so a caller comparing only `input` across two
+    requests would conclude caching had shrunk the prompt when it had merely
+    moved most of it into a cheaper bucket.
+    """
+    u = resp.usage
+    cost = spend.ledger.record(agent=agent, model=resp.model, usage=u)
+    spend.budget.charge("-", cost)
+    return {
+        "input": getattr(u, "input_tokens", 0),
+        "output": getattr(u, "output_tokens", 0),
+        "cache_read": getattr(u, "cache_read_input_tokens", 0) or 0,
+        "cache_write": getattr(u, "cache_creation_input_tokens", 0) or 0,
+        "cost_usd": round(cost, 6),
+    }
+
+
+def _agent_name() -> str:
+    """The public agent function this call came from — for per-agent costing.
+
+    Walks out of the private funnel helpers to the first caller in this module,
+    so the ledger attributes spend to `diagnosis_agent` rather than to `_text`.
+    """
+    import inspect
+    for frame in inspect.stack()[1:6]:
+        name = frame.function
+        if not name.startswith("_") and frame.filename.endswith("agents.py"):
+            return name
+    return "unknown"
+
+
+def _spend_guard(tenant: str = "-"):
+    """None if the call may proceed, else the reason it may not."""
+    if not spend.budget.allows(tenant):
+        spend.ledger.note_blocked()
+        return "copilot budget reached for this deployment"
+    return None
+
+
 def _text(*, system: str, messages: list, max_tokens: int,
-          effort: str = QUICK, deep: bool = False, stub) -> str:
+          effort: str = QUICK, deep: bool = False, stub,
+          cacheable=False) -> str:
     """Free-text completion. `stub` is a zero-arg callable producing the
-    deterministic fallback — required, so every agent works keyless."""
-    if not config.claude_enabled:
-        _note(backend="stub", error="no ANTHROPIC_API_KEY")
-        return stub()
-    try:
-        kwargs = {
-            "model": config.CLAUDE_MODEL,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": messages,
-            "output_config": {"effort": config.DEEP_EFFORT if deep else effort},
-            "thinking": _THINKING_ON if deep else _THINKING_OFF,
-        }
-        resp = _anthropic().messages.create(**kwargs)
-        if getattr(resp, "stop_reason", None) == "refusal":
-            _note(backend="stub", error="model declined the request")
-            return stub()
-        out = "".join(b.text for b in resp.content
-                      if getattr(b, "type", "") == "text").strip()
-        if not out:
-            _note(backend="stub", error="empty response")
-            return stub()
-        _note(backend="claude", model=resp.model,
-              effort=kwargs["output_config"]["effort"], thinking=deep,
-              usage={"input": resp.usage.input_tokens,
-                     "output": resp.usage.output_tokens})
-        return out
-    except Exception as e:  # noqa: BLE001 — an agent must never break the page
-        logger.warning("copilot text call failed (%s); using stub", e)
-        _note(backend="stub", error=str(e))
-        return stub()
+    deterministic fallback — required, so every agent works keyless.
 
-
-def _parse(*, system, messages: list, max_tokens: int, output_format,
-           deep: bool = True, stub):
-    """Structured completion into a Pydantic model. Same keyless contract.
-
-    Note: `output_config` is not passed here — the SDK builds it from
-    `output_format`, and supplying both risks clobbering the schema. These
-    agents want the default (high) effort anyway.
+    `cacheable` marks a multi-turn agent whose resent history can carry a
+    prompt-cache breakpoint. Off by default: the single-shot agents have a
+    103-249 token stable prefix, well under the model's 1024-token minimum, so
+    a breakpoint there would cache nothing while still costing the write
+    premium on a miss (see copilot/spend.py).
     """
     if not config.claude_enabled:
         _note(backend="stub", error="no ANTHROPIC_API_KEY")
         return stub()
-    try:
-        kwargs = {
-            "model": config.CLAUDE_MODEL,
-            "max_tokens": max_tokens,
-            "system": system,
-            "messages": messages,
-            "output_format": output_format,
-            "thinking": _THINKING_ON if deep else _THINKING_OFF,
-        }
-        resp = _anthropic().messages.parse(**kwargs)
-        if getattr(resp, "stop_reason", None) == "refusal":
-            _note(backend="stub", error="model declined the request")
-            return stub()
-        parsed = resp.parsed_output
-        if parsed is None:
-            _note(backend="stub", error="no parsed output")
-            return stub()
-        _note(backend="claude", model=resp.model, thinking=deep,
-              usage={"input": resp.usage.input_tokens,
-                     "output": resp.usage.output_tokens})
-        return parsed
-    except Exception as e:  # noqa: BLE001
-        logger.warning("copilot parse call failed (%s); using stub", e)
-        _note(backend="stub", error=str(e))
+    blocked = _spend_guard()
+    if blocked:
+        _note(backend="stub", error=blocked)
         return stub()
+
+    resolved_effort = config.DEEP_EFFORT if deep else effort
+    model = config.CLAUDE_MODEL
+    key = spend.request_key({"fn": "text", "model": model, "system": system,
+                             "messages": messages, "max_tokens": max_tokens,
+                             "effort": resolved_effort, "deep": deep})
+    agent = _agent_name()
+
+    def _call() -> str:
+        try:
+            msgs = messages
+            bp = -2 if cacheable == "history" else -1
+            if cacheable and spend.cache_hint(model, system, messages, index=bp):
+                msgs = spend.with_cache_breakpoint(messages, index=bp)
+            kwargs = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": msgs,
+                "output_config": {"effort": resolved_effort},
+                "thinking": _THINKING_ON if deep else _THINKING_OFF,
+            }
+            resp = _anthropic().messages.create(**kwargs)
+            if getattr(resp, "stop_reason", None) == "refusal":
+                _note(backend="stub", error="model declined the request")
+                return stub()
+            out = "".join(b.text for b in resp.content
+                          if getattr(b, "type", "") == "text").strip()
+            if not out:
+                _note(backend="stub", error="empty response")
+                return stub()
+            _note(backend="claude", model=resp.model, effort=resolved_effort,
+                  thinking=deep, usage=_account(agent, resp))
+            return out
+        except Exception as e:  # noqa: BLE001 — an agent must never break the page
+            logger.warning("copilot text call failed (%s); using stub", e)
+            _note(backend="stub", error=str(e))
+            return stub()
+
+    return spend.memo.run(key, _call)
+
+
+def _parse(*, system, messages: list, max_tokens: int, output_format,
+           deep: bool = True, stub, effort: str | None = None,
+           cacheable=False):
+    """Structured completion into a Pydantic model. Same keyless contract.
+
+    `effort` is now honoured. It previously was not: the note here said passing
+    `output_config` alongside `output_format` "risks clobbering the schema", so
+    every structured agent ran at the API default (`high`) with no way to tune
+    it — including two chat turns. Verified against the API: the SDK merges the
+    schema it derives from `output_format` with an `output_config` you supply,
+    so `{"effort": ...}` is applied and the parse still validates.
+
+    Defaults keep the previous behaviour: `effort=None` sends no
+    `output_config` at all, so nothing changes unless a caller opts in.
+    """
+    if not config.claude_enabled:
+        _note(backend="stub", error="no ANTHROPIC_API_KEY")
+        return stub()
+    blocked = _spend_guard()
+    if blocked:
+        _note(backend="stub", error=blocked)
+        return stub()
+
+    model = config.CLAUDE_MODEL
+    key = spend.request_key({"fn": "parse", "model": model, "system": system,
+                             "messages": messages, "max_tokens": max_tokens,
+                             "effort": effort, "deep": deep,
+                             "schema": getattr(output_format, "__name__", str(output_format))})
+    agent = _agent_name()
+
+    def _call():
+        try:
+            msgs = messages
+            bp = -2 if cacheable == "history" else -1
+            if cacheable and spend.cache_hint(model, system, messages, index=bp):
+                msgs = spend.with_cache_breakpoint(messages, index=bp)
+            kwargs = {
+                "model": model,
+                "max_tokens": max_tokens,
+                "system": system,
+                "messages": msgs,
+                "output_format": output_format,
+                "thinking": _THINKING_ON if deep else _THINKING_OFF,
+            }
+            if effort:
+                kwargs["output_config"] = {"effort": effort}
+            resp = _anthropic().messages.parse(**kwargs)
+            if getattr(resp, "stop_reason", None) == "refusal":
+                _note(backend="stub", error="model declined the request")
+                return stub()
+            parsed = resp.parsed_output
+            if parsed is None:
+                _note(backend="stub", error="no parsed output")
+                return stub()
+            _note(backend="claude", model=resp.model, thinking=deep,
+                  effort=effort, usage=_account(agent, resp))
+            return parsed
+        except Exception as e:  # noqa: BLE001
+            logger.warning("copilot parse call failed (%s); using stub", e)
+            _note(backend="stub", error=str(e))
+            return stub()
+
+    return spend.memo.run(key, _call)
 
 
 def _j(obj, limit: int = 4000) -> str:
@@ -327,7 +424,8 @@ def build_twin_reply(history: list[dict], message: str) -> TwinBuilderReply:
         "image and hit Build — you'll reconstruct the 3D model from the image and "
         "wire up live sensors and physics. Keep replies to 1-3 sentences.")
     return _parse(system=system, messages=msgs, max_tokens=1000,
-                  output_format=TwinBuilderReply, deep=False, stub=_stub)
+                  output_format=TwinBuilderReply, deep=False, stub=_stub,
+                  effort=CHAT, cacheable=True)
 
 
 # ── Agent #2: Vision Agent (photo + description → structured twin spec) ───
@@ -1065,17 +1163,24 @@ def troubleshoot_chat(history: list[dict], message: str, diagnostics: dict,
     msgs = [{"role": h["role"], "content": h["content"]} for h in history[-10:]
             if h.get("content")]
     msgs.append({"role": "user", "content": message or "Where should I start?"})
+    # Diagnostics ride the latest user turn, not the system prompt — same
+    # reasoning as dashboard_chat below: they are re-read live on every turn, so
+    # in `system` they would sit at the front of the prefix and invalidate the
+    # whole conversation cache each message.
     system = (
         f"You are an experienced {ctx['role']} helping a technician troubleshoot a "
         f"live {machine}. You can see the current sensor readings and physics "
-        "residuals. Ask pointed diagnostic questions (1-2 per turn) to narrow down "
-        "the fault. Be conversational but technical. When you have enough "
-        "information, declare your hypothesis with a confidence. Reference specific "
-        "sensor values and the relevant standard from the reference material below "
-        f"({ctx['compliance']}) — do not invent clause numbers.\n"
-        f"Current diagnostics: {_j(diagnostics, 4000)}{rag}")
+        "residuals, supplied with the latest message. Ask pointed diagnostic "
+        "questions (1-2 per turn) to narrow down the fault. Be conversational but "
+        "technical. When you have enough information, declare your hypothesis with "
+        "a confidence. Reference specific sensor values and the relevant standard "
+        f"({ctx['compliance']}) — do not invent clause numbers.")
+    msgs[-1] = {**msgs[-1],
+                "content": (f"Current diagnostics: {_j(diagnostics, 4000)}{rag}\n\n"
+                            f"{msgs[-1]['content']}")}
     return _parse(system=system, messages=msgs, max_tokens=4000,
-                  output_format=TroubleshootReply, deep=False, stub=_stub)
+                  output_format=TroubleshootReply, deep=False, stub=_stub,
+                  effort=CHAT, cacheable="history")
 
 
 # ── Agent #16: Dashboard Copilot (live-state Q&A) ─────────────────────────
@@ -1096,12 +1201,24 @@ def dashboard_chat(messages: list, snapshot: dict, machine: str,
             for m in (messages or []) if m.get("content")]
     if not norm:
         norm = [{"role": "user", "content": "What's the current status?"}]
+    # The snapshot is deliberately NOT in the system prompt.
+    #
+    # It used to be, and that made prompt caching impossible: `system` renders
+    # at the very front of the prefix, the route re-reads live diagnostics on
+    # every turn, so a snapshot embedded here changed the first bytes of the
+    # prompt each message and invalidated the entire conversation cache. Frozen
+    # instruction in `system`, volatile telemetry appended to the LATEST user
+    # turn — the cached prefix is then system + settled history, and the fresh
+    # snapshot lands after the breakpoint where it invalidates nothing.
     system = (
         f"You are the live operations assistant for a {machine} ({ctx['industry']}). "
         "Answer the operator's questions about the CURRENT status using the "
-        "telemetry and findings below. Be concise and specific, name the signals and "
-        "their values, and flag anything concerning with a clear next action. Do not "
-        "speculate beyond what the snapshot supports.\n"
-        f"Current snapshot: {_j(snapshot, 5000)}")
+        "telemetry and findings supplied with the latest message. Be concise and "
+        "specific, name the signals and their values, and flag anything concerning "
+        "with a clear next action. Do not speculate beyond what the snapshot "
+        "supports.")
+    norm[-1] = {**norm[-1],
+                "content": (f"Current snapshot: {_j(snapshot, 5000)}\n\n"
+                            f"{norm[-1]['content']}")}
     return _text(system=system, messages=norm, max_tokens=1500, effort=CHAT,
-                 stub=_stub)
+                 stub=_stub, cacheable="history")

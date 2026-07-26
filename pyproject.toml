@@ -1,0 +1,78 @@
+# pyproject.toml — test, lint and coverage configuration.
+#
+# The platform had 33k lines of Python and four ad-hoc `*_test.py` scripts that
+# were run by hand. That is not a defect of taste: an enterprise vendor security
+# questionnaire asks directly how changes are verified, and "manually" ends the
+# conversation at any buyer with a procurement function. This file plus
+# .github/workflows/ci.yml is the minimum credible answer.
+#
+# Runtime dependencies stay in requirements.txt — the container image is built
+# from it and must not grow a test toolchain.
+
+[project]
+name = "nextxr-ontology"
+version = "1.0.0"
+description = "NextXR Universal Modular Digital Twin platform"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+# `nextxr-ontology` is the import root (modules import `graph.writer`, `db`,
+# `server.main` — not `nextxr_ontology.graph.writer`), so it goes on sys.path
+# rather than being treated as a package.
+pythonpath = ["nextxr-ontology"]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-q",
+    "--strict-markers",
+    "--strict-config",
+]
+markers = [
+    # Tests that need Neo4j / Postgres / Redis reachable. Deselected by default
+    # (`-m "not integration"` in CI's unit job) so the fast suite stays runnable
+    # on a laptop with nothing started, and run in the integration job where
+    # docker-compose has brought the stores up.
+    "integration: requires live Neo4j/Postgres/Redis (see docker-compose.yml)",
+    "slow: takes more than ~2s",
+]
+filterwarnings = [
+    # FastAPI's on_event is deprecated in favour of lifespan; the migration is
+    # tracked separately and must not make the suite noisy in the meantime.
+    "ignore::DeprecationWarning:server.main",
+]
+
+[tool.coverage.run]
+source = ["nextxr-ontology"]
+branch = true
+omit = [
+    "*/__pycache__/*",
+    "*/threed_platform/*",     # vendored pipeline, covered by its own harness
+    "*_test.py",               # the four legacy hand-run smoke scripts
+]
+
+[tool.coverage.report]
+skip_covered = false
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = ["apps", "frontend", "**/__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+ignore = [
+    "E501",    # line length is checked by the formatter, not the linter
+    "B008",    # FastAPI's Depends()/Body() in defaults is the framework idiom
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Every module under nextxr-ontology/ does sys.path surgery before importing, so
+# imports legitimately follow statements there.
+"nextxr-ontology/**" = ["E402"]

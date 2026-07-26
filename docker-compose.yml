@@ -33,8 +33,21 @@ services:
   # container cannot bind it. The failure is confusing — you connect "fine" and
   # get `password authentication failed`, from the OTHER server. Set
   # POSTGRES_PORT=5433 (and use that port in the URL) instead of stopping yours.
+  # TimescaleDB rather than plain postgres:16-alpine.
+  #
+  # It IS Postgres 16 — the same server, the same protocol, the same psycopg2
+  # connection — with the timescaledb extension preloaded. That is the whole
+  # reason the historian was built on Timescale instead of a second database:
+  # nothing else in the compose file or the app changes, and the local stack now
+  # matches what production needs (hypertable, continuous aggregates,
+  # compression, retention).
+  #
+  # Swapping the image on an EXISTING postgres_data volume will not work — the
+  # extension needs shared_preload_libraries set at initdb time. Either start
+  # fresh (`docker compose down -v`) or keep plain Postgres locally and accept
+  # the on-the-fly rollups (historian/ reports which backend it resolved to).
   postgres:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:2.17.2-pg16
     container_name: nxr-postgres
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -42,8 +55,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-nextxr}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextxr2026}
       POSTGRES_DB: ${POSTGRES_DB:-nextxr}
+      # Create the extension on first init so a fresh stack is ready without a
+      # manual superuser step. `historian_provision --extension` does the same
+      # thing for an environment that already exists.
+      POSTGRES_INITDB_ARGS: ""
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/timescale-init.sql:/docker-entrypoint-initdb.d/00-timescale.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextxr} -d ${POSTGRES_DB:-nextxr}"]
       interval: 10s

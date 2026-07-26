@@ -34,12 +34,13 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.auth import AuthMiddleware
+from server.tenancy import enforce_tenant_scope
 
 from graph.connection import get_driver, close_driver
 from graph.writer import GraphWriter, Rel
@@ -74,6 +75,8 @@ from server.twin_runtime_routes import router as twin_runtime_router
 from server.agent_routes import router as agent_router
 from server.copilot_routes import router as copilot_router
 from server.hub_routes import router as hub_router
+from server.historian_routes import router as historian_router
+from server.ingest_routes import router as ingest_router
 from server.threed_platform.app.main import app as threed_platform_app
 
 # ── App setup ───────────────────────────────────────────────────────
@@ -82,6 +85,24 @@ app = FastAPI(
     title="NextXR Digital Twin",
     version="1.0.0",
     description="Live dashboard + REST API for the NextXR Digital Twin.",
+    # TENANT ISOLATION. Declared once, on the app, so it applies to every route
+    # on every router — including routes added later. It is deliberately NOT
+    # per-router or per-route: tenant enforcement used to live in AuthMiddleware
+    # and covered only `?tenant=`, so every `/twins/{tenant}/...` path param and
+    # every `{"tenant": ...}` request body went unchecked, and a key scoped to
+    # one tenant could read and control any other tenant's twin. A global
+    # dependency cannot be forgotten by a new route the way an opt-in check was.
+    #
+    # It must be a dependency rather than middleware because middleware runs
+    # BEFORE routing, where `request.path_params` is still empty — the exact
+    # blind spot that caused the hole. See server/tenancy.py.
+    #
+    # CAVEAT: `app.mount()`ed sub-applications do NOT inherit app dependencies,
+    # so the 3-D platform mounted at /api/v1/threed is covered by AuthMiddleware
+    # (authentication) but not by this (tenant authorization). Its job store is
+    # keyed by job id and holds no tenant column today; when it gains one it
+    # needs this dependency installed on its own app.
+    dependencies=[Depends(enforce_tenant_scope)],
 )
 
 # CORS origins default to "*" (unchanged for local dev and the federated hub).
@@ -99,6 +120,11 @@ app.add_middleware(AuthMiddleware)
 app.include_router(query_router)
 app.include_router(write_router)
 app.include_router(schema_router)
+# Telemetry inbound + history. Registered BEFORE twins_router for the same reason
+# twin_runtime_router is: its multi-segment /twins/{tenant}/signals and
+# /twins/{tenant}/trends must match before twins_router's bare /twins/{tenant}.
+app.include_router(ingest_router)
+app.include_router(historian_router)
 # Runtime routes first: its literal paths (e.g. /twins/domains) and multi-segment
 # /twins/{tenant}/state must match before twins_router's bare /twins/{tenant}.
 app.include_router(twin_runtime_router)
@@ -831,12 +857,16 @@ def _preflight() -> None:
         NXR_REQUIRE_REDIS=1   the bus must be real Redis, not per-process memory
         NXR_REQUIRE_S3=1      blobs must be in the object store, not local disk
         NXR_REQUIRE_DB=1      the relational store must be Postgres, not SQLite
+        NXR_REQUIRE_TIMESCALE=1  telemetry history must be a TimescaleDB
+                              hypertable, not a plain table that never
+                              compresses and has no retention policy
 
     A crash-looping task with a clear reason in CloudWatch is a far better
     outcome than a fleet that serves half the twins and half the models.
     """
     import bus as bus_pkg
     import db
+    import historian
     import storage
 
     def _truthy(v):
@@ -866,6 +896,12 @@ def _preflight() -> None:
         if not ok and _truthy(os.environ.get("NXR_REQUIRE_S3")):
             raise RuntimeError(f"NXR_REQUIRE_S3 is set but the bucket is not "
                                f"usable (needs read AND write): {detail}")
+
+    # Raises HistorianUnavailable when Timescale is required and absent. Same
+    # argument as the three above: the plain-Postgres fallback WORKS, which is
+    # exactly why nothing would tell you that telemetry has no retention policy
+    # until the disk filled.
+    historian.require()
 
 
 @app.on_event("startup")

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from graph.writer import GraphWriter
@@ -29,6 +29,7 @@ from graph.query import GraphQuery, LEGAL_LABELS
 from graph.connection import get_driver
 from changelog.service import ChangeLog
 from twins import TwinRegistry, TEMPLATES
+from server.tenancy import new_tenant_id, scope_of
 
 router = APIRouter(prefix="/api/v1/twins", tags=["twins"])
 
@@ -124,8 +125,16 @@ def list_templates():
 
 
 @router.get("")
-def list_twins():
-    """List all registered twins, each with a quick entity summary.
+def list_twins(request: Request):
+    """List the registered twins THIS CALLER may see, each with an entity summary.
+
+    Scope filtering is applied here rather than by the global tenant dependency
+    because a listing names no tenant — there is nothing for the dependency to
+    authorize. Unfiltered, this endpoint returned every tenant's twin (name,
+    domain, entity counts) to any authenticated key, which is the same
+    cross-customer disclosure as the path-parameter hole by a different route.
+    It is also the FIRST call the UI makes, so it was the fastest way to
+    enumerate the whole platform.
 
     Probe the graph ONCE for the whole listing. _entity_summary runs ten label
     queries per twin, and with the database unreachable every one of them burns
@@ -136,6 +145,7 @@ def list_twins():
     registry rows still render, just without counts.
     """
     reg = _get_registry()
+    scope = scope_of(request)
     try:
         get_driver().verify_connectivity()
         graph_up = True
@@ -143,23 +153,43 @@ def list_twins():
         graph_up = False
 
     out = []
+    hidden = 0
     for t in reg.list():
+        if not scope.allows(t.tenant_id):
+            hidden += 1
+            continue
         d = t.to_dict()
         d["summary"] = (_entity_summary(t.tenant_id) if graph_up
                         else {"by_label": {}, "total": 0})
         out.append(d)
     # `degraded` lets the UI say "database offline" instead of implying the
-    # twins are genuinely empty.
-    return {"count": len(out), "twins": out, "degraded": not graph_up}
+    # twins are genuinely empty. `hidden` is a count only — never ids — so an
+    # operator can tell "my key is narrow" from "the registry is empty" without
+    # the response becoming an enumeration oracle for other tenants.
+    return {"count": len(out), "twins": out, "degraded": not graph_up,
+            "hidden_by_scope": hidden}
 
 
 @router.post("")
-def create_twin(req: CreateTwinRequest):
+def create_twin(req: CreateTwinRequest, request: Request):
     """Create + seed a new twin through the Graph Writer.
+
+    Provisioning is the one operation where the caller cannot name its tenant —
+    the id does not exist yet — so scope has to DECIDE the id rather than check
+    it. `new_tenant_id()` applies the caller's prefix so the twin lands inside
+    the scope that created it and stays reachable afterwards; an admin key gets
+    the plain slug; a caller with a fixed tenant set is refused, because any id
+    we invented would produce a twin its own key could not then read. That last
+    case is what the Hub's Org -> Workspace hierarchy resolves.
 
     Seeding writes entities to Neo4j, so the database must be reachable. If it
     isn't (e.g. Docker not running), we fail fast with a clear 503 and do NOT
     register an orphan twin — rather than a raw 500."""
+    # 0. Decide (and authorize) the tenant id BEFORE touching any store, so a
+    #    refused caller cannot leave a half-created twin behind.
+    from twins.service import _slugify
+    tenant_id = new_tenant_id(request, _slugify(req.name))
+
     # 1. Require Neo4j up front — seeding can't work without it.
     try:
         get_driver().verify_connectivity()
@@ -188,7 +218,8 @@ def create_twin(req: CreateTwinRequest):
     #    the registry row so we never leave an empty orphan twin.
     try:
         twin = reg.create(name=req.name, domain=req.domain,
-                          writer=writer, actor=req.actor)
+                          writer=writer, actor=req.actor,
+                          tenant_id=tenant_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

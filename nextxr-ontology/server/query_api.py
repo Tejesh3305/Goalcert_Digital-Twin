@@ -31,6 +31,7 @@ from changelog.service import ChangeLog
 from bus import get_event_bus
 import bus as bus_pkg
 import db
+import historian
 import storage
 
 router = APIRouter(prefix="/api/v1", tags=["graph"])
@@ -489,15 +490,28 @@ def health():
         neo4j = "unreachable"
         detail = str(e)
 
+    # Telemetry history. Reported separately from `database` even though it lives
+    # on the same Postgres instance, because they fail independently in the way
+    # that matters: the relational store can be perfectly healthy while the
+    # historian has no hypertable, no compression and no retention policy — a
+    # configuration that works today and fills the disk later. `scale_safe` is
+    # the field to alarm on, exactly like the bus's.
+    hist_info = historian.info()
+
     healthy = (neo4j == "connected"
                and db_info.get("status") == "connected"
                and blob_info.get("status") == "connected"
                # Only a *configured* requirement can make the bus fail health;
                # local dev on the in-memory bus stays "healthy".
-               and (not bus_pkg.redis_required() or bus_obj.backend == "redis"))
+               and (not bus_pkg.redis_required() or bus_obj.backend == "redis")
+               # Same rule for the historian: a dev box on SQLite is healthy, a
+               # deploy that declared Timescale mandatory and did not get it is not.
+               and (not historian.timescale_required()
+                    or hist_info.get("backend") == "timescale"))
     out = {"status": "healthy" if healthy else "degraded",
            "neo4j": neo4j, "database": db_info, "blobs": blob_info,
-           "bus": bus_info, "twin_runtime": runtime_info}
+           "bus": bus_info, "historian": hist_info,
+           "twin_runtime": runtime_info}
     if detail:
         out["detail"] = detail
     return out

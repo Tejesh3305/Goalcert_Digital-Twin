@@ -66,6 +66,11 @@ SQLITE_FILES = {
     "checkpoints": "agent_checkpoints.db",
     "scenes":      "scenes.db",
     "threed":      "threed_jobs.db",
+    # Telemetry history. In production this is a TimescaleDB hypertable on the
+    # SAME Postgres instance as the stores above (see historian/) — the local
+    # SQLite file exists so `npm run dev` needs no server, and is explicitly not
+    # sized for real ingest volume.
+    "historian":   "historian.db",
 }
 
 POSTGRES = "postgres"

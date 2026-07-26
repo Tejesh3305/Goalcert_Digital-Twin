@@ -361,5 +361,22 @@ def dashboard_chat(req: ChatRequest):
 
 @router.get("/health")
 def health():
-    """Whether the embedded agents are reasoning with Claude or stubbing."""
-    return {"copilot": copilot_status(), "domains": sorted(A.DOMAIN_CONTEXT)}
+    """Whether the embedded agents are reasoning with Claude or stubbing, and
+    what that has cost so far.
+
+    `spend` is the readout for tuning token usage (copilot/spend.py):
+
+      ledger.cost_usd          running spend since process start, at list price
+      ledger.avoided_pct       share of requests answered without an API call
+      ledger.tokens.cache_hit_pct   prompt-cache effectiveness; 0 across
+                                    repeated chat turns means no breakpoint is
+                                    engaging and the prompt is under the
+                                    model's minimum
+      ledger.by_agent          cost ranked by agent — where to aim next
+      budget                   the cap, if one is configured
+
+    Per-process and reset on restart: an operational readout, not an invoice.
+    """
+    from copilot import spend
+    return {"copilot": copilot_status(), "spend": spend.status(),
+            "domains": sorted(A.DOMAIN_CONTEXT)}
