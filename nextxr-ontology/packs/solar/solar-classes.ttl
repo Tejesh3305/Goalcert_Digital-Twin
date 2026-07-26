@@ -1,0 +1,292 @@
+@prefix solar: <https://ontology.nextxr.io/v3/solar#> .
+@prefix nxr:   <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa:  <http://www.w3.org/ns/sosa/> .
+@prefix unit:  <http://qudt.org/vocab/unit/> .
+@prefix owl:   <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs:  <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos:  <http://www.w3.org/2004/02/skos/core#> .
+
+#################################################################
+#  SOLAR PV DOMAIN PACK — LAYER 4 (a machine-twin extension)
+#
+#  Implements the Enterprise Solar Digital Twin specification as a
+#  downward extension of the platform mid-level (nxr:Equipment,
+#  nxr:Sensor). Physics lives in packs/solar/.
+#
+#  WHY THE ELECTRICAL HIERARCHY IS MODELLED EXPLICITLY
+#  ---------------------------------------------------
+#  §4.2's three fault signatures are only separable ACROSS the
+#  hierarchy: soiling is uniform over a Zone, a bypass diode hits one
+#  String, PID degrades Modules. A flat "array has sensors" model
+#  cannot express any of those, so the diagnosis would collapse to
+#  "underperforming". The containment chain below is therefore load
+#  bearing, not documentation:
+#
+#     PVArray -> PVZone -> StringInverter -> PVString -> PVModule
+#                                  ^
+#                          StringCombiner (monitors the strings)
+#
+#  §3 Step 1 requires each 3-D scene node to carry a logical id
+#  matching the electrical schematic (Zone_02_Inverter_04_String_08).
+#  nxr:displayName holds that id, which is what lets the Operations
+#  Command Center (§5.1) highlight the exact string a finding names.
+#################################################################
+
+<https://ontology.nextxr.io/v3/solar> a owl:Ontology ;
+    owl:versionInfo "1.0.0" ;
+    rdfs:label "Solar PV Pack" ;
+    skos:definition "Enterprise photovoltaic array digital twin: electrical hierarchy, telemetry and micro-climate sensors, and the failure modes of the De Soto residual analytics." ;
+    owl:imports <https://ontology.nextxr.io/v3/core> .
+
+#################################################################
+#  1. Electrical hierarchy
+#################################################################
+
+solar:PVArray a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "PV Array" ;
+    skos:definition "A complete photovoltaic installation twinned as one asset: the roof or field of modules, its inverters, its combiners and its metering. The unit at which performance ratio and net grid export are reported." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:PVZone a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "PV Zone" ;
+    skos:definition "A thermally and electrically coherent region of an array. §2.2 places a back-of-module RTD per zone because a large roof is not isothermal — applying one reference temperature to the whole array would bias the modelled output of every zone but one. Soiling is also assessed per zone, since dust deposition is driven by local airflow." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:StringInverter a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "String Inverter" ;
+    skos:definition "A commercial PV inverter with an industrial communications card (§2.1), polled over Modbus TCP/RTU or OPC-UA for DC input, AC output, power factor, frequency and component thermal status. Holds one or more MPP trackers, so its strings share a single operating voltage — the reason a mismatched string costs more than its own share of output." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:PVString a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "PV String" ;
+    skos:definition "A series chain of modules feeding one combiner channel. The finest granularity at which §2.1's Hall-effect monitoring measures current, and therefore the finest granularity at which §4.2 can localise a fault. A String Voltage Collapse finding flags this entity, not its inverter." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:PVModule a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "PV Module" ;
+    skos:definition "One photovoltaic panel. Carries the five De Soto parameters as asset properties, so a twin can model a real product rather than a generic module." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:StringCombiner a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "String Combiner Box" ;
+    skos:definition "An intelligent combiner with Hall-effect sensors or inline shunts measuring current per string before aggregation (§2.1). Without it the twin can detect that an array is underperforming but not which string, because aggregated inverter DC current cannot distinguish uniform soiling from a single shaded string." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+#################################################################
+#  2. Metering and load (§2.1)
+#################################################################
+
+solar:RevenueMeter a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Bidirectional Revenue-Grade Meter" ;
+    skos:definition "Revenue-grade meter at the Main Distribution Board tracking directional real and reactive power: facility consumption, solar utilisation and net grid export. Direction is a signed convention, fixed by the platform as POSITIVE = importing; a meter reporting the opposite is corrected at the connector rather than downstream." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:CurrentTransformerClamp a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Split-Core CT Clamp" ;
+    skos:definition "A split-core current transformer on a sub-distribution panel, isolating one building subsystem load (HVAC, lighting, server room) for demand-side correlation (§2.1)." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:LoadCircuit a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Sub-Distribution Load Circuit" ;
+    skos:definition "A monitored building subsystem circuit. Modelled as an asset rather than as a signal variant so each circuit gets its own history and its own place in the hierarchy, and adding a fourth panel needs no schema change." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+#################################################################
+#  3. Micro-climate sensors (§2.2)
+#
+#  Each is an nxr:Sensor subclass with sosa:observes pointing at the
+#  observable property it measures, matching the platform's sensor
+#  contract (see graph/sensor_defaults.py).
+#################################################################
+
+solar:Pyranometer a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Thermopile Pyranometer" ;
+    skos:definition "A thermopile pyranometer aligned to the plane-of-array tilt and azimuth, measuring global horizontal and plane-of-array irradiance (§2.2). The single most important sensor in the installation: every §4.2 residual is computed against a baseline this instrument drives, so its drift manifests as false soiling tickets rather than as a sensor alarm." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:ModuleTemperatureSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Back-of-Module Temperature Sensor (PT100/RTD)" ;
+    skos:definition "A resistance temperature detector bonded to the rear surface of a reference module (§2.2), giving the cell temperature that dictates voltage degradation. One per thermal zone, because a large roof is not isothermal." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:AmbientTemperatureSensor a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Ambient Temperature Sensor" ;
+    skos:definition "Ambient air temperature. With wind speed it drives the Faiman module-temperature model, which is the fallback that keeps a thermal zone modelled when its reference RTD fails." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:Anemometer a owl:Class ;
+    rdfs:subClassOf nxr:Sensor ;
+    rdfs:label "Wind Speed Sensor" ;
+    skos:definition "Wind speed, used to compute the dynamic convective cooling coefficient affecting panel efficiency (§2.2)." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+solar:EdgeGateway a owl:Class ;
+    rdfs:subClassOf nxr:Equipment ;
+    rdfs:label "Industrial IoT Edge Gateway" ;
+    skos:definition "The edge controller (§2.3) polling field devices over Modbus RTU/TCP or OPC-UA at 1-5 s, performing local timestamping, sanitisation, deadband filtering and encryption, and transmitting structured JSON over MQTT via TLS 1.3. Twinned as an asset so its own liveness is monitored — a gateway that stops publishing produces no error anywhere, only charts that quietly stop moving." ;
+    nxr:taxonomyCategory "PhysicalAsset" .
+
+#################################################################
+#  4. Observable properties (the live signals)
+#
+#  One per entry in packs/solar/signals.py. Kept in step with that
+#  module deliberately: the connector layer validates every mapped
+#  point against the catalogue, so a signal that exists in code and
+#  not here (or vice versa) is a bug that surfaces at configuration
+#  time rather than as an unreadable series.
+#################################################################
+
+### Inverter — DC side
+solar:dcVoltage a sosa:ObservableProperty ; rdfs:label "DC Bus Voltage" ; nxr:expectedUnit unit:V .
+solar:dcCurrent a sosa:ObservableProperty ; rdfs:label "DC Current" ; nxr:expectedUnit unit:A .
+solar:dcPower a sosa:ObservableProperty ; rdfs:label "DC Power" ; nxr:expectedUnit unit:W .
+
+### Inverter — AC side
+solar:acVoltageL1 a sosa:ObservableProperty ; rdfs:label "AC Voltage L1" ; nxr:expectedUnit unit:V .
+solar:acVoltageL2 a sosa:ObservableProperty ; rdfs:label "AC Voltage L2" ; nxr:expectedUnit unit:V .
+solar:acVoltageL3 a sosa:ObservableProperty ; rdfs:label "AC Voltage L3" ; nxr:expectedUnit unit:V .
+solar:acCurrentL1 a sosa:ObservableProperty ; rdfs:label "AC Current L1" ; nxr:expectedUnit unit:A .
+solar:acCurrentL2 a sosa:ObservableProperty ; rdfs:label "AC Current L2" ; nxr:expectedUnit unit:A .
+solar:acCurrentL3 a sosa:ObservableProperty ; rdfs:label "AC Current L3" ; nxr:expectedUnit unit:A .
+solar:acPower a sosa:ObservableProperty ; rdfs:label "AC Power" ; nxr:expectedUnit unit:W .
+solar:reactivePower a sosa:ObservableProperty ; rdfs:label "Reactive Power" .
+solar:powerFactor a sosa:ObservableProperty ; rdfs:label "Power Factor" .
+solar:frequency a sosa:ObservableProperty ; rdfs:label "Grid Frequency" ; nxr:expectedUnit unit:HZ .
+
+### Inverter — condition and counters
+solar:heatsinkTemp a sosa:ObservableProperty ; rdfs:label "Heat-sink Temperature" ; nxr:expectedUnit unit:DEG_C .
+solar:internalTemp a sosa:ObservableProperty ; rdfs:label "Cabinet Temperature" ; nxr:expectedUnit unit:DEG_C .
+solar:inverterEfficiency a sosa:ObservableProperty ; rdfs:label "Inverter Efficiency" ; nxr:expectedUnit unit:PERCENT .
+solar:dailyYield a sosa:ObservableProperty ; rdfs:label "Daily Yield" .
+solar:totalYield a sosa:ObservableProperty ; rdfs:label "Lifetime Yield" .
+solar:operatingState a sosa:ObservableProperty ; rdfs:label "Operating State" ;
+    skos:definition "Enumerated inverter state. Reported because the §4.2 residual rules must not fire when zero output is EXPECTED — a soiling ticket raised before dawn costs a truck roll and teaches operators to ignore the alerts." .
+solar:faultCode a sosa:ObservableProperty ; rdfs:label "Vendor Fault Code" .
+solar:mpptCount a sosa:ObservableProperty ; rdfs:label "MPPT Channel Count" .
+solar:isolationResistance a sosa:ObservableProperty ; rdfs:label "Isolation Resistance" ; nxr:expectedUnit unit:OHM .
+
+### String / combiner
+solar:stringCurrent a sosa:ObservableProperty ; rdfs:label "String Current" ; nxr:expectedUnit unit:A ;
+    skos:definition "Per-string DC current from a Hall-effect sensor or inline shunt. The measurement that makes §4.2 row 1 separable from row 2." .
+solar:stringVoltage a sosa:ObservableProperty ; rdfs:label "String Voltage" ; nxr:expectedUnit unit:V .
+solar:stringPower a sosa:ObservableProperty ; rdfs:label "String Power" ; nxr:expectedUnit unit:W .
+solar:combinerTemp a sosa:ObservableProperty ; rdfs:label "Combiner Temperature" ; nxr:expectedUnit unit:DEG_C .
+solar:fuseStatus a sosa:ObservableProperty ; rdfs:label "String Fuse Status" .
+solar:surgeProtectionStatus a sosa:ObservableProperty ; rdfs:label "Surge Protection Device Status" .
+
+### Revenue meter
+solar:meterActivePower a sosa:ObservableProperty ; rdfs:label "Meter Active Power" ;
+    skos:definition "Directional real power at the MDB. POSITIVE = importing from the grid, NEGATIVE = exporting." .
+solar:meterReactivePower a sosa:ObservableProperty ; rdfs:label "Meter Reactive Power" .
+solar:meterApparentPower a sosa:ObservableProperty ; rdfs:label "Meter Apparent Power" .
+solar:meterPowerFactor a sosa:ObservableProperty ; rdfs:label "Meter Power Factor" .
+solar:meterVoltage a sosa:ObservableProperty ; rdfs:label "Meter Voltage" ; nxr:expectedUnit unit:V .
+solar:meterCurrent a sosa:ObservableProperty ; rdfs:label "Meter Current" ; nxr:expectedUnit unit:A .
+solar:meterFrequency a sosa:ObservableProperty ; rdfs:label "Meter Frequency" ; nxr:expectedUnit unit:HZ .
+solar:energyImport a sosa:ObservableProperty ; rdfs:label "Energy Imported" .
+solar:energyExport a sosa:ObservableProperty ; rdfs:label "Energy Exported" .
+solar:netGridPower a sosa:ObservableProperty ; rdfs:label "Net Grid Power" .
+solar:facilityLoad a sosa:ObservableProperty ; rdfs:label "Facility Load" .
+solar:selfConsumption a sosa:ObservableProperty ; rdfs:label "Self-Consumption Ratio" ; nxr:expectedUnit unit:PERCENT .
+solar:gridDependency a sosa:ObservableProperty ; rdfs:label "Grid Dependency" ; nxr:expectedUnit unit:PERCENT .
+
+### Sub-metered loads
+solar:circuitPower a sosa:ObservableProperty ; rdfs:label "Circuit Power" .
+solar:circuitCurrent a sosa:ObservableProperty ; rdfs:label "Circuit Current" ; nxr:expectedUnit unit:A .
+solar:circuitEnergy a sosa:ObservableProperty ; rdfs:label "Circuit Energy" .
+
+### Micro-climate
+solar:ghi a sosa:ObservableProperty ; rdfs:label "Global Horizontal Irradiance" .
+solar:poaIrradiance a sosa:ObservableProperty ; rdfs:label "Plane-of-Array Irradiance" .
+solar:moduleTemp a sosa:ObservableProperty ; rdfs:label "Back-of-Module Temperature" ; nxr:expectedUnit unit:DEG_C .
+solar:cellTemp a sosa:ObservableProperty ; rdfs:label "Cell Temperature" ; nxr:expectedUnit unit:DEG_C .
+solar:ambientTemp a sosa:ObservableProperty ; rdfs:label "Ambient Temperature" ; nxr:expectedUnit unit:DEG_C .
+solar:windSpeed a sosa:ObservableProperty ; rdfs:label "Wind Speed" .
+solar:windDirection a sosa:ObservableProperty ; rdfs:label "Wind Direction" ; nxr:expectedUnit unit:DEG .
+solar:humidity a sosa:ObservableProperty ; rdfs:label "Relative Humidity" ; nxr:expectedUnit unit:PERCENT .
+solar:soilingRatio a sosa:ObservableProperty ; rdfs:label "Soiling Ratio" .
+
+### Derived / modelled (§4)
+solar:modelledDcPower a sosa:ObservableProperty ; rdfs:label "Modelled DC Power (De Soto)" ; nxr:expectedUnit unit:W ;
+    skos:definition "What a clean array should produce at the measured irradiance and cell temperature, from the De Soto five-parameter single-diode model." .
+solar:modelledAcPower a sosa:ObservableProperty ; rdfs:label "Modelled AC Power" ; nxr:expectedUnit unit:W .
+solar:deltaP a sosa:ObservableProperty ; rdfs:label "Power Residual" ; nxr:expectedUnit unit:W ;
+    skos:definition "P_Actual - P_Modelled. The only quantity in the system that carries diagnostic information, because raw output is dictated by the weather." .
+solar:deltaPPercent a sosa:ObservableProperty ; rdfs:label "Power Residual (%)" ; nxr:expectedUnit unit:PERCENT .
+solar:performanceRatio a sosa:ObservableProperty ; rdfs:label "Performance Ratio (IEC 61724)" .
+solar:specificYield a sosa:ObservableProperty ; rdfs:label "Specific Yield" .
+solar:rShuntRef a sosa:ObservableProperty ; rdfs:label "Shunt Resistance (irradiance-normalised)" ; nxr:expectedUnit unit:OHM ;
+    skos:definition "R_sh translated back to reference irradiance. Normalisation is what makes a 90-day trend meaningful — raw R_sh is inversely proportional to irradiance, so an un-normalised trend would find a decline every cloudy fortnight." .
+solar:fillFactor a sosa:ObservableProperty ; rdfs:label "Fill Factor" .
+solar:currentImbalance a sosa:ObservableProperty ; rdfs:label "String Current Imbalance" ; nxr:expectedUnit unit:PERCENT .
+solar:expectedIsc a sosa:ObservableProperty ; rdfs:label "Expected Short-Circuit Current" ; nxr:expectedUnit unit:A .
+solar:expectedVoc a sosa:ObservableProperty ; rdfs:label "Expected Open-Circuit Voltage" ; nxr:expectedUnit unit:V .
+
+#################################################################
+#  5. Failure modes (§4.2)
+#
+#  Declared as nxr:FailureMode subclasses so a Finding can link to the
+#  mechanism it diagnosed, and so the copilot's work-order and
+#  procurement agents can reason about the remedy rather than
+#  re-parsing a message string.
+#################################################################
+
+solar:Soiling a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Soiling / Dust Build-up" ;
+    skos:definition "Deposits on the module glass attenuate incident light, suppressing photocurrent UNIFORMLY across a zone while leaving voltage normal. §4.2 signature: ΔP < -12 % with V_dc normal and I_dc uniformly suppressed. Remedy: cleaning, low priority — a revenue-optimisation problem, not a safety one." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:BypassDiodeActivation a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Bypass Diode Activation / Heavy Local Shading" ;
+    skos:definition "A shaded substring forward-biases its bypass diode, removing those modules from the series chain. Voltage steps down on ONE string while its current stays close to normal — the discriminator against soiling, and impossible to see without per-string monitoring. §4.2 remedy: high-priority structural inspection, with the string isolated in red in the 3-D scene." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:PotentialInducedDegradation a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Potential-Induced Degradation (PID)" ;
+    skos:definition "Sodium ion migration under high system voltage creates parallel leakage paths, progressively decaying shunt resistance and eroding fill factor over months. §4.2 signature: gradual decline in irradiance-normalised R_sh over 90 days. Remedy: preventative engineering diagnostics on the next quarterly cycle." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:Delamination a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Module Delamination" ;
+    skos:definition "Encapsulant separation admits moisture, producing both shunt decay and optical loss. Presents as PID with an added uniform current deficit, which is how the two are told apart." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:ResistiveLoss a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Connector / Busbar Resistive Loss" ;
+    skos:definition "Corroded connectors or degraded solder joints raise series resistance. Fill factor erodes while V_oc stays INTACT — the discriminator against shunt-driven degradation, where V_oc sags." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:StringOpenCircuit a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "String Open Circuit" ;
+    skos:definition "A blown string fuse or failed connection removes a string entirely. Current imbalance goes to 100 % — unambiguous, and the one PV fault a simple threshold can catch." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:IrradianceSensorFault a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Irradiance Sensor Fault or Drift" ;
+    skos:definition "A drifting pyranometer inflates the modelled baseline, so it manufactures exactly the deficit that looks like a dirty array. It therefore produces false SOILING findings rather than a sensor alarm, and every performance residual must be treated as unreliable until it is resolved." ;
+    nxr:taxonomyCategory "Capability" .
+
+solar:InverterThermalDerate a owl:Class ;
+    rdfs:subClassOf nxr:FailureMode ;
+    rdfs:label "Inverter Thermal Derate" ;
+    skos:definition "Restricted cooling or high ambient temperature forces the inverter to clip AC output below the available DC power. Distinguished from array faults by DC power being normal while AC is limited." ;
+    nxr:taxonomyCategory "Capability" .

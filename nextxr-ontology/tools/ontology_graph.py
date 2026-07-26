@@ -70,6 +70,8 @@ MACHINE_FILES = [
     "packs/ev/ev-shapes.ttl",
     "packs/defence/defence-classes.ttl",
     "packs/defence/defence-shapes.ttl",
+    "packs/solar/solar-classes.ttl",
+    "packs/solar/solar-shapes.ttl",
 ]
 
 # Layer 4 — domain packs.

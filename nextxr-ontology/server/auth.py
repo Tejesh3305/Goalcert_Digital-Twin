@@ -170,6 +170,24 @@ _DEVICE_TOKEN_PATHS = {
     "/api/v1/ingest/telemetry/bulk",
 }
 
+# POSTs that MUTATE NOTHING, and are therefore allowed to a read-only key.
+#
+# Each is a pure function of its request body: it touches no store, creates no
+# entity, and starts no background work. They are POSTs purely because their input
+# is a structured document rather than a handful of query parameters.
+#
+#   /api/v1/solar/model/evaluate  runs the De Soto model at a given (G, T) and
+#                                 returns the I-V curve. No tenant, no telemetry.
+#   /api/v1/schema/validate       validates a Turtle fragment against the shapes
+#                                 and returns the violations.
+#
+# Adding to this list grants every read-only key access to that path, so it takes
+# the same scrutiny as widening a scope.
+_READ_SAFE_POST_PATHS = {
+    "/api/v1/solar/model/evaluate",
+    "/api/v1/schema/validate",
+}
+
 # API paths that must stay reachable WITHOUT a key. Platform health probes
 # (Render, the Dockerfile HEALTHCHECK, an ECS target group) cannot send an
 # X-API-Key, so gating these behind auth makes the orchestrator declare the
@@ -302,8 +320,22 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 f"Key '{key_info.name}' cannot access tenant '{tenant}'",
             )
 
-        # Check write access for mutations
-        if request.method in ("POST", "PATCH", "PUT", "DELETE"):
+        # Check write access for mutations.
+        #
+        # "POST implies mutation" is the right default and it is not universally
+        # true: a few endpoints are pure FUNCTIONS that read nothing and write
+        # nothing, and are POSTs only because their input is a structured body too
+        # large or too nested for a query string. Refusing those to a read-only key
+        # is a false negative — an analyst with read access should be able to run
+        # the PV model against a datasheet, or validate a Turtle fragment, without
+        # being handed a credential that can also delete twins.
+        #
+        # The exemption is a short, explicit ALLOW-list rather than a heuristic,
+        # because the failure directions are asymmetric: wrongly exempting a
+        # mutating route hands write access to every read key, while wrongly
+        # omitting a pure one costs a 403 that someone reports.
+        if (request.method in ("POST", "PATCH", "PUT", "DELETE")
+                and path.rstrip("/") not in _READ_SAFE_POST_PATHS):
             if not check_write_access(key_info):
                 return _deny(403, f"Key '{key_info.name}' has read-only access")
 

@@ -47,7 +47,8 @@ def load_specs() -> dict:
     self-contained pack under `packs/<domain>/` (ontology TTL + physics + behaviours
     + prediction co-located)."""
     specs: dict[str, dict] = {}
-    for mod in ("turbine", "edm", "railway", "fleet", "hospital", "ev", "defence"):
+    for mod in ("turbine", "edm", "railway", "fleet", "hospital", "ev", "defence",
+                "solar"):
         try:
             m = __import__(f"packs.{mod}", fromlist=["SPEC", "SPECS"])
             candidates = list(getattr(m, "SPECS", None) or [])

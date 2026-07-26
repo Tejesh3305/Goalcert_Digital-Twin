@@ -77,6 +77,8 @@ from server.copilot_routes import router as copilot_router
 from server.hub_routes import router as hub_router
 from server.historian_routes import router as historian_router
 from server.ingest_routes import router as ingest_router
+from server.connector_routes import router as connector_router
+from server.solar_routes import router as solar_router
 from server.threed_platform.app.main import app as threed_platform_app
 
 # ── App setup ───────────────────────────────────────────────────────
@@ -125,6 +127,10 @@ app.include_router(schema_router)
 # /twins/{tenant}/trends must match before twins_router's bare /twins/{tenant}.
 app.include_router(ingest_router)
 app.include_router(historian_router)
+# Field-protocol connectors (Modbus / OPC-UA / MQTT) and the solar PV analytics
+# surface. Both sit under their own prefixes, so no ordering constraint applies.
+app.include_router(connector_router)
+app.include_router(solar_router)
 # Runtime routes first: its literal paths (e.g. /twins/domains) and multi-segment
 # /twins/{tenant}/state must match before twins_router's bare /twins/{tenant}.
 app.include_router(twin_runtime_router)
@@ -944,6 +950,16 @@ def on_shutdown():
         get_machine_engine().shutdown()
     except Exception as e:
         print(f"[shutdown] twin lease release skipped: {e}")
+
+    # Field connectors hold ownership leases for exactly the same reason twins do:
+    # one task must poll each device. Without the release a rolling deploy leaves
+    # each lease to time out, and for those ~24 s nobody polls those inverters — a
+    # visible gap in every site's history.
+    try:
+        from connectors.manager import get_manager as get_connector_manager
+        get_connector_manager().shutdown()
+    except Exception as e:
+        print(f"[shutdown] connector shutdown skipped: {e}")
 
 
 if __name__ == "__main__":

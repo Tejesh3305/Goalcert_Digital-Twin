@@ -52,6 +52,20 @@ def historian_ready(api):
     return report
 
 
+def _hour_aligned(hours_ago: int) -> datetime:
+    """A timestamp on an exact hour boundary, `hours_ago` in the past.
+
+    Tests that assert on 1h ROLLUP CONTENTS must anchor here rather than to a bare
+    `now`. Anchoring to now makes the result depend on where in the hour the suite
+    happens to run: at 07:59 a five-sample 30-second series straddles two buckets and
+    the assertion fails, and at 07:05 it does not. That is a flaky test, and one whose
+    failure looks exactly like a real aggregation bug.
+    """
+    now = datetime.now(timezone.utc)
+    return (now.replace(minute=0, second=0, microsecond=0)
+            - timedelta(hours=hours_ago))
+
+
 def _samples(n: int, *, start: datetime, step_s: int = 30,
              asset: str = ASSET, signal: str = SIGNAL,
              quality: int = 192) -> list[dict]:
@@ -383,8 +397,7 @@ def test_rollup_average_is_sum_over_count(api, device):
     skews every chart drawn from a coarser tier. The rollup therefore stores
     count and sum, and the mean is derived."""
     _, token = device
-    start = datetime.now(timezone.utc).replace(second=0, microsecond=0) \
-        - timedelta(hours=3)
+    start = _hour_aligned(3)
     # 10 samples of 10.0 in minute 0; 1 sample of 100.0 in minute 1.
     rows = [{"asset_id": "avg-test", "signal": "t", "value": 10.0, "unit": "x",
              "ts": (start + timedelta(seconds=i)).isoformat()} for i in range(10)]
@@ -411,8 +424,7 @@ def test_bad_quality_is_excluded_from_statistics_but_counted(api, device):
     """A sensor reading 0 with a broken wire is not the same fact as a sensor
     reading 0. Averaging in a dead sensor's zeros is how a dashboard lies."""
     _, token = device
-    start = datetime.now(timezone.utc).replace(second=0, microsecond=0) \
-        - timedelta(hours=6)
+    start = _hour_aligned(6)
     rows = _samples(5, start=start, asset="q-test", signal="t")
     rows += [{"asset_id": "q-test", "signal": "t", "value": 0.0, "unit": "DEG_C",
               "quality": 0,

@@ -36,6 +36,7 @@ HSP  = "https://ontology.nextxr.io/v3/hospital#"
 EV   = "https://ontology.nextxr.io/v3/ev#"
 DEF  = "https://ontology.nextxr.io/v3/defence#"
 FLEET = "https://ontology.nextxr.io/v3/fleet#"
+SOLAR = "https://ontology.nextxr.io/v3/solar#"
 
 _STORE = "twins"
 
@@ -68,6 +69,24 @@ TEMPLATES = {
         "seeds_feed": False,
         "machine": True,
         "class_iri": "https://ontology.nextxr.io/v3/turbine#GasTurbine",
+    },
+    "solar-pv-array": {
+        "label": "Enterprise Solar PV Array",
+        "description": "A photovoltaic array twin driven by the De Soto "
+                       "five-parameter single-diode model: measured irradiance and "
+                       "cell temperature produce the clean-array baseline, and every "
+                       "diagnosis is a residual against it. Detects soiling, "
+                       "bypass-diode shading and PID/shunt decay, with per-string "
+                       "generation heat map, AR field-service overlays and a "
+                       "degradation forecast.",
+        # The primary signal is the RESIDUAL, not the output. Raw PV power carries
+        # almost no information about array condition — 400 kW from a 500 kW array is
+        # excellent at 8 a.m. and alarming at noon — so the residual is the only
+        # sensible thing for the feed and the rules to key on.
+        "primary_signal": "solar:deltaPPercent",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": SOLAR + "PVArray",
     },
     "edm-machine": {
         "label": "Wire EDM Machine",

@@ -165,6 +165,32 @@ DDL: dict[str, list[str]] = {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_token "
         "ON ingest_devices (token_hash)",
     ],
+    # Field-protocol connectors (Modbus / OPC-UA / MQTT).
+    #
+    # Durable configuration, not runtime state: a site commissions dozens of these
+    # and expects them polling after a redeploy. The whole config — including the
+    # point map — is one JSON column rather than a normalised point table, because
+    # a point map is read and written as a WHOLE document (validated as a unit,
+    # versioned as a unit, uploaded as a unit) and is never queried by point. A
+    # 40-row join to reconstruct one device's map would buy nothing.
+    #
+    # Credentials live in this column too, which is why `ConnectorConfig.redacted()`
+    # is allow-listed rather than deny-listed: a customer's PLC password must never
+    # reach an API response because someone added a field and forgot to hide it.
+    "connectors": [
+        """CREATE TABLE IF NOT EXISTS connectors (
+               connector_id TEXT PRIMARY KEY,
+               tenant_id    TEXT NOT NULL,
+               protocol     TEXT NOT NULL,
+               name         TEXT NOT NULL DEFAULT '',
+               enabled      INTEGER NOT NULL DEFAULT 1,
+               config       {json} NOT NULL,
+               created_at   TEXT NOT NULL,
+               updated_at   TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_connectors_tenant "
+        "ON connectors (tenant_id, enabled)",
+    ],
 }
 
 # Optional Postgres extensions. Not used by any query today; they are the

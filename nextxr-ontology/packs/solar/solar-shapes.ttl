@@ -1,0 +1,241 @@
+@prefix solar: <https://ontology.nextxr.io/v3/solar#> .
+@prefix nxr:   <https://ontology.nextxr.io/v3/core#> .
+@prefix sosa:  <http://www.w3.org/ns/sosa/> .
+@prefix sh:    <http://www.w3.org/ns/shacl#> .
+@prefix xsd:   <http://www.w3.org/2001/XMLSchema#> .
+
+#################################################################
+#  SOLAR SHACL SHAPES
+#
+#  Every solar class is an nxr:Equipment or nxr:Sensor subclass, so
+#  the platform's base-entity contract already applies. These shapes
+#  add the constraints that are SPECIFIC to a PV twin, and each one
+#  exists because violating it produces a twin that looks fine and
+#  computes wrong answers — which is exactly the class of error a
+#  write-path gate should catch rather than leave to be discovered
+#  in a maintenance report three months later.
+#################################################################
+
+### PV Array ###
+solar:PVArrayShape a sh:NodeShape ;
+    sh:targetClass solar:PVArray ;
+    sh:node nxr:BaseEntityShape ;
+    # Nameplate capacity is the DENOMINATOR of performance ratio. Absent, PR is
+    # either undefined or silently zero, and PR is the plant's headline KPI — so a
+    # missing rating turns the most-watched number on the dashboard into a lie.
+    sh:property [
+        sh:path solar:ratedCapacityW ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxCount 1 ;
+        sh:name "Rated DC capacity (W)" ;
+        sh:description "Installed DC nameplate. Required: it is the denominator of performance ratio." ;
+    ] .
+
+### PV Zone ###
+solar:PVZoneShape a sh:NodeShape ;
+    sh:targetClass solar:PVZone ;
+    sh:node nxr:BaseEntityShape ;
+    # Tilt and azimuth define the plane the pyranometer must be aligned to (§2.2).
+    # A zone whose geometry is unknown cannot have its POA baseline validated.
+    sh:property [
+        sh:path solar:tiltDegrees ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 90 ;
+        sh:maxCount 1 ;
+        sh:name "Array tilt (degrees from horizontal)" ;
+    ] ;
+    sh:property [
+        sh:path solar:azimuthDegrees ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 360 ;
+        sh:maxCount 1 ;
+        sh:name "Array azimuth (degrees clockwise from north)" ;
+    ] .
+
+### String Inverter ###
+solar:StringInverterShape a sh:NodeShape ;
+    sh:targetClass solar:StringInverter ;
+    sh:node nxr:BaseEntityShape ;
+    # AC rating bounds the clipping point. Without it the model cannot tell
+    # legitimate inverter clipping from an array fault, and clipping at midday on a
+    # well-designed (DC-oversized) plant is completely normal.
+    sh:property [
+        sh:path solar:ratedAcPowerW ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxCount 1 ;
+        sh:name "Rated AC output (W)" ;
+    ] ;
+    # 1500 V is the ceiling for commercial PV; a value above it is a data-entry
+    # error, and one that would silently disable the DC over-voltage safety rule.
+    sh:property [
+        sh:path solar:maxDcVoltageV ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxInclusive 1500 ;
+        sh:maxCount 1 ;
+        sh:name "Maximum DC input voltage (V)" ;
+    ] .
+
+### PV String ###
+solar:PVStringShape a sh:NodeShape ;
+    sh:targetClass solar:PVString ;
+    sh:node nxr:BaseEntityShape ;
+    # Module count sets the string's voltage scale: in series, a, R_s and R_sh all
+    # scale by N while currents do not. A wrong count produces an I-V curve of the
+    # right shape at entirely the wrong voltage, so every string-level residual —
+    # and therefore the §4.2 voltage-collapse signature — would be wrong.
+    sh:property [
+        sh:path solar:modulesInSeries ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:maxInclusive 40 ;
+        sh:maxCount 1 ;
+        sh:name "Modules in series" ;
+        sh:description "Series count. Scales the string's voltage-dimensioned De Soto parameters; a wrong value invalidates every string-level residual." ;
+    ] .
+
+### PV Module — the five De Soto parameters ###
+#
+# These are the model. They are NOT on a datasheet — extracting them is a fitting
+# step — so a twin that carries them explicitly can model a real product instead of
+# a generic one. All five are optional (the pack falls back to its reference module),
+# but each is bounded, because a nonsensical value does not fail: it produces a
+# baseline that is confidently wrong, and every residual is measured against it.
+solar:PVModuleShape a sh:NodeShape ;
+    sh:targetClass solar:PVModule ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path solar:photocurrentA ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxInclusive 30 ;
+        sh:maxCount 1 ;
+        sh:name "I_L at STC (A)" ;
+    ] ;
+    sh:property [
+        sh:path solar:saturationCurrentA ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxInclusive 1e-6 ;
+        sh:maxCount 1 ;
+        sh:name "I_0 at STC (A)" ;
+        sh:description "Diode reverse saturation current. Physically ~1e-12 to 1e-9 for silicon; a value orders of magnitude out shifts V_oc badly." ;
+    ] ;
+    sh:property [
+        sh:path solar:seriesResistanceOhm ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0 ;
+        sh:maxInclusive 10 ;
+        sh:maxCount 1 ;
+        sh:name "R_s (ohm)" ;
+    ] ;
+    sh:property [
+        sh:path solar:shuntResistanceOhm ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxCount 1 ;
+        sh:name "R_sh at STC (ohm)" ;
+    ] ;
+    sh:property [
+        sh:path solar:idealityFactorV ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxInclusive 10 ;
+        sh:maxCount 1 ;
+        sh:name "a — modified ideality factor (V)" ;
+        sh:description "a = n*Ns*kT/q, in VOLTS not dimensionless. For 72 cells at 25 C, n=1 gives 1.85 V." ;
+    ] ;
+    sh:property [
+        sh:path solar:ratedPmpW ;
+        sh:datatype xsd:decimal ;
+        sh:minExclusive 0 ;
+        sh:maxInclusive 1000 ;
+        sh:maxCount 1 ;
+        sh:name "Datasheet P_mp at STC (W)" ;
+    ] .
+
+### String Combiner ###
+solar:StringCombinerShape a sh:NodeShape ;
+    sh:targetClass solar:StringCombiner ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path solar:stringChannels ;
+        sh:datatype xsd:integer ;
+        sh:minInclusive 1 ;
+        sh:maxInclusive 64 ;
+        sh:maxCount 1 ;
+        sh:name "Monitored string channels" ;
+    ] .
+
+### Revenue meter ###
+solar:RevenueMeterShape a sh:NodeShape ;
+    sh:targetClass solar:RevenueMeter ;
+    sh:node nxr:BaseEntityShape ;
+    # The sign convention is the single most consequential property on this asset: a
+    # meter wired backwards inverts import and export, which inverts every financial
+    # figure the twin reports while looking entirely plausible on a dashboard.
+    sh:property [
+        sh:path solar:importPositive ;
+        sh:datatype xsd:boolean ;
+        sh:maxCount 1 ;
+        sh:name "Import-positive convention" ;
+        sh:description "TRUE when positive active power means importing (the platform convention). A meter reporting the opposite is corrected at the connector via invert, never downstream." ;
+    ] .
+
+### Sensors — every one must declare WHAT it observes ###
+#
+# sosa:observes is mandatory on each. The platform already enforces it for Sensor
+# subclasses (graph/sensor_defaults.py), and it matters here more than usual: a
+# pyranometer that does not declare whether it reports GHI or POA cannot be bound
+# to the right baseline input, and the two differ by ~8 % on a tilted array — which
+# is most of a soiling ticket's threshold.
+solar:PyranometerShape a sh:NodeShape ;
+    sh:targetClass solar:Pyranometer ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path sosa:observes ;
+        sh:minCount 1 ;
+        sh:in ( solar:ghi solar:poaIrradiance ) ;
+        sh:name "Observed irradiance property" ;
+        sh:description "GHI or plane-of-array. They differ by roughly 8 % on a tilted array, so binding the wrong one biases every residual." ;
+    ] .
+
+solar:ModuleTemperatureSensorShape a sh:NodeShape ;
+    sh:targetClass solar:ModuleTemperatureSensor ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path sosa:observes ;
+        sh:minCount 1 ;
+        sh:in ( solar:moduleTemp solar:cellTemp ) ;
+        sh:name "Observed temperature property" ;
+    ] .
+
+solar:CurrentTransformerClampShape a sh:NodeShape ;
+    sh:targetClass solar:CurrentTransformerClamp ;
+    sh:node nxr:BaseEntityShape ;
+    sh:property [
+        sh:path sosa:observes ;
+        sh:minCount 1 ;
+        sh:name "Observed property" ;
+    ] .
+
+### Edge gateway ###
+solar:EdgeGatewayShape a sh:NodeShape ;
+    sh:targetClass solar:EdgeGateway ;
+    sh:node nxr:BaseEntityShape ;
+    # §2.3 specifies 1 Hz to 0.2 Hz. Bounded so a misconfigured gateway cannot be
+    # committed claiming a rate the twin's analytics do not expect: a 60 s poll
+    # silently changes what "sustained for 45 minutes" means to a rule.
+    sh:property [
+        sh:path solar:pollIntervalSeconds ;
+        sh:datatype xsd:decimal ;
+        sh:minInclusive 0.1 ;
+        sh:maxInclusive 60 ;
+        sh:maxCount 1 ;
+        sh:name "Field poll interval (s)" ;
+        sh:description "Specification asks for 1-5 s (1 Hz to 0.2 Hz)." ;
+    ] .
