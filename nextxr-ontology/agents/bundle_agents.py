@@ -31,9 +31,9 @@ _TOOLS = ROOT / "tools"
 if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
+from agents.engine import INTERRUPT_KEY
 from agents.gateway import get_gateway
 from agents.registry import get_registry
-from agents.engine import INTERRUPT_KEY
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 
@@ -51,7 +51,9 @@ def _register_fragment(bundle_id: str, fragment: str, ns: str, primary_local: st
     and rdfs:subClassOf nxr:Equipment — the minimum the Graph Writer needs to
     resolve a Neo4j label for it."""
     from pathlib import Path as _P
-    from rdflib import Graph as _G, URIRef, Literal, RDF, RDFS
+
+    from rdflib import RDF, RDFS, Literal, URIRef
+    from rdflib import Graph as _G
     from rdflib.namespace import OWL
 
     NXR = "https://ontology.nextxr.io/v3/core#"
@@ -271,9 +273,9 @@ def _draft_fragment(domain: str, ns: str, entities: list[str]) -> str:
         "@prefix skos: <http://www.w3.org/2004/02/skos/core#> .",
         "",
         f"<{ns.rstrip('#')}> a owl:Ontology ;",
-        f'    owl:versionInfo "1.0.0" ;',
+        '    owl:versionInfo "1.0.0" ;',
         f'    rdfs:label "{domain.title()} Capability Pack" ;',
-        f"    owl:imports <https://ontology.nextxr.io/v3/core> .",
+        "    owl:imports <https://ontology.nextxr.io/v3/core> .",
         "",
     ]
     for e in entities:
@@ -283,7 +285,7 @@ def _draft_fragment(domain: str, ns: str, entities: list[str]) -> str:
             f"dom:{local} a owl:Class ;",
             f"    rdfs:subClassOf {parent} ;",
             f'    rdfs:label "{e}" ;',
-            f'    nxr:taxonomyCategory "PhysicalAsset" .',
+            '    nxr:taxonomyCategory "PhysicalAsset" .',
             "",
         ]
     return "\n".join(lines)
@@ -446,8 +448,8 @@ def asset_curator(state: dict) -> dict:
     """Matches catalogue entities to an asset library, flags gaps where no
     matching 3D asset exists. For the MVP, the asset library is a static
     catalogue; gaps are reported to the expert."""
-    gw = get_gateway()
-    domain = _slug(state.get("domain") or "custom")
+    get_gateway()
+    _slug(state.get("domain") or "custom")
     entities = state.get("entity_catalogue") or []
 
     # Static asset catalogue — in production this would be a real asset DB.

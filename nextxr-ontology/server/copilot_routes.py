@@ -45,11 +45,10 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
 from copilot import agents as A
 from copilot.config import copilot_status
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 from twins.runtime import get_machine_engine
 
 router = APIRouter(prefix="/api/v1/copilot", tags=["copilot"])

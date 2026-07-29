@@ -29,13 +29,22 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, CheckpointSaver
-from agents.state import BundleAuthorState
 from agents.bundle_agents import (
-    interviewer, ontology_drafter, rule_author, linter, approval_gate, publisher,
-    behavior_modeler, elicitation_designer, asset_curator,
-    route_after_interview, route_after_lint, route_after_gate,
+    approval_gate,
+    asset_curator,
+    behavior_modeler,
+    elicitation_designer,
+    interviewer,
+    linter,
+    ontology_drafter,
+    publisher,
+    route_after_gate,
+    route_after_interview,
+    route_after_lint,
+    rule_author,
 )
+from agents.engine import END, CheckpointSaver, StateGraph
+from agents.state import BundleAuthorState
 
 _checkpointer = CheckpointSaver()
 

@@ -6,10 +6,9 @@ from __future__ import annotations
 
 import copy
 
-from .physics import SIGNALS, redlines
-
-
 from packs._core.physics import status_from_health as _status
+
+from .physics import SIGNALS, redlines
 
 
 def component_health(state, frame, physics) -> dict:

@@ -5,12 +5,12 @@ Usage: python check_runpod.py
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-import os
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 

@@ -1,7 +1,7 @@
 """edm — wire-EDM machine digital-twin domain (physics, prediction, behaviours)."""
-from .physics import EDMPhysics, SIGNALS, UNITS, redlines, FAULTS
-from .predict import component_health, predict
 from .behaviors import build_edm_registry
+from .physics import FAULTS, SIGNALS, UNITS, EDMPhysics, redlines
+from .predict import component_health, predict
 
 SPEC = {
     "key": "edm-machine",

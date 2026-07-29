@@ -31,16 +31,15 @@ its transaction. Chains stay per-tenant, so tenants never block each other.
 
 from __future__ import annotations
 
-import db
-
 import hashlib
 import json
 import os
 import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+
+import db
 
 GENESIS_HASH = "0" * 64  # prev_event_hash of the first event in any chain
 
@@ -65,7 +64,7 @@ def ulid() -> str:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 @dataclass
@@ -107,7 +106,7 @@ def _hash_content(content: dict) -> str:
 class ChangeLog:
     """Append-only, per-tenant hash-chained event store."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """`db_path` forces a private SQLite file even when Postgres is
         configured. Only offline tools that want a reproducible, throwaway
         ledger should pass it; the service always uses the shared store."""
@@ -184,7 +183,7 @@ class ChangeLog:
             wm_hash=row["wm_hash"],
         )
 
-    def get(self, event_id: str) -> Optional[Event]:
+    def get(self, event_id: str) -> Event | None:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM events WHERE event_id = ?", (event_id,)
@@ -209,7 +208,7 @@ class ChangeLog:
             return [self._row_to_event(r) for r in rows]
 
     # ---- verify -------------------------------------------------------
-    def verify_chain(self, tenant_id: str) -> tuple[bool, Optional[str]]:
+    def verify_chain(self, tenant_id: str) -> tuple[bool, str | None]:
         """Walk the tenant's chain from genesis. Returns (ok, first_bad).
         first_bad is the event_id where verification failed, or None if the
         whole chain is intact. Two checks per event:
@@ -240,7 +239,7 @@ class ChangeLog:
                                (tenant_id,))
             return cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
 
-    def count(self, tenant_id: Optional[str] = None) -> int:
+    def count(self, tenant_id: str | None = None) -> int:
         with self._connect() as conn:
             if tenant_id:
                 row = conn.execute(

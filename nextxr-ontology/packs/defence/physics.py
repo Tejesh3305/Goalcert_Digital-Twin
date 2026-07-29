@@ -24,7 +24,7 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from packs._core.physics import clamp, jitter, margin_hi, margin_lo, worst_health
+from packs._core.physics import jitter, margin_hi, margin_lo, worst_health
 
 # ────────────────────────────────────────────────────────────────────
 #  Signals (base / C4ISR domain)

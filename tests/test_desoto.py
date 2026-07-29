@@ -24,7 +24,6 @@ from __future__ import annotations
 import math
 
 import pytest
-
 from packs.solar import desoto as D
 
 # The datasheet the reference parameters were fitted against: a 550 W mono-PERC

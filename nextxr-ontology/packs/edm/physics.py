@@ -203,7 +203,7 @@ class EDMPhysics:
         """Tier-A residuals: gap voltage below the clean value for its intensity
         (inferred from peak current) signals gap instability / shorting."""
         peak_i = frame.get(SIGNALS["peak_i"], 8.0)
-        I = max(0.0, min(1.0, (peak_i - 8.0) / 34.0))
+        max(0.0, min(1.0, (peak_i - 8.0) / 34.0))
         gap_clean = 58.0
         return {
             SIGNALS["gap_v"]: frame.get(SIGNALS["gap_v"], gap_clean) - gap_clean,

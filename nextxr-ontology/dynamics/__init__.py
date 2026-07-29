@@ -12,9 +12,8 @@ same for any pack via the relationship graph + flow vocabulary.
     eng.run_realtime(on_samples=loop_push, should_stop=lambda: not running)
 """
 
-from dynamics.model import (DynamicsModel, DynamicsRegistry, EntityState,
-                            EntityContext)
 from dynamics.engine import DynamicsEngine
+from dynamics.model import DynamicsModel, DynamicsRegistry, EntityContext, EntityState
 from dynamics.registry_build import build_dynamics_registry
 
 __all__ = ["DynamicsModel", "DynamicsRegistry", "EntityState", "EntityContext",

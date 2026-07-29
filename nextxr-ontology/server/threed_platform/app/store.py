@@ -29,12 +29,11 @@ filesystem backend writes under the same data directory.
 """
 from __future__ import annotations
 
-import json
 import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import db
 import storage
@@ -63,7 +62,7 @@ def blob_key(job_id: str, rel: str) -> str:
 
 
 class JobStore:
-    def __init__(self, root: Optional[Path] = None):
+    def __init__(self, root: Path | None = None):
         # Local WORKING directory. Not the record any more — see the module
         # docstring. Kept under the same data dir so existing jobs still resolve.
         self.root = (root or settings.data_dir) / "jobs"
@@ -82,7 +81,7 @@ class JobStore:
         return d
 
     # ── blob publish / fetch ─────────────────────────────────────────────────
-    def publish(self, job_id: str, rel: str) -> Optional[str]:
+    def publish(self, job_id: str, rel: str) -> str | None:
         """Copy one local artifact into the blob store. Best-effort: a blob
         failure must not fail a reconstruction that already succeeded — the file
         is still on this task's disk, so the job completes and only cross-task
@@ -99,7 +98,7 @@ class JobStore:
         for rel in rels or []:
             self.publish(job_id, rel)
 
-    def read_artifact(self, job_id: str, rel: str) -> Optional[bytes]:
+    def read_artifact(self, job_id: str, rel: str) -> bytes | None:
         """Artifact bytes, wherever they are.
 
         Blob store first: it is the shared copy, and on any task other than the
@@ -119,7 +118,7 @@ class JobStore:
             pass
         return None
 
-    def artifact_url(self, job_id: str, rel: str) -> Optional[str]:
+    def artifact_url(self, job_id: str, rel: str) -> str | None:
         """A presigned URL for the artifact, when the backend offers one — lets
         a browser pull a large GLB straight from S3 instead of through the API."""
         try:
@@ -172,7 +171,7 @@ class JobStore:
         self._write(job)
         return job
 
-    def load(self, job_id: str) -> Optional[dict]:
+    def load(self, job_id: str) -> dict | None:
         try:
             with db.connect(_STORE) as conn:
                 row = conn.execute(
@@ -200,7 +199,7 @@ class JobStore:
                  job.get("error"), job.get("created") or _now(), job["updated"]),
             )
 
-    def _mutate(self, job_id: str, fn) -> Optional[dict]:
+    def _mutate(self, job_id: str, fn) -> dict | None:
         """Read-modify-write one job under a lock.
 
         A job's stages run on a single task, so contention is mostly the

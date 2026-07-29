@@ -2,7 +2,8 @@
 CFP Tier-C filter rule: AHU filter clogged via differential pressure.
 """
 from datetime import timedelta
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class FilterCloggedRule(Behavior):

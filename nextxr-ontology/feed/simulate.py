@@ -13,8 +13,8 @@ every adapter and agent must.
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from behaviors.registry import BehaviorRegistry, Finding, TelemetrySample
 from graph.writer import GraphWriter, Rel, WriteResult
@@ -32,7 +32,7 @@ def simulate_temperature(tenant_id: str, entity_id: str, *,
     and stays high (so a Tier-C threshold rule fires after its sustain window,
     and the Tier-B learner flags the deviation)."""
     rng = random.Random(seed)
-    t0 = datetime(2026, 5, 26, 8, 0, tzinfo=timezone.utc)
+    t0 = datetime(2026, 5, 26, 8, 0, tzinfo=UTC)
     for m in range(minutes):
         ts = t0 + timedelta(minutes=m)
         if m < normal_minutes:

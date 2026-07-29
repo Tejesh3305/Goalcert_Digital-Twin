@@ -1,8 +1,7 @@
 """
 CFP Tier-C network rules: edge node heartbeat loss.
 """
-from datetime import timedelta
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class HeartbeatLossRule(Behavior):

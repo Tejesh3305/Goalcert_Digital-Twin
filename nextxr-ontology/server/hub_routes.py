@@ -16,9 +16,8 @@ payload) so the hub's fall-through stays clean.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -31,7 +30,7 @@ router = APIRouter(prefix="/api/v1", tags=["hub"])
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 # ── Prediction ──────────────────────────────────────────────────────
@@ -118,7 +117,7 @@ def _ar_steps(node: dict, findings: list[dict]) -> list[dict]:
 
 
 @router.get("/assets/{asset_id}/ar-overlay")
-def ar_overlay(asset_id: str, tenant: str, version: Optional[int] = None):
+def ar_overlay(asset_id: str, tenant: str, version: int | None = None):
     """Versioned AR overlay (guided steps) for one asset, grounded in its live
     findings. `version` lets a client pin a specific revision; we return the
     current one when omitted."""

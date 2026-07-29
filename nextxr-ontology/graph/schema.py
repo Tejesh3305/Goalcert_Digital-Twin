@@ -20,11 +20,12 @@ import sys
 from pathlib import Path
 
 try:
-    from rdflib import Graph as RDFGraph, Literal
+    from rdflib import Graph as RDFGraph
+    from rdflib import Literal
 except ImportError:
     sys.exit("pip install rdflib")
 
-from graph.connection import get_driver, close_driver
+from graph.connection import close_driver, get_driver
 
 ROOT = Path(__file__).resolve().parent.parent
 NXR = "https://ontology.nextxr.io/v3/core#"

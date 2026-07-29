@@ -6,6 +6,6 @@ the Graph Writer — the same single write path everything else uses. This is
 the component that closes the Track 3 loop.
 """
 
-from .simulate import simulate_temperature, FindingsLoop
+from .simulate import FindingsLoop, simulate_temperature
 
 __all__ = ["simulate_temperature", "FindingsLoop"]

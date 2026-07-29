@@ -1,0 +1,34 @@
+# prod.tfvars — copy to prod.tfvars and fill in.
+#
+# NO SECRETS IN THIS FILE, EVER. Terraform creates the Secrets Manager entries
+# and IAM policies; the VALUES are set out of band with
+# `aws secretsmanager put-secret-value`. A credential here is a credential in
+# git, and — because Terraform records every variable it reads — also in the
+# state file, in plaintext, in every historical version of it.
+#
+# `prod.tfvars` is gitignored. This example is not.
+
+region      = "eu-west-1"
+domain_name = "twin.example.com"
+
+# Globally unique across ALL of S3, not just your account. Include the account
+# id or company name.
+blob_bucket_name = "nextxr-prod-blobs-123456789012"
+
+# Neo4j Aura, or your own instance. Password goes in Secrets Manager.
+neo4j_uri  = "neo4j+s://xxxxxxxx.databases.neo4j.io"
+neo4j_user = "neo4j"
+
+# Each address must confirm its SNS subscription by email before it receives
+# anything. An unconfirmed subscription silently delivers nothing, which is a
+# bad thing to discover during an incident.
+alert_emails = [
+  "oncall@example.com",
+]
+
+# Who may deploy. Name a REF or an ENVIRONMENT — never `repo:org/repo:*`, which
+# would let any branch ship to production. The root module rejects a subject
+# ending in ':*'.
+github_oidc_subjects = [
+  "repo:your-org/nextxr-ontology-v3:ref:refs/heads/main",
+]

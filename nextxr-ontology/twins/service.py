@@ -19,14 +19,13 @@ creation. "blank" seeds just a root Site, for building by hand via Add Asset.
 
 from __future__ import annotations
 
-import db
-
 import re
 import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
+
+import db
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
@@ -204,7 +203,7 @@ TEMPLATES = {
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _slugify(name: str) -> str:
@@ -222,7 +221,7 @@ class Twin:
     domain: str            # template key, e.g. "hvac"
     description: str
     created_at: str
-    seed_asset_id: Optional[str] = None   # the primary asset the feed targets
+    seed_asset_id: str | None = None   # the primary asset the feed targets
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -252,7 +251,7 @@ class TwinRegistry:
     than the thing that saves the data — but it costs nothing and still covers
     a restore into an empty database."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """`db_path` forces a private SQLite file (offline tools only)."""
         self.db_path = Path(db_path) if db_path else None
         self._init_db()
@@ -337,7 +336,7 @@ class TwinRegistry:
             ).fetchall()
             return [self._row_to_twin(r) for r in rows]
 
-    def get(self, tenant_id: str) -> Optional[Twin]:
+    def get(self, tenant_id: str) -> Twin | None:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM twins WHERE tenant_id = ?", (tenant_id,)
@@ -372,7 +371,7 @@ class TwinRegistry:
 
     # ---- creation + seeding ------------------------------------------
     def create(self, *, name: str, domain: str, writer, actor: str = "twin-factory",
-               tenant_id: Optional[str] = None) -> Twin:
+               tenant_id: str | None = None) -> Twin:
         """Register a twin and seed its initial graph through the Graph Writer.
 
         `writer` is a GraphWriter instance (injected so this package never
@@ -408,7 +407,7 @@ class TwinRegistry:
         self._mirror_upsert(twin)
         return twin
 
-    def _seed(self, twin: Twin, writer, actor: str) -> Optional[str]:
+    def _seed(self, twin: Twin, writer, actor: str) -> str | None:
         """Seed the twin's initial entities. Returns the primary asset id (the
         one the feed should target), or None for a blank twin."""
         from graph.writer import Rel  # local import: one-way dependency
@@ -475,7 +474,7 @@ class TwinRegistry:
         return ahu.node_id if ahu.ok else None
 
     def _seed_machine(self, twin: Twin, writer, actor: str,
-                      class_iri: str) -> Optional[str]:
+                      class_iri: str) -> str | None:
         """Seed a machine-domain twin: a root Site + the single machine asset the
         live physics runtime targets. Returns the machine asset's node id."""
         writer.create(
@@ -488,14 +487,14 @@ class TwinRegistry:
         )
         return machine.node_id if machine.ok else None
 
-    def _seed_generic_facility(self, twin: Twin, writer, actor: str) -> Optional[str]:
+    def _seed_generic_facility(self, twin: Twin, writer, actor: str) -> str | None:
         """Seed a 3-floor generic facility with multi-system assets.
         Returns the UPS entity id (the primary asset the CFP feed targets)."""
         from graph.writer import Rel  # local import: one-way dependency
         t = twin.tenant_id
 
         # --- Spatial backbone ---
-        building = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "Building", actor=actor,
             properties={"displayName": f"{twin.name} — Main Building",
                         "status": "active"},
@@ -525,11 +524,11 @@ class TwinRegistry:
             properties={"displayName": "Chiller-01", "status": "running"},
             relationships=[Rel("nxr:feeds", ahu.node_id)] if ahu.ok else None,
         )
-        air_filter = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "AirFilter", actor=actor,
             properties={"displayName": "Filter-AHU01", "status": "running"},
         )
-        pump = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "Pump", actor=actor,
             properties={"displayName": "CHW Pump-01", "status": "running"},
         )
@@ -540,11 +539,11 @@ class TwinRegistry:
             properties={"displayName": "UPS-01", "status": "running"},
             relationships=[Rel("cfp:backsUp", chiller.node_id)] if chiller.ok else None,
         )
-        transformer = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "Transformer", actor=actor,
             properties={"displayName": "TX-01", "status": "running"},
         )
-        generator = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "Generator", actor=actor,
             properties={"displayName": "GenSet-01", "status": "off"},
             relationships=[Rel("cfp:backsUp", ups.node_id)] if ups.ok else None,
@@ -560,26 +559,26 @@ class TwinRegistry:
             properties={"displayName": "Smoke-GF-01"},
             relationships=smoke_rels,
         )
-        facp = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "FireAlarmPanel", actor=actor,
             properties={"displayName": "FACP-01", "status": "running"},
             relationships=[Rel("cfp:controls", smoke.node_id)] if smoke.ok else None,
         )
 
         # --- Security ---
-        door = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "AccessDoor", actor=actor,
             properties={"displayName": "Main Entry", "status": "running"},
         )
 
         # --- Water ---
-        tank = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "WaterTank", actor=actor,
             properties={"displayName": "Fire Reserve Tank", "status": "running"},
         )
 
         # --- Network ---
-        edge = writer.create(
+        writer.create(
             tenant_id=t, canonical_type=CFP + "EdgeNode", actor=actor,
             properties={"displayName": "Edge-01", "status": "running"},
         )
@@ -665,7 +664,7 @@ class TwinRegistry:
             self._rail_link(t, writer, actor, line, "rail:servesStation", sid)
         return line
 
-    def _seed_railway_metro(self, twin, writer, actor) -> Optional[str]:
+    def _seed_railway_metro(self, twin, writer, actor) -> str | None:
         """P1-015…020 — the whole metro: network head node supervised by an OCC,
         3 lines over shared interchange stations, permanent way + traction power,
         signalling and a depot with rolling stock. Returns the RailNetwork id (the
@@ -714,7 +713,7 @@ class TwinRegistry:
 
         return network
 
-    def _seed_railway_trainset(self, twin, writer, actor) -> Optional[str]:
+    def _seed_railway_trainset(self, twin, writer, actor) -> str | None:
         """P1-018 — a stand-alone rolling-stock twin: a depot + one train set with
         bogies and traction motors. Returns the RollingStock id."""
         t = twin.tenant_id
@@ -754,7 +753,7 @@ class TwinRegistry:
                               {"status": "active", "pressureSetpoint": 15.0})
         ahu = self._hsp_new(t, writer, actor, CFP + "AirHandlingUnit", f"{name} — AHU",
                           {"status": "running", "setpoint": 20.0})
-        gas = self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", f"{name} — O2 Pendant",
+        self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", f"{name} — O2 Pendant",
                           {"status": "running", "gasType": "O2"})
         mon = self._hsp_new(t, writer, actor, HSP + "PatientMonitor", f"{name} — Anaesthetic Monitor")
         tag = self._hsp_new(t, writer, actor, HSP + "RTLSTag", f"{name} — RTLS Tag")
@@ -814,7 +813,7 @@ class TwinRegistry:
         pressure zones (the schematic + alarm bindings)."""
         o2 = self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", "O2 Manifold",
                          {"status": "running", "gasType": "O2"})
-        n2o = self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", "N2O Manifold",
+        self._hsp_new(t, writer, actor, HSP + "MedicalGasManifold", "N2O Manifold",
                           {"status": "running", "gasType": "N2O"})
         for zname, gas, manifold in [("Theatres Zone", "O2", o2), ("ICU Zone", "O2", o2),
                                      ("Emergency Zone", "O2", o2), ("Wards Zone", "O2", o2)]:
@@ -823,7 +822,7 @@ class TwinRegistry:
             self._hsp_link(t, writer, actor, manifold, "hsp:servesZone", zone)
         return o2
 
-    def _seed_hospital_campus(self, twin, writer, actor) -> Optional[str]:
+    def _seed_hospital_campus(self, twin, writer, actor) -> str | None:
         """P3-017…022 — the whole campus: a Hospital head node with theatres, ICU,
         ED, pharmacy, wards, medical gas, water and power. Returns the Hospital id
         (the node the live findings flag)."""
@@ -876,8 +875,8 @@ class TwinRegistry:
         office fallback. Additive alongside the ontological department graph and
         best-effort — a failure here never blocks twin creation."""
         try:
-            from agents import hospital_layout
             from agents import bim_support as bs
+            from agents import hospital_layout
         except Exception:
             return
         t = twin.tenant_id
@@ -958,7 +957,7 @@ class TwinRegistry:
             self._hsp_link(t, writer, actor, fleet, "ev:hasVehicle", ev)
         return fleet
 
-    def _seed_battery_pack(self, twin, writer, actor) -> Optional[str]:
+    def _seed_battery_pack(self, twin, writer, actor) -> str | None:
         """P2-016 — a battery pack of N modules of cells with a cooling loop.
         Returns the BatteryPack id (the node the live findings flag)."""
         t = twin.tenant_id
@@ -981,7 +980,7 @@ class TwinRegistry:
                 self._hsp_link(t, writer, actor, module, "ev:hasCell", cell)
         return pack
 
-    def _seed_charging_network(self, twin, writer, actor) -> Optional[str]:
+    def _seed_charging_network(self, twin, writer, actor) -> str | None:
         """P2-015 — a charging network: stations with chargers + connectors, a grid
         connection with a transformer, solar, and a small EV fleet. Returns the
         ChargingNetwork id."""
@@ -1035,7 +1034,7 @@ class TwinRegistry:
         self._hsp_link(t, writer, actor, ac, "nxr:hasPart", wpn)
         return ac
 
-    def _seed_warship(self, twin, writer, actor) -> Optional[str]:
+    def _seed_warship(self, twin, writer, actor) -> str | None:
         """P4-013 — a warship with a gas turbine, radar mast, weapons and watertight
         compartments (damage-control). Returns the Vessel id."""
         t = twin.tenant_id
@@ -1056,7 +1055,7 @@ class TwinRegistry:
             self._hsp_link(t, writer, actor, vessel, "def:hasCompartment", comp)
         return vessel
 
-    def _seed_military_base(self, twin, writer, actor) -> Optional[str]:
+    def _seed_military_base(self, twin, writer, actor) -> str | None:
         """P4-012 — the whole base: perimeter + sectors, C4ISR, radar, hangars,
         runways, fuel + ammunition storage and NBC, with an air fleet. Returns the
         MilitaryBase id."""

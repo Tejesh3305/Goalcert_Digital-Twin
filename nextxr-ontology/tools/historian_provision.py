@@ -38,9 +38,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-import db                                          # noqa: E402
-import historian                                   # noqa: E402
-from historian import schema as hschema            # noqa: E402
+import db  # noqa: E402
+import historian  # noqa: E402
+from historian import schema as hschema  # noqa: E402
 
 
 def _print_report(report: dict) -> None:

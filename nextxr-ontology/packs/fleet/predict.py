@@ -15,11 +15,12 @@ Same contract as edm/predict.py and turbine/predict.py:
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
 from behaviors.registry import TelemetrySample
+
 from .behaviors import build_fleet_registry
-from .physics import FleetPhysics, FleetState, SIGNALS, UNITS, redlines
+from .physics import SIGNALS, UNITS, FleetPhysics, FleetState, redlines
 
 
 def _clamp(x: float) -> float:
@@ -121,7 +122,7 @@ def predict(start_state: FleetState, horizon_min: float = 120.0,
 
     q = _Q()
     registry = build_fleet_registry()
-    base = datetime.now(timezone.utc)
+    base = datetime.now(UTC)
 
     trajectory: list[dict] = []
     events: list[dict] = []

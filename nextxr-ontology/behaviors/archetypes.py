@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
+from behaviors.registry import Behavior, Finding, Tier
 
 
 def _tier(rule: dict) -> Tier:

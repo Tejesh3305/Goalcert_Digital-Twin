@@ -22,14 +22,13 @@ the ontology, register its DynamicsModels — the engine couples them identicall
 
 from __future__ import annotations
 
+import random
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from dynamics.model import DynamicsModel, DynamicsRegistry, EntityState, EntityContext
 from dynamics import flows
 from dynamics.bindings import resolve_binding
-
+from dynamics.model import DynamicsRegistry, EntityContext, EntityState
 
 # Predicates whose DIRECTION defines "produces before consumes". Source --pred--> target
 # means the source must update first (it feeds the target). Spatial/observation edges
@@ -45,7 +44,7 @@ class DynamicsEngine:
 
     def __init__(self, tenant_id: str, registry: DynamicsRegistry, query, *,
                  speed: float = 60.0, seed: int = 1234, start_hour: float = 13.0,
-                 bundle_dynamics: Optional[dict] = None):
+                 bundle_dynamics: dict | None = None):
         self.tenant_id = tenant_id
         self.registry = registry
         self.query = query
@@ -61,7 +60,7 @@ class DynamicsEngine:
         self._space_of: dict[str, str] = {}  # id -> containing space id
         self._contained: dict[str, list[str]] = {}  # space id -> [entity ids]
         self._order: list[str] = []          # update order (producers first)
-        self._rngs: dict[str, "random.Random"] = {}
+        self._rngs: dict[str, random.Random] = {}
         self._model_cache: dict[str, tuple] = {}   # canonical_type -> (model, params)
         self._loaded = False
 
@@ -70,6 +69,7 @@ class DynamicsEngine:
         """Pull every node + edge for the tenant and build adjacency. Read-only;
         uses the same driver the rest of the platform shares."""
         import random
+
         from graph.connection import get_driver
         driver = get_driver()
         nodes, edges = {}, []
@@ -198,7 +198,7 @@ class DynamicsEngine:
             self.load_topology()
         self._ensure_states()
         self.t += dt
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         samples: list = []
         for nid in self._order:
             node = self._nodes.get(nid)

@@ -1,0 +1,33 @@
+# requirements-dev.txt — the test and lint toolchain.
+#
+# SEPARATE FROM requirements.txt ON PURPOSE. The container image is built from
+# that file and is the deploy artifact; every package in it is code that ships to
+# production and widens the attack surface. A test runner, a coverage reporter
+# and a linter have no business in a running task.
+#
+#     pip install -r requirements.txt -r requirements-dev.txt
+#
+# Pinned for the same reason as the runtime deps: a pytest minor release that
+# changes collection behaviour should break a pull request, not a Tuesday.
+
+pytest==8.3.4
+pytest-cov==6.0.0
+pytest-asyncio==0.25.0
+
+# The HTTP client behind fastapi.testclient. Not a runtime dependency — the app
+# never makes outbound HTTP through it.
+httpx==0.28.1
+
+# Linting. Configured in pyproject.toml ([tool.ruff]); the CI `lint` job runs it
+# as a blocking gate.
+ruff==0.8.6
+
+# Security scanning, run in CI. Both are advisory locally and blocking there.
+#   pip-audit  known CVEs in the installed dependency tree
+#   bandit     common insecure patterns in our own code
+pip-audit==2.7.3
+bandit==1.8.0
+
+# Generate a fully-pinned, hash-verified lock from requirements.txt:
+#     pip-compile --generate-hashes requirements.txt -o requirements.lock
+pip-tools==7.4.1

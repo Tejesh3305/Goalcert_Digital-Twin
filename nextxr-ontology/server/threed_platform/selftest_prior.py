@@ -1,11 +1,11 @@
 """selftest_prior.py — verify geometry-prior retrieval end-to-end."""
 from pathlib import Path
-from PIL import Image, ImageDraw
-import trimesh
 
-from app.store import store
+import trimesh
 from app.orchestrator import _run
 from app.priors.library import library
+from app.store import store
+from PIL import Image, ImageDraw
 
 
 def make_image(path, seed=0):

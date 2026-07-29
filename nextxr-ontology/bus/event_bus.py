@@ -69,7 +69,6 @@ import threading
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
 from dataclasses import asdict, dataclass, field
-from typing import Optional
 
 log = logging.getLogger("nxr.bus")
 
@@ -97,12 +96,12 @@ class BusEvent:
     tenant_id: str
     entity_id: str
     entity_type: str
-    label: Optional[str]
+    label: str | None
     action: str
     actor: str
     ts: str
     seq: int = field(default_factory=lambda: next(_seq_counter))
-    field_changes: Optional[dict] = None
+    field_changes: dict | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -114,14 +113,14 @@ class BusEvent:
         for k, v in self.to_dict().items():
             if v is None:
                 out[k] = ""
-            elif isinstance(v, (dict, list)):
+            elif isinstance(v, dict | list):
                 out[k] = json.dumps(v, separators=(",", ":"))
             else:
                 out[k] = str(v)
         return out
 
     @classmethod
-    def from_wire(cls, fields: dict) -> "BusEvent":
+    def from_wire(cls, fields: dict) -> BusEvent:
         """Rebuild a BusEvent from the Redis (or in-memory) wire map."""
         def _get(key, default=""):
             # Redis-py may hand back bytes depending on decode settings.
@@ -157,7 +156,7 @@ class EventBus(ABC):
     backend: str = "abstract"
 
     @abstractmethod
-    def publish(self, event: BusEvent) -> Optional[str]:
+    def publish(self, event: BusEvent) -> str | None:
         """Publish an event to its tenant's stream. BEST-EFFORT: never raises.
         Returns the stream message id on success, or None if it was skipped."""
 
@@ -191,7 +190,7 @@ class NullBus(EventBus):
     def __init__(self):
         self._published = 0  # always 0; kept for a uniform stats() shape
 
-    def publish(self, event: BusEvent) -> Optional[str]:
+    def publish(self, event: BusEvent) -> str | None:
         return None
 
     def read(self, tenant_id, *, last_id="0", count=100, block_ms=0):
@@ -231,7 +230,7 @@ class InMemoryBus(EventBus):
         # Mimic Redis "<ms>-<seq>" shape loosely with a monotonic integer.
         return f"{next(ctr)}-0"
 
-    def publish(self, event: BusEvent) -> Optional[str]:
+    def publish(self, event: BusEvent) -> str | None:
         try:
             with self._lock:
                 key = stream_key(event.tenant_id)
@@ -280,8 +279,8 @@ class RedisStreamBus(EventBus):
         self._degraded = False  # set True after a publish failure until next ok
 
     @classmethod
-    def connect(cls, url: Optional[str] = None, *, maxlen: int = DEFAULT_MAXLEN,
-                socket_timeout: float = 1.0) -> "RedisStreamBus":
+    def connect(cls, url: str | None = None, *, maxlen: int = DEFAULT_MAXLEN,
+                socket_timeout: float = 1.0) -> RedisStreamBus:
         """Build a client and verify connectivity with a ping. Raises if the
         redis package is missing or the server is unreachable — the factory
         catches that and falls back to in-memory."""
@@ -296,7 +295,7 @@ class RedisStreamBus(EventBus):
         client.ping()  # raises on unreachable
         return cls(client, maxlen=maxlen)
 
-    def publish(self, event: BusEvent) -> Optional[str]:
+    def publish(self, event: BusEvent) -> str | None:
         try:
             msg_id = self._r.xadd(
                 stream_key(event.tenant_id), event.to_wire(),
@@ -352,11 +351,11 @@ class RedisStreamBus(EventBus):
 # --------------------------------------------------------------------------
 #  Factory / singleton
 # --------------------------------------------------------------------------
-_bus_singleton: Optional[EventBus] = None
+_bus_singleton: EventBus | None = None
 _bus_lock = threading.Lock()
 
 
-def _truthy(val: Optional[str]) -> bool:
+def _truthy(val: str | None) -> bool:
     return str(val).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -454,7 +453,7 @@ def log_posture() -> None:
               flush=True)
 
 
-def reset_event_bus(new_bus: Optional[EventBus] = None) -> None:
+def reset_event_bus(new_bus: EventBus | None = None) -> None:
     """Replace (or clear) the singleton. For tests and for re-selecting the
     backend after Redis comes up. Passing a bus injects it directly."""
     global _bus_singleton

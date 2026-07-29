@@ -22,7 +22,6 @@ import sys
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
 _TOOLS = str(Path(__file__).resolve().parent.parent / "tools")
 if _TOOLS not in sys.path:
@@ -33,10 +32,10 @@ NXR = "https://ontology.nextxr.io/v3/core#"
 
 @dataclass
 class Binding:
-    archetype: Optional[str] = None
+    archetype: str | None = None
     params: dict = field(default_factory=dict)
     monitoring: list = field(default_factory=list)
-    source_class: Optional[str] = None      # which class the binding was found on
+    source_class: str | None = None      # which class the binding was found on
 
 
 def _graph():

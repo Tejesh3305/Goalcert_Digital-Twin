@@ -40,20 +40,20 @@ import re
 import sys
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
-
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
 
 import connectors as C
 from connectors import manager as connector_manager
 from connectors import profiles as connector_profiles
 from connectors.base import ConnectorConfig, MissingDependency, build_connector
 from connectors.pointmap import PointMap, PointMapError
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+
 from server.tenancy import require_write, scope_of
 
 router = APIRouter(prefix="/api/v1/connectors", tags=["connectors"])
@@ -68,7 +68,7 @@ class ConnectorCreate(BaseModel):
     tenant: str
     protocol: str = Field(..., description="modbus_tcp | modbus_rtu | opcua | mqtt")
     name: str = ""
-    connector_id: Optional[str] = None
+    connector_id: str | None = None
     enabled: bool = True
 
     host: str = ""
@@ -97,8 +97,8 @@ class ConnectorCreate(BaseModel):
     emit_bad_on_disconnect: bool = True
 
     # Either a full point map, or a built-in profile plus its arguments.
-    point_map: Optional[dict] = None
-    profile: Optional[str] = None
+    point_map: dict | None = None
+    profile: str | None = None
     profile_args: dict = Field(default_factory=dict)
 
 
@@ -109,24 +109,24 @@ class ConnectorUpdate(BaseModel):
     (and receives `"***"`) and writes it back must not be able to overwrite the real
     credential with those three characters.
     """
-    name: Optional[str] = None
-    enabled: Optional[bool] = None
-    host: Optional[str] = None
-    port: Optional[int] = None
-    serial_port: Optional[str] = None
-    endpoint: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-    use_tls: Optional[bool] = None
-    tls_insecure: Optional[bool] = None
-    topics: Optional[list[str]] = None
-    topic_asset_pattern: Optional[str] = None
-    poll_interval_s: Optional[float] = None
-    timeout_s: Optional[float] = None
-    request_retries: Optional[int] = None
-    default_asset_id: Optional[str] = None
-    emit_bad_on_disconnect: Optional[bool] = None
-    point_map: Optional[dict] = None
+    name: str | None = None
+    enabled: bool | None = None
+    host: str | None = None
+    port: int | None = None
+    serial_port: str | None = None
+    endpoint: str | None = None
+    username: str | None = None
+    password: str | None = None
+    use_tls: bool | None = None
+    tls_insecure: bool | None = None
+    topics: list[str] | None = None
+    topic_asset_pattern: str | None = None
+    poll_interval_s: float | None = None
+    timeout_s: float | None = None
+    request_retries: int | None = None
+    default_asset_id: str | None = None
+    emit_bad_on_disconnect: bool | None = None
+    point_map: dict | None = None
 
 
 class SunSpecDiscover(BaseModel):
@@ -167,7 +167,7 @@ def _owned(request: Request, connector_id: str) -> ConnectorConfig:
     return config
 
 
-def _point_map_from(req: ConnectorCreate) -> Optional[PointMap]:
+def _point_map_from(req: ConnectorCreate) -> PointMap | None:
     """Resolve either an explicit map or a named profile."""
     if req.point_map:
         return PointMap.from_dict(req.point_map)
@@ -248,7 +248,7 @@ def build_profile_preview(key: str, req: ProfileBuild):
 
 
 @router.get("")
-def list_connectors(request: Request, tenant: Optional[str] = None):
+def list_connectors(request: Request, tenant: str | None = None):
     """Connectors this caller may see, each with live health."""
     scope = scope_of(request)
     configs = C.list_configs(tenant)
@@ -448,7 +448,8 @@ def discover_sunspec(req: SunSpecDiscover, request: Request):
     """
     require_write(request)
     try:
-        from connectors.modbus import discover_sunspec as walk, read_sunspec_common
+        from connectors.modbus import discover_sunspec as walk
+        from connectors.modbus import read_sunspec_common
     except MissingDependency as e:
         raise HTTPException(status_code=501, detail=str(e))
 

@@ -24,14 +24,11 @@ from __future__ import annotations
 import json
 from dataclasses import asdict
 from functools import lru_cache
-from typing import Dict, List, Optional
 
-from rdflib import Graph, RDF, RDFS, OWL, URIRef
-from rdflib.namespace import SH, SKOS
-
-from ontology_graph import (build_graph, build_governance_shapes,
-                            NXR_CORE, NXR_BASE)
 import gate
+from ontology_graph import NXR_BASE, NXR_CORE, build_governance_shapes, build_graph
+from rdflib import OWL, RDF, RDFS, Graph, URIRef
+from rdflib.namespace import SH, SKOS
 
 NXR = NXR_CORE
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
@@ -61,7 +58,7 @@ class SchemaService:
 
     @classmethod
     @lru_cache(maxsize=1)
-    def load(cls) -> "SchemaService":
+    def load(cls) -> SchemaService:
         # No OWL-RL: we want the AUTHORED schema, not its deductive closure.
         # Superclass ancestry is computed manually over rdfs:subClassOf (see
         # _supers), which keeps "what properties does Equipment have?" scoped
@@ -76,7 +73,7 @@ class SchemaService:
         return str(v) if v else "unknown"
 
     # ---------- the closed taxonomy ----------
-    def taxonomy_categories(self) -> List[Dict]:
+    def taxonomy_categories(self) -> list[dict]:
         cat_cls = URIRef(NXR + "TaxonomyCategory")
         out = []
         for c in self.g.subjects(RDF.type, cat_cls):
@@ -88,7 +85,7 @@ class SchemaService:
         return sorted(out, key=lambda x: x["label"])
 
     # ---------- legal types ----------
-    def legal_types(self, instantiable_only: bool = False) -> List[Dict]:
+    def legal_types(self, instantiable_only: bool = False) -> list[dict]:
         """Every NextXR class. With instantiable_only, drop abstract
         classes (those a pack must subclass rather than instantiate)."""
         out = []
@@ -112,7 +109,7 @@ class SchemaService:
         return sorted(out, key=lambda x: x["id"])
 
     # ---------- predicates ----------
-    def predicates(self) -> List[Dict]:
+    def predicates(self) -> list[dict]:
         out = []
         seen = set()
         for ptype in (OWL.ObjectProperty, OWL.DatatypeProperty):
@@ -138,12 +135,12 @@ class SchemaService:
         return sorted(out, key=lambda x: x["id"])
 
     # ---------- "what properties does an Equipment have?" ----------
-    def properties_of(self, class_name: str) -> Dict:
+    def properties_of(self, class_name: str) -> dict:
         iri = self._resolve(class_name)
         if iri is None:
             raise KeyError(f"Unknown class: {class_name}")
         supers = self._supers(iri)
-        props: Dict[str, Dict] = {}
+        props: dict[str, dict] = {}
 
         # 1) The 10-property base — every entity carries it.
         for path, req, dt in self._shape_props(URIRef(NXR + "BaseEntityShape")):
@@ -175,7 +172,7 @@ class SchemaService:
         }
 
     # ---------- one class, fully described ----------
-    def class_info(self, class_name: str) -> Dict:
+    def class_info(self, class_name: str) -> dict:
         iri = self._resolve(class_name)
         if iri is None:
             raise KeyError(f"Unknown class: {class_name}")
@@ -195,7 +192,7 @@ class SchemaService:
         }
 
     # ---------- "how does this class behave?" (the binding layer) ----------
-    def behavior_profile(self, class_name: str) -> Dict:
+    def behavior_profile(self, class_name: str) -> dict:
         """Resolve a class's behaviour binding: its dynamics archetype + default
         params and its monitoring rules, walking rdfs:subClassOf for the nearest
         binding (so subclasses inherit, packs/agents override). This is the
@@ -234,7 +231,7 @@ class SchemaService:
                 "dynamics": None, "monitoring": []}
 
     # ---------- delegate to the write gate ----------
-    def validate(self, mutation) -> Dict:
+    def validate(self, mutation) -> dict:
         result = gate.validate(mutation)
         return {
             "conforms": result.conforms,
@@ -242,7 +239,7 @@ class SchemaService:
         }
 
     # ---------- is the ontology itself well-formed? ----------
-    def validate_governance(self) -> Dict:
+    def validate_governance(self) -> dict:
         """Validate the T-Box against the taxonomy-closure shape: every
         entity class carries exactly one of the ten categories, none beyond.
         Uses the governance shapes ONLY (not the per-mutation gate shapes),
@@ -261,7 +258,7 @@ class SchemaService:
         }
 
     # ================= internals =================
-    def _resolve(self, name: str) -> Optional[str]:
+    def _resolve(self, name: str) -> str | None:
         if name.startswith("http"):
             iri = name
         elif name.startswith("nxr:"):
@@ -334,7 +331,7 @@ class SchemaService:
             return "datatype"
         return "unknown"
 
-    def _state_machine(self, sm) -> Dict:
+    def _state_machine(self, sm) -> dict:
         states = [self._label(s) for s in self.g.objects(sm, URIRef(NXR + "hasState"))]
         init = self.g.value(sm, URIRef(NXR + "initialState"))
         transitions = []
@@ -358,7 +355,7 @@ class SchemaService:
         v = self.g.value(s, SKOS.definition)
         return str(v) if v else ""
 
-    def _str(self, s, pred) -> Optional[str]:
+    def _str(self, s, pred) -> str | None:
         v = self.g.value(s, URIRef(pred))
         return str(v) if v is not None else None
 
@@ -366,5 +363,5 @@ class SchemaService:
         v = self.g.value(s, URIRef(pred))
         return bool(v) and str(v).lower() == "true"
 
-    def _qlist(self, nodes) -> List[str]:
+    def _qlist(self, nodes) -> list[str]:
         return sorted({_qname(str(n)) for n in nodes if isinstance(n, URIRef)})

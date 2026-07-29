@@ -11,7 +11,7 @@ present (the in-house engine merges partial updates onto this).
 
 from __future__ import annotations
 
-from typing import TypedDict, Literal, Optional
+from typing import Literal, TypedDict
 
 
 # --------------------------------------------------------------------------
@@ -22,18 +22,18 @@ class TwinBuildState(TypedDict):
     session_id: str
     conversation: list[dict]       # full dialogue, Concierge owns
 
-    user_intent: Optional[str]     # Concierge →
-    domain: Optional[str]          # Domain Classifier →
-    domain_confidence: Optional[float]
-    sub_type: Optional[str]
+    user_intent: str | None     # Concierge →
+    domain: str | None          # Domain Classifier →
+    domain_confidence: float | None
+    sub_type: str | None
 
     loaded_bundles: list[str]      # Capability Composer →
     draft_entities: list[dict]     # from bundle templates (MVP)
     draft_relationships: list[dict]
 
-    validation: Optional[dict]     # Validator → {ok: bool, errors: [...]}
+    validation: dict | None     # Validator → {ok: bool, errors: [...]}
     committed: bool                # Graph Writer →
-    twin_id: Optional[str]
+    twin_id: str | None
 
     # next_action drives routing; "ask" yields the turn back to the human.
     next_action: Literal["ask", "classify", "compose", "map", "validate",
@@ -41,19 +41,19 @@ class TwinBuildState(TypedDict):
     errors: list[str]
 
     # --- presentation extras (not in the minimal spec, used by the UI) ---
-    twin_name: Optional[str]       # display name for the committed twin
-    reply_to_user: Optional[str]   # the Concierge's latest message to show
+    twin_name: str | None       # display name for the committed twin
+    reply_to_user: str | None   # the Concierge's latest message to show
 
     # --- Phase 1 expansion: Vision · Schema Mapper · Scene Generator ------
     uploaded_files: list[dict]     # [{url, type, filename}] for Vision Agent
     vision_findings: list[dict]    # [{label, count, location, confidence}]
-    bim_model: Optional[dict]      # Plan Parser → format-agnostic building geometry
-    mapping_source: Optional[str]  # "bundle" | "mapper" — who wrote drafts
-    scene_result: Optional[dict]   # Scene Generator → nxr-scene/1 scene-graph
+    bim_model: dict | None      # Plan Parser → format-agnostic building geometry
+    mapping_source: str | None  # "bundle" | "mapper" — who wrote drafts
+    scene_result: dict | None   # Scene Generator → nxr-scene/1 scene-graph
 
 
 def new_twin_state(tenant_id: str, session_id: str,
-                   twin_name: Optional[str] = None) -> TwinBuildState:
+                   twin_name: str | None = None) -> TwinBuildState:
     """A fresh twin-build state with every key initialised."""
     return TwinBuildState(
         tenant_id=tenant_id,
@@ -91,11 +91,11 @@ class BundleAuthorState(TypedDict):
     entity_catalogue: list[str]        # Interviewer builds these
     fault_catalogue: list[dict]
     measurement_catalogue: list[dict]
-    ontology_fragment: Optional[str]   # Drafter → Turtle
+    ontology_fragment: str | None   # Drafter → Turtle
     rules: list[dict]                  # Rule Author →
-    lint_result: Optional[dict]        # Linter →
+    lint_result: dict | None        # Linter →
     approved: bool                     # HUMAN GATE
-    published_bundle: Optional[str]    # Publisher →
+    published_bundle: str | None    # Publisher →
 
     # --- Phase 3 expansion: Behavior Modeler · Elicitation Designer · Asset Curator
     behavior_models: list[dict]        # [{fault, tier, artefact_type, artefact}]
@@ -104,16 +104,16 @@ class BundleAuthorState(TypedDict):
     asset_gaps: list[str]              # entities with no matching 3D asset
 
     # --- presentation extras ---
-    domain: Optional[str]              # the vertical being authored (e.g. "cooling")
-    bundle_name: Optional[str]
+    domain: str | None              # the vertical being authored (e.g. "cooling")
+    bundle_name: str | None
     next_action: str                   # "interview"|"draft"|"model"|"rules"|"elicit"|"curate"|"lint"|"await_approval"|"publish"|"done"
-    reply_to_user: Optional[str]
+    reply_to_user: str | None
     errors: list[str]
 
 
 def new_bundle_state(tenant_id: str, session_id: str,
-                     domain: Optional[str] = None,
-                     bundle_name: Optional[str] = None) -> BundleAuthorState:
+                     domain: str | None = None,
+                     bundle_name: str | None = None) -> BundleAuthorState:
     return BundleAuthorState(
         tenant_id=tenant_id,
         session_id=session_id,
@@ -154,7 +154,7 @@ class OperationalState(TypedDict):
     past_incidents: list[dict]
 
     # Diagnosis Agent outputs
-    diagnosis: Optional[dict]              # {hypotheses: [{cause, confidence, evidence, rank}]}
+    diagnosis: dict | None              # {hypotheses: [{cause, confidence, evidence, rank}]}
     diagnosis_cached: bool
 
     # Recommender Agent outputs
@@ -194,14 +194,14 @@ class PluginScaffoldState(TypedDict):
     session_id: str
     conversation: list[dict]
 
-    extension_point: Optional[str]       # "adapter"|"behavior"|"view"|"webhook"|"transform"|"auth"
-    plugin_name: Optional[str]
-    plugin_config: Optional[dict]        # {description, inputs, outputs}
+    extension_point: str | None       # "adapter"|"behavior"|"view"|"webhook"|"transform"|"auth"
+    plugin_name: str | None
+    plugin_config: dict | None        # {description, inputs, outputs}
 
-    scaffold: Optional[dict]             # {files: [{path, content, language}], readme: str}
+    scaffold: dict | None             # {files: [{path, content, language}], readme: str}
 
     next_action: str                     # "interview" | "scaffold" | "done"
-    reply_to_user: Optional[str]
+    reply_to_user: str | None
     errors: list[str]
 
 
@@ -222,16 +222,16 @@ class AcceleratorPackState(TypedDict):
     session_id: str
     conversation: list[dict]
 
-    pack_name: Optional[str]
-    target_domain: Optional[str]
+    pack_name: str | None
+    target_domain: str | None
     selected_bundles: list[str]          # bundle_ids to include
     adapters: list[dict]                 # [{name, type, config}]
     compliance_docs: list[dict]          # [{title, content, standard}]
 
-    pack_manifest: Optional[dict]        # {bundles, adapters, docs, metadata}
+    pack_manifest: dict | None        # {bundles, adapters, docs, metadata}
 
     next_action: str                     # "interview" | "select" | "assemble" | "done"
-    reply_to_user: Optional[str]
+    reply_to_user: str | None
     errors: list[str]
 
 

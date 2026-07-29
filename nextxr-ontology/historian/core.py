@@ -39,15 +39,21 @@ from __future__ import annotations
 
 import math
 import os
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional, Sequence
+from datetime import UTC, datetime, timedelta
 
 import db
 
 from .schema import (
-    BUCKETS, QUALITY_BAD, QUALITY_GOOD, QUALITY_UNCERTAIN, RAW_TABLE,
-    backend, retention_days, timescale_available, timescale_version,
+    BUCKETS,
+    QUALITY_BAD,
+    QUALITY_GOOD,
+    QUALITY_UNCERTAIN,
+    RAW_TABLE,
+    backend,
+    retention_days,
+    timescale_version,
 )
 
 # SQLite stores timestamps as TEXT, so range comparisons are lexicographic. That
@@ -80,7 +86,7 @@ class Measurement:
     asset_id: str
     signal: str
     ts: datetime
-    value: Optional[float]
+    value: float | None
     unit: str = ""
     quality: int = QUALITY_GOOD
     source: str = "api"
@@ -115,14 +121,14 @@ def _as_utc(value) -> datetime:
     """
     if isinstance(value, datetime):
         dt = value
-    elif isinstance(value, (int, float)):
+    elif isinstance(value, int | float):
         # Epoch. Values above ~1e11 cannot be seconds (that is year 5138), so
         # they are milliseconds — the single most common ingest unit mix-up, and
         # cheap to absorb here rather than reject.
         seconds = float(value)
         if abs(seconds) > 1e11:
             seconds /= 1000.0
-        dt = datetime.fromtimestamp(seconds, tz=timezone.utc)
+        dt = datetime.fromtimestamp(seconds, tz=UTC)
     elif isinstance(value, str):
         text = value.strip()
         if text.endswith(("Z", "z")):
@@ -132,8 +138,8 @@ def _as_utc(value) -> datetime:
         raise ValueError(f"unsupported timestamp type {type(value).__name__}")
 
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _ts_param(dt: datetime):
@@ -145,8 +151,8 @@ def _ts_param(dt: datetime):
 def _ts_read(value) -> str:
     """Render a stored timestamp as ISO-8601 UTC for the API."""
     if isinstance(value, datetime):
-        dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-        return dt.astimezone(timezone.utc).isoformat()
+        dt = value if value.tzinfo else value.replace(tzinfo=UTC)
+        return dt.astimezone(UTC).isoformat()
     if isinstance(value, str):
         try:
             return _as_utc(value).isoformat()
@@ -158,7 +164,7 @@ def _ts_read(value) -> str:
 # ── Validation ──────────────────────────────────────────────────────────────
 
 
-def _validate(m: Measurement, now: datetime) -> Optional[str]:
+def _validate(m: Measurement, now: datetime) -> str | None:
     """Reason this sample is unacceptable, or None. Cheap checks only — this runs
     per sample on the ingest hot path."""
     if not m.tenant_id:
@@ -201,12 +207,12 @@ def coerce(raw: dict, *, tenant_id: str, default_source: str = "api") -> Measure
     """
     ts_raw = raw.get("ts", raw.get("timestamp", raw.get("time")))
     if ts_raw is None:
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
     else:
         ts = _as_utc(ts_raw)
 
     value = raw.get("value", raw.get("v"))
-    if value is not None and not isinstance(value, (int, float)):
+    if value is not None and not isinstance(value, int | float):
         if isinstance(value, bool):
             value = 1.0 if value else 0.0          # discrete signals
         else:
@@ -241,7 +247,7 @@ _COLUMNS = ("tenant_id", "asset_id", "signal", "ts", "value", "unit",
 
 def write(measurements: Iterable[Measurement]) -> WriteResult:
     """Persist a batch. Idempotent, per-sample validated, one round trip."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     result = WriteResult()
     rows: list[tuple] = []
 
@@ -374,12 +380,12 @@ class Series:
 
 
 def history(tenant_id: str, asset_id: str, signal: str, *,
-            start: Optional[datetime] = None, end: Optional[datetime] = None,
+            start: datetime | None = None, end: datetime | None = None,
             agg: str = "auto", limit: int = DEFAULT_MAX_POINTS) -> Series:
     """One signal's history. `limit` bounds the returned points; `truncated` says
     whether it bit, so a client can never mistake a clipped series for the whole
     range."""
-    end = _as_utc(end) if end else datetime.now(timezone.utc)
+    end = _as_utc(end) if end else datetime.now(UTC)
     start = _as_utc(start) if start else end - timedelta(hours=1)
     if start > end:
         start, end = end, start
@@ -473,8 +479,8 @@ def _bucket_rows(tenant_id, asset_id, signal, start, end, tier, fetch):
                        _ts_param(end), fetch))
 
 
-def latest(tenant_id: str, asset_id: Optional[str] = None,
-           signals: Optional[Sequence[str]] = None,
+def latest(tenant_id: str, asset_id: str | None = None,
+           signals: Sequence[str] | None = None,
            stale_after_s: int = 300) -> list[dict]:
     """The most recent sample per signal, with staleness.
 
@@ -505,7 +511,7 @@ def latest(tenant_id: str, asset_id: Optional[str] = None,
                f"FROM {RAW_TABLE} WHERE {clause} "
                f"GROUP BY asset_id, signal HAVING ts = max(ts)")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     out = []
     for r in _rows(sql, tuple(params)):
         ts_iso = _ts_read(r["ts"])
@@ -523,7 +529,7 @@ def latest(tenant_id: str, asset_id: Optional[str] = None,
     return out
 
 
-def signals(tenant_id: str, asset_id: Optional[str] = None) -> list[dict]:
+def signals(tenant_id: str, asset_id: str | None = None) -> list[dict]:
     """Signal inventory: what this tenant has ever sent, and when.
 
     This is the discovery query behind the tag-mapping UI. A customer arrives
@@ -592,7 +598,7 @@ def _rows(sql: str, params: Sequence) -> list[dict]:
     return out
 
 
-def _f(value) -> Optional[float]:
+def _f(value) -> float | None:
     if value is None:
         return None
     try:

@@ -35,26 +35,39 @@ commissioned site and a demo twin without pretending they are the same thing —
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field
-
 import historian
+from fastapi import APIRouter, HTTPException, Query, Request
 from packs.solar import (
-    FAULTS, REFERENCE_MODULE, SIGNALS, SPEC, SolarPhysics, component_health,
-    desoto as D, predict as solar_predict, state_label,
+    FAULTS,
+    REFERENCE_MODULE,
+    SIGNALS,
+    SPEC,
+    SolarPhysics,
+    component_health,
+    state_label,
+)
+from packs.solar import (
+    desoto as D,
+)
+from packs.solar import (
+    predict as solar_predict,
 )
 from packs.solar.signals import (
-    DERIVED_SIGNALS, INVERTER_SIGNALS, METER_SIGNALS, STRING_SIGNALS,
+    DERIVED_SIGNALS,
+    INVERTER_SIGNALS,
+    METER_SIGNALS,
+    STRING_SIGNALS,
     WEATHER_SIGNALS,
 )
+from pydantic import BaseModel, Field
+
 from server.tenancy import require_write
 
 router = APIRouter(prefix="/api/v1/solar", tags=["solar"])
@@ -168,7 +181,7 @@ def model_evaluate(req: ModelPoint):
 
 
 @router.get("/{tenant}/model/iv-curve")
-def twin_iv_curve(tenant: str, string_id: Optional[str] = None,
+def twin_iv_curve(tenant: str, string_id: str | None = None,
                   points: int = Query(60, ge=5, le=400)):
     """The I-V and P-V curve for this twin's CURRENT conditions.
 
@@ -215,7 +228,7 @@ def twin_iv_curve(tenant: str, string_id: Optional[str] = None,
             "string_id": string_id,
             "curve": D.iv_curve(string_op, points=points),
             "mpp": {k: round(v, 4) for k, v in actual.items()
-                    if isinstance(v, (int, float))},
+                    if isinstance(v, int | float)},
             "degradation": {"soiling": round(target.soiling, 4),
                             "bypassed_fraction": round(target.bypassed_fraction, 4),
                             "rsh_factor": round(target.rsh_factor, 4),
@@ -254,7 +267,7 @@ def residual(tenant: str):
     diagnosable = poa >= 150.0
     return {
         "tenant": tenant, "source": "physics",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "measured_dc_w": measured,
         "modelled_dc_w": modelled,
         "delta_p_w": frame.get(SIGNALS["delta_p"]),
@@ -345,7 +358,7 @@ def diagnosis(tenant: str):
 
     return {
         "tenant": tenant, "source": "physics",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "diagnosable": poa >= 150.0,
         "health": health,
         "signatures": signatures,
@@ -357,7 +370,7 @@ def diagnosis(tenant: str):
 
 @router.get("/{tenant}/triggers")
 @router.get("/triggers")
-def triggers(tenant: Optional[str] = None):
+def triggers(tenant: str | None = None):
     """§4.2's maintenance-trigger table, machine-readable.
 
     Published so the copilot's work-order and procurement agents can act on a
@@ -414,7 +427,7 @@ def heatmap(tenant: str):
         })
     return {
         "tenant": tenant, "source": "physics",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "conditions": {"poa_irradiance": frame.get(SIGNALS["poa"]),
                        "cell_temp_c": frame.get(SIGNALS["cell_temp"])},
         "peak_string_w": best, "count": len(cells), "cells": cells,
@@ -465,7 +478,7 @@ def energy(tenant: str):
 
     return {
         "tenant": tenant, "source": "physics",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "generation_kw": round(generation_kw, 3),
         "facility_load_kw": round(load_kw, 3),
         "net_grid_kw": round(net_kw, 3),
@@ -581,7 +594,7 @@ def field_service(tenant: str, asset_id: str):
         "tenant": tenant, "asset_id": asset_id,
         "asset_kind": "PVString" if is_string else "PVArray",
         "source": "physics",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         # Deliberately the first key an AR client will read.
         "safety": {
             "loto_required": True,
@@ -661,7 +674,7 @@ def training_scenario(tenant: str, req: ScenarioRequest, request: Request):
     }
 
 
-def _expected_signature(fault: str) -> Optional[dict]:
+def _expected_signature(fault: str) -> dict | None:
     """Which §4.2 row this fault should produce — the training lab's answer key."""
     mapping = {
         "soiling": 0, "shading": 1, "pid": 2, "delamination": 2,
@@ -716,7 +729,7 @@ def forecast(tenant: str, horizon_days: float = Query(180.0, ge=1.0, le=3650.0),
 @router.get("/{tenant}/measured/summary")
 def measured_summary(tenant: str,
                      frm: str = Query("-24h", alias="from"),
-                     to: Optional[str] = None):
+                     to: str | None = None):
     """What the REAL sensors recorded, for the same signals the model computes.
 
     Separate from the physics endpoints and labelled `source: "measured"` so nobody

@@ -11,8 +11,9 @@ spatial coupling, and the cyclic zone<->server feedback (1-tick lag).
 from __future__ import annotations
 
 import random
-from dynamics.registry_build import build_dynamics_registry
+
 from dynamics.engine import DynamicsEngine
+from dynamics.registry_build import build_dynamics_registry
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 

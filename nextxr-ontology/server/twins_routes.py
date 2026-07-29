@@ -15,27 +15,26 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel, Field
-
-from graph.writer import GraphWriter
-from graph.query import GraphQuery, LEGAL_LABELS
-from graph.connection import get_driver
 from changelog.service import ChangeLog
-from twins import TwinRegistry, TEMPLATES
+from fastapi import APIRouter, HTTPException, Request
+from graph.connection import get_driver
+from graph.query import GraphQuery
+from graph.writer import GraphWriter
+from pydantic import BaseModel, Field
+from twins import TEMPLATES, TwinRegistry
+
 from server.tenancy import new_tenant_id, scope_of
 
 router = APIRouter(prefix="/api/v1/twins", tags=["twins"])
 
-_registry: Optional[TwinRegistry] = None
-_writer: Optional[GraphWriter] = None
-_query: Optional[GraphQuery] = None
+_registry: TwinRegistry | None = None
+_writer: GraphWriter | None = None
+_query: GraphQuery | None = None
 
 
 def _get_registry() -> TwinRegistry:
@@ -206,8 +205,10 @@ def create_twin(req: CreateTwinRequest, request: Request):
 
     # 2. Ensure schema/constraints exist before seeding (idempotent).
     try:
+        import contextlib
+        import io
+
         from graph import schema
-        import contextlib, io
         with contextlib.redirect_stdout(io.StringIO()):
             # close=False so the shared driver stays alive for the writer below.
             schema.apply_schema(dry_run=False, close=False)

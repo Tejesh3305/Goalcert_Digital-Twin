@@ -54,8 +54,9 @@ from __future__ import annotations
 import math
 import re
 import struct
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any
 
 # ── Data types ──────────────────────────────────────────────────────────────
 #
@@ -137,7 +138,7 @@ def registers_to_bytes(registers: Iterable[int], *, word_order: str = "big",
 
 def decode_registers(registers: Iterable[int], data_type: str, *,
                      word_order: str = "big",
-                     byte_order: str = "big") -> Optional[float]:
+                     byte_order: str = "big") -> float | None:
     """Raw registers → a number, or None when the device says 'not implemented'."""
     if data_type not in _TYPES:
         raise PointMapError(
@@ -181,13 +182,13 @@ class Point:
     unit: str = ""
 
     # Modbus addressing
-    address: Optional[int] = None
+    address: int | None = None
     data_type: str = "uint16"
     word_order: str = "big"
     byte_order: str = "big"
     function_code: int = FC_READ_HOLDING
-    scale_register: Optional[int] = None   # SunSpec: 10^int16 read from here
-    bit: Optional[int] = None              # extract one bit of a bitfield
+    scale_register: int | None = None   # SunSpec: 10^int16 read from here
+    bit: int | None = None              # extract one bit of a bitfield
 
     # OPC-UA / MQTT addressing
     node_id: str = ""
@@ -202,8 +203,8 @@ class Point:
     # Plausibility band. A reading outside it is recorded as BAD quality rather
     # than discarded: "the sensor reported 900 °C" is diagnostic information about
     # the sensor, and silently dropping it makes a failed RTD look like a gap.
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
+    min_value: float | None = None
+    max_value: float | None = None
 
     deadband: float = 0.0             # engineering units; 0 disables
     deadband_timeout_s: float = 300.0  # publish anyway after this long
@@ -213,7 +214,7 @@ class Point:
     def register_count(self) -> int:
         return _TYPES[self.data_type][1] if self.data_type in _TYPES else 1
 
-    def apply_scaling(self, raw: float, sf: Optional[int] = None) -> float:
+    def apply_scaling(self, raw: float, sf: int | None = None) -> float:
         """decode → engineering units. `sf` is the SunSpec exponent when used."""
         value = float(raw)
         if self.bit is not None:
@@ -322,7 +323,7 @@ class PointMap:
     unit_id: int = 1                    # Modbus slave/unit id
     base_address: int = 0               # added to every point address
 
-    def validate(self, *, known_signals: Optional[Iterable[str]] = None) -> None:
+    def validate(self, *, known_signals: Iterable[str] | None = None) -> None:
         """Reject an unusable map. Called when a connector is created or updated.
 
         Validation happens HERE, at configuration time, rather than at decode time.
@@ -400,7 +401,7 @@ class PointMap:
         return {p.scale_register for p in self.points
                 if p.scale_register is not None}
 
-    def address_span(self) -> Optional[tuple[int, int]]:
+    def address_span(self) -> tuple[int, int] | None:
         """(first, last) register touched, for planning batched reads."""
         addrs: list[int] = []
         for p in self.enabled_points():
@@ -424,7 +425,7 @@ class PointMap:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "PointMap":
+    def from_dict(cls, data: dict) -> PointMap:
         """Build from JSON — the path an uploaded/edited map takes.
 
         Per-point orders default to the map's, so a vendor's convention is stated
@@ -504,7 +505,7 @@ def extract_json_path(payload: Any, path: str) -> Any:
                 index = int(index_text)
             except ValueError:
                 return None
-            if not isinstance(current, (list, tuple)) or not (
+            if not isinstance(current, list | tuple) or not (
                     -len(current) <= index < len(current)):
                 return None
             current = current[index]

@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+
 from .physics import SIGNALS, redlines
 
 

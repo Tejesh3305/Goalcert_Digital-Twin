@@ -20,9 +20,9 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from agents.bundle_graph import build_bundle_graph
-from agents.twin_graph import build_twin_graph
-from agents.state import new_bundle_state, new_twin_state
 from agents.registry import get_registry
+from agents.state import new_bundle_state, new_twin_state
+from agents.twin_graph import build_twin_graph
 
 
 def author_bundle(domain, bundle_name, expert_msg):

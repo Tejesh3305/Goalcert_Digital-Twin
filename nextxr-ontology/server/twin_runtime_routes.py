@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -28,8 +27,7 @@ if str(ROOT) not in sys.path:
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-
-from twins.runtime import get_machine_engine, SPECS, MACHINE_DOMAINS
+from twins.runtime import MACHINE_DOMAINS, SPECS, get_machine_engine
 
 router = APIRouter(prefix="/api/v1/twins", tags=["twin-runtime"])
 
@@ -46,17 +44,17 @@ def _twin_or_404(tenant: str):
 
 
 class ProjectRequest(BaseModel):
-    fault: Optional[str] = None
+    fault: str | None = None
     severity: float = 0.85
-    control: Optional[float] = None
+    control: float | None = None
     horizon_min: float = 120.0
     points: int = 120
 
 
 class SimulateRequest(BaseModel):
-    throttle: Optional[float] = None      # generic control input
-    control: Optional[float] = None       # alias for throttle
-    fault: Optional[str] = None
+    throttle: float | None = None      # generic control input
+    control: float | None = None       # alias for throttle
+    fault: str | None = None
     severity: float = 0.6
 
 

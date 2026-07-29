@@ -2,6 +2,7 @@ import { usePolling } from '../../hooks/useApi'
 import api from '../../api/client'
 import { useTwin } from '../../context/TwinContext'
 import TwinSwitcher from './TwinSwitcher'
+import UserMenu from './UserMenu'
 import Logo from '../ui/Logo'
 
 /** Top bar: brand, twin switcher, live platform stats, health dot. */
@@ -55,6 +56,9 @@ export default function Topbar() {
       <div className="topbar-stat"><b>{events}</b> log events</div>
       {bus && <div className="topbar-stat">bus: <b>{bus}</b></div>}
       <div className={`status-dot ${dot}`} title={dotTitle} />
+      {/* Who you are and which organisation you're acting for. Last, so it sits
+          at the right edge where an account control is expected. */}
+      <UserMenu />
     </div>
   )
 }

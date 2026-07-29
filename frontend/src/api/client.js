@@ -5,10 +5,16 @@
  * :8080 (see vite.config.js); in prod, FastAPI serves both the app and the API
  * from the same origin, so relative paths just work.
  *
- * Auth: the backend is dev-permissive (no key required unless NXR_API_KEYS is
- * set). If you set a key, drop it in localStorage as `nxr_api_key` and it is
- * sent as X-API-Key automatically.
+ * Auth: a signed-in user's access token is attached automatically as
+ * `Authorization: Bearer` (held in memory — see api/session.js). A 401 triggers
+ * ONE transparent refresh-and-retry, so a token expiring under an open dashboard
+ * is invisible rather than a screenful of failed panels.
+ *
+ * A machine credential still works: put it in localStorage as `nxr_api_key` and
+ * it is sent as X-API-Key whenever there is no user session.
  */
+
+import { ensureToken, getToken, isExpired, refresh } from './session'
 
 // Resolve the API base at RUNTIME so ONE build serves both the standalone app
 // (defaults to /api/v1) and the hub, where the host sets
@@ -49,8 +55,20 @@ export function assetUrl(url) {
 
 function headers() {
   const h = { 'Content-Type': 'application/json' }
+
+  // The signed-in user's access token. Held in memory (see api/session.js) — it
+  // is deliberately NOT in localStorage, so an XSS cannot walk off with a
+  // working credential.
+  const token = getToken()
+  if (token) h['Authorization'] = `Bearer ${token}`
+
+  // A machine credential, for a browser driving the API with a service key
+  // rather than a login. Still read from localStorage because that is what a
+  // key IS — a long-lived secret the operator pasted in — and it is only ever
+  // used when there is no user session.
   const key = localStorage.getItem('nxr_api_key')
-  if (key) h['X-API-Key'] = key
+  if (key && !token) h['X-API-Key'] = key
+
   // When federated into the hub, the host injects its auth (Bearer JWT and/or
   // CSRF token) so calls to the hub gateway (/api/twin/*) authenticate. Same-
   // origin cookies also ride automatically via `credentials` below.
@@ -60,14 +78,48 @@ function headers() {
   return h
 }
 
-async function request(path, options = {}) {
-  const res = await fetch(`${apiBase()}${path}`, { credentials: 'same-origin', headers: headers(), ...options })
+/**
+ * One API call, with a single transparent retry after a token refresh.
+ *
+ * WHY THE RETRY EXISTS: access tokens last ~15 minutes. Without this, a user who
+ * left a dashboard open comes back to a wall of failed panels and has to reload.
+ * With it, the first call after expiry silently renews and succeeds.
+ *
+ * It retries ONCE, and only on 401. A second 401 after a fresh token means the
+ * session is genuinely gone (revoked, password changed, signed out elsewhere),
+ * and retrying again would be an infinite loop against a server that has already
+ * given its answer.
+ */
+async function request(path, options = {}, { retryOn401 = true } = {}) {
+  // Refresh proactively when the token is known to be stale, so the common case
+  // costs one request rather than a 401 plus a retry.
+  if (!path.startsWith('/auth/') && getToken() && isExpired()) {
+    await ensureToken()
+  }
+
+  const res = await fetch(`${apiBase()}${path}`, {
+    // `include`, not `same-origin`: the refresh cookie has to ride along when
+    // the app is served from a different origin than the API (CloudFront in
+    // front of an ALB). Same-origin deployments are unaffected.
+    credentials: 'include',
+    headers: headers(),
+    ...options,
+  })
+
+  if (res.status === 401 && retryOn401 && !path.startsWith('/auth/')) {
+    const renewed = await refresh()
+    if (renewed) return request(path, options, { retryOn401: false })
+  }
+
   if (!res.ok) {
     let detail
     try { detail = (await res.json()).detail } catch { detail = res.statusText }
     const err = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
     err.status = res.status
     err.detail = detail
+    // Surfaced so a caller can distinguish "slow down" from "broken" — the
+    // rate limiter returns this and the UI should say when to try again.
+    if (res.status === 429) err.retryAfter = Number(res.headers.get('Retry-After') || 0)
     throw err
   }
   if (res.status === 204) return null

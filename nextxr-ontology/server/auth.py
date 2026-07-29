@@ -1,19 +1,44 @@
-"""
-auth.py — API key authentication and tenant-scoped RBAC.
+"""auth.py — AUTHENTICATION. Who is calling?
 
-Every request must include an X-API-Key header. Keys are mapped to tenants
-and roles. The dashboard (served at /) is exempt from auth.
+This module answers only that question. What they may then TOUCH is
+`server/tenancy.py`, and keeping the two apart is deliberate: authentication has
+three doors and authorization has one rule, and collapsing them is how the
+original cross-tenant hole survived (an authorization check that lived inside the
+authentication middleware could only see the query string).
 
-Tenant isolation: a key scoped to tenant "acme" cannot read or write
-data in tenant "globex". Admin keys can access all tenants.
+THE THREE DOORS
+---------------
+    Authorization: Bearer <jwt>   a signed-in HUMAN. Verified by signature, then
+                                  the session row is checked so a logout takes
+                                  effect at once. See identity/tokens.py.
+    X-API-Key: nxr_live_...       a MACHINE. Looked up in the `api_keys` table
+                                  (or, legacy, in the NXR_API_KEYS env blob).
+    X-Device-Token: ...           a telemetry GATEWAY, on two ingest paths only.
 
-Roles:
-  - admin:  full access to all tenants and operations
-  - write:  read + write within their tenant
-  - read:   read-only within their tenant
+All three produce an `identity.Principal`, stashed on `request.state.principal`.
+Everything downstream reads that one object and never re-derives it.
 
-Configuration is via environment variable NXR_API_KEYS (JSON) or defaults
-to a demo key for development.
+FAIL-CLOSED BY DEFAULT — THE CHANGE THAT MATTERS MOST HERE
+-----------------------------------------------------------
+This middleware used to serve any request with no credential whenever
+`NXR_API_KEYS` was unset. That is the correct default for a laptop and a serious
+one for a deployment: the service was open the moment someone forgot an
+environment variable, including the `/copilot` endpoints that bill our Anthropic
+key. The warning at boot was loud, and a warning is not a control.
+
+The default is now inverted. `auth_required()` returns True unless a deployment
+explicitly opts out, so an unconfigured deploy REFUSES requests rather than
+serving them. Local dev opts out once, visibly, with `NXR_DEV_MODE=1` (set by
+`start.ps1`) — an escape hatch someone has to type, rather than a hole someone
+has to remember to close.
+
+LEGACY ENV KEYS STILL WORK
+--------------------------
+`NXR_API_KEYS` is honoured after the database lookup misses. It is how the
+platform was configured before `identity/` existed, it is what the test suite
+uses, and it is the break-glass credential when the identity tables are
+unreachable. It is no longer the primary mechanism, and `posture()` says so at
+boot when it is the only one configured.
 """
 
 from __future__ import annotations
@@ -21,7 +46,6 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Optional
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -30,15 +54,16 @@ from starlette.responses import JSONResponse, Response
 
 @dataclass
 class ApiKeyInfo:
-    """One configured API key and what it may reach.
+    """One key configured in the NXR_API_KEYS environment variable.
 
-    `tenant` is the original single-tenant field and still works. `tenants` and
-    `tenant_prefix` were added because the single field could not express "this
-    customer owns 50 twins" without granting `"*"` — which also grants every
-    OTHER customer's data. Serving a real enterprise account therefore required
-    over-granting. See `server/tenancy.py` for how these project onto a Scope,
-    and note that ALL authorization decisions are made there: this dataclass is
-    configuration, not policy.
+    LEGACY. Database-backed keys (`identity/store.py`) are the primary mechanism
+    and carry their scope as a real `org_tenants` relation rather than the string
+    conventions below. This is kept because it still works, the fast test suite
+    is built on it, and it is the credential that opens the door when the
+    identity tables are down.
+
+    ALL authorization decisions are made in `server/tenancy.py`: this dataclass
+    is configuration, not policy.
     """
     key: str
     tenant: str                       # "*" for admin (all tenants)
@@ -48,107 +73,217 @@ class ApiKeyInfo:
     tenant_prefix: str = ""           # every tenant id under this prefix
 
 
-# Default keys for development — override with NXR_API_KEYS env var
-_DEFAULT_KEYS = [
-    {"key": "nxr-demo-key", "tenant": "*", "role": "admin", "name": "Demo Admin"},
-    {"key": "nxr-read-only", "tenant": "demo-tenant", "role": "read", "name": "Demo Reader"},
-]
-
 _key_store: dict[str, ApiKeyInfo] = {}
+_keys_loaded = False
 
 
-def _load_keys():
-    global _key_store
+def _truthy(val: str | None) -> bool:
+    return str(val or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _falsy(val: str | None) -> bool:
+    return str(val or "").strip().lower() in ("0", "false", "no", "off")
+
+
+def _load_keys() -> None:
+    """Parse NXR_API_KEYS.
+
+    A malformed blob yields NO keys rather than raising. Raising here happens
+    inside middleware construction, which surfaces as HTTP 500 on every request
+    with a traceback that does not obviously say "your JSON is broken" — and with
+    the fail-closed default, zero keys is already a safe outcome: requests are
+    refused, which is what a broken credential configuration should cause.
+
+    There is no default demo key any more. `nxr-demo-key`/`nxr-read-only` used to
+    be minted whenever the variable was unset, which meant a published image
+    shipped with a known admin credential.
+    """
+    global _key_store, _keys_loaded
     raw = os.getenv("NXR_API_KEYS")
+    keys = []
     if raw:
-        keys = json.loads(raw)
-    else:
-        keys = _DEFAULT_KEYS
+        try:
+            keys = json.loads(raw)
+            if not isinstance(keys, list):
+                raise ValueError("NXR_API_KEYS must be a JSON array")
+        except Exception as e:
+            print(f"[auth] !! NXR_API_KEYS could not be parsed ({e}). No "
+                  f"environment keys are configured; every request needing one "
+                  f"will be rejected.", flush=True)
+            keys = []
 
     _key_store = {
         k["key"]: ApiKeyInfo(
             key=k["key"],
             # Default to "" rather than "*": a key entry that forgets to declare
-            # its scope must reach nothing, not everything. The old default
-            # meant a typo'd field name silently produced an admin key.
+            # its scope must reach nothing, not everything. The old default meant
+            # a typo'd field name silently produced an admin key.
             tenant=k.get("tenant", ""),
             role=k.get("role", "read"),
             name=k.get("name", "unknown"),
             tenants=tuple(k.get("tenants") or ()),
             tenant_prefix=k.get("tenant_prefix", "") or "",
         )
-        for k in keys
+        for k in keys if isinstance(k, dict) and k.get("key")
     }
+    _keys_loaded = True
 
 
-def _resolve_key(api_key: str) -> Optional[ApiKeyInfo]:
-    if not _key_store:
+def _resolve_key(api_key: str) -> ApiKeyInfo | None:
+    if not _keys_loaded:
         _load_keys()
     return _key_store.get(api_key)
 
 
-def _truthy(val: Optional[str]) -> bool:
-    return str(val or "").strip().lower() in ("1", "true", "yes", "on")
+def reload_keys() -> None:
+    """Re-read NXR_API_KEYS. For tests that change the variable mid-session."""
+    global _keys_loaded
+    _keys_loaded = False
+    _load_keys()
 
 
-def _require_auth() -> bool:
-    """Production posture. When NXR_REQUIRE_AUTH is set, a missing/blank X-API-Key
-    is always rejected — even if NXR_API_KEYS is not configured. This closes the
-    dev-mode fail-open bypass for a real deployment without changing the local
-    default (open), so exposing the service to the internet is an explicit opt-in
-    to enforcement rather than a silent default-open."""
-    return _truthy(os.getenv("NXR_REQUIRE_AUTH"))
+def auth_required() -> bool:
+    """Whether a credential is mandatory. SECURE BY DEFAULT.
+
+    Precedence, most explicit first:
+
+      NXR_REQUIRE_AUTH=0/false   force OFF. An explicit, greppable decision — for
+                                 an air-gapped demo box, or a test that needs the
+                                 open path.
+      NXR_REQUIRE_AUTH=1/true    force ON.
+      NXR_DEV_MODE=1             OFF. The local-development escape hatch;
+                                 `start.ps1` sets it.
+      (nothing set)              ON.
+
+    That last line is the whole point. Previously it meant OFF, so every
+    deployment that forgot a variable was open to the internet.
+    """
+    explicit = os.getenv("NXR_REQUIRE_AUTH")
+    if explicit is not None and str(explicit).strip():
+        if _falsy(explicit):
+            return False
+        if _truthy(explicit):
+            return True
+    if _truthy(os.getenv("NXR_DEV_MODE")):
+        return False
+    return True
+
+
+def _identity_enabled() -> bool:
+    """Whether to consult the identity tables. On unless explicitly disabled —
+    the switch exists so a deployment that has not provisioned the schema yet can
+    run on env keys alone without every request paying for a failing lookup."""
+    return not _truthy(os.getenv("NXR_IDENTITY_DISABLED"))
+
+
+def posture() -> list[str]:
+    """The auth configuration, as lines for the boot log."""
+    lines: list[str] = []
+    enforced = auth_required()
+
+    if not enforced:
+        why = ("NXR_REQUIRE_AUTH is set to a false value"
+               if os.getenv("NXR_REQUIRE_AUTH") else "NXR_DEV_MODE is set")
+        lines.append(
+            f"[auth] !! AUTHENTICATION IS DISABLED ({why}). Every /api request "
+            f"- including the LLM-billing /copilot endpoints - is served without "
+            f"a credential. This must never be the posture of a public deployment.")
+        return lines
+
+    if not _keys_loaded:
+        _load_keys()
+    sources = []
+    if _identity_enabled():
+        sources.append("database (users + api_keys)")
+    if _key_store:
+        sources.append(f"NXR_API_KEYS ({len(_key_store)} legacy key"
+                       f"{'' if len(_key_store) == 1 else 's'})")
+    lines.append(f"[auth] enforcement ON - credential sources: "
+                 f"{', '.join(sources) if sources else 'NONE CONFIGURED'}")
+    if not sources:
+        lines.append("[auth] !! No credential source is available, so every /api "
+                     "request will be rejected. Provision the identity schema "
+                     "(python -m db.schema) and bootstrap an admin, or set "
+                     "NXR_API_KEYS.")
+    return lines
 
 
 def log_auth_posture() -> None:
-    """Announce the auth posture once at startup so an open deployment cannot hide.
-    Fires from AuthMiddleware.__init__ when the app is assembled."""
-    if os.getenv("NXR_API_KEYS"):
-        print("[auth] API key enforcement ON - NXR_API_KEYS configured.", flush=True)
-    elif _require_auth():
-        print("[auth] API key enforcement ON - NXR_REQUIRE_AUTH set but NXR_API_KEYS "
-              "is empty, so every /api call will be rejected until keys are configured.",
-              flush=True)
-    else:
-        # ASCII only, deliberately. This runs when the middleware stack is built,
-        # i.e. on the first request — and stdout is a redirected pipe under
-        # CloudWatch (and under `python -m server.main > log` on Windows). A
-        # character the stream's encoding can't represent raised UnicodeEncodeError
-        # *inside middleware construction*, which surfaced as HTTP 500 on every
-        # request. The one line warning that the API is open must never be the
-        # thing that takes the API down.
-        print("[auth] !! API IS OPEN - no NXR_API_KEYS set and NXR_REQUIRE_AUTH unset. "
-              "Every /api request (including LLM-billing /copilot endpoints) is served "
-              "without a key. Set NXR_API_KEYS before exposing this service publicly.",
-              flush=True)
+    """Announce the auth posture once at startup so an open deployment cannot
+    hide. Fires from AuthMiddleware.__init__ when the app is assembled.
+
+    ASCII only, deliberately. This runs when the middleware stack is built, i.e.
+    on the first request — and stdout is a redirected pipe under CloudWatch (and
+    under `python -m server.main > log` on Windows). A character the stream's
+    encoding cannot represent raised UnicodeEncodeError *inside middleware
+    construction*, which surfaced as HTTP 500 on every request. The one line
+    warning that the API is open must never be the thing that takes the API down.
+    """
+    for line in posture():
+        print(line, flush=True)
+
+
+# ── Legacy helpers, retained for back-compat ────────────────────────────
 
 
 def check_tenant_access(key_info: ApiKeyInfo, requested_tenant: str) -> bool:
-    """Check if this key can access the requested tenant.
+    """Whether this env key can access a tenant.
 
     Delegates to `server/tenancy.py` so there is exactly ONE implementation of
-    the rule. This used to compare `key_info.tenant == requested_tenant`
-    directly, which is now wrong twice over: it cannot see a `tenants` set or a
-    `tenant_prefix`, so a correctly-configured multi-twin enterprise key would
-    be refused its own data.
-
-    The middleware still calls this on the query-string tenant as
-    defence-in-depth. Real enforcement — across path, query AND body — is the
-    global `enforce_tenant_scope` dependency, because middleware runs before
-    routing and therefore cannot see `{tenant}` path parameters at all. That
-    blind spot was the original cross-tenant hole.
+    the rule. Real enforcement — across path, query AND body — is the global
+    `enforce_tenant_scope` dependency, because middleware runs before routing and
+    therefore cannot see `{tenant}` path parameters at all. That blind spot was
+    the original cross-tenant hole.
     """
     from server.tenancy import _scope_from_key
     return _scope_from_key(key_info).allows(requested_tenant)
 
 
 def check_write_access(key_info: ApiKeyInfo) -> bool:
-    """Check if this key can perform write operations."""
-    return key_info.role in ("admin", "write")
+    """Whether an env key may mutate.
+
+    Ordered against the role ladder rather than a membership test, for the same
+    reason as `tenancy.require_write`: a hardcoded `("admin", "write")` refuses
+    `owner`, which outranks both.
+    """
+    from identity import role_at_least
+    return role_at_least(key_info.role, "write")
 
 
-# Paths that don't require auth
+# ── Path policy ─────────────────────────────────────────────────────────
+
+# Non-API paths that need no credential.
 _PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/redoc"}
+
+# API paths that must stay reachable WITHOUT a credential. Platform health probes
+# (Render, the Dockerfile HEALTHCHECK, an ECS target group) cannot send one, so
+# gating these behind auth makes the orchestrator declare the service unhealthy
+# and restart it in a loop — the process is fine, the probe just cannot
+# authenticate. The payloads are deliberately non-sensitive.
+_PUBLIC_API_PATHS = {
+    "/api/v1/health",
+    "/api/v1/health/live",
+    "/api/v1/health/ready",
+    "/api/v1/copilot/health",
+}
+
+# The authentication surface itself. These MUST be reachable without a
+# credential — they are how a caller obtains one. Everything else under
+# /api/v1/auth (me, sessions, orgs, keys) requires authentication and gets it
+# through the normal path below.
+#
+# Each is rate-limited (server/ratelimit.py) precisely because it is
+# unauthenticated: /login is a password-guessing surface, /signup an
+# account-creation one, and /password/forgot an email-enumeration one.
+_PUBLIC_AUTH_PATHS = {
+    "/api/v1/auth/signup",
+    "/api/v1/auth/login",
+    "/api/v1/auth/refresh",
+    "/api/v1/auth/logout",
+    "/api/v1/auth/password/forgot",
+    "/api/v1/auth/password/reset",
+    "/api/v1/auth/verify-email",
+}
 
 # Paths where an `X-Device-Token` is an acceptable credential INSTEAD of an
 # X-API-Key. Deliberately a tiny, explicit allow-list of append-only telemetry
@@ -160,41 +295,37 @@ _PUBLIC_PATHS = {"/", "/docs", "/openapi.json", "/redoc"}
 # off with (see ingest/devices.py). So it authenticates as itself — but the
 # middleware previously demanded an X-API-Key on every /api path, which rejected
 # the device before its own route could ever authenticate it.
-#
-# Everything about that stays narrow on purpose: a device token is accepted ONLY
-# for these two paths, and `server/tenancy.py` pins the resulting scope to that
-# device's single tenant with write-only rights, so a device that somehow reached
-# another route still could not read across the fleet.
 _DEVICE_TOKEN_PATHS = {
     "/api/v1/ingest/telemetry",
     "/api/v1/ingest/telemetry/bulk",
 }
 
-# POSTs that MUTATE NOTHING, and are therefore allowed to a read-only key.
+# POSTs that MUTATE NOTHING, and are therefore allowed to a read-only credential.
 #
 # Each is a pure function of its request body: it touches no store, creates no
-# entity, and starts no background work. They are POSTs purely because their input
-# is a structured document rather than a handful of query parameters.
+# entity, and starts no background work. They are POSTs purely because their
+# input is a structured document rather than a handful of query parameters.
 #
 #   /api/v1/solar/model/evaluate  runs the De Soto model at a given (G, T) and
 #                                 returns the I-V curve. No tenant, no telemetry.
-#   /api/v1/schema/validate       validates a Turtle fragment against the shapes
-#                                 and returns the violations.
+#   /api/v1/schema/validate       validates a Turtle fragment against the shapes.
 #
-# Adding to this list grants every read-only key access to that path, so it takes
-# the same scrutiny as widening a scope.
+# Adding to this list grants every read-only credential access to that path, so
+# it takes the same scrutiny as widening a scope.
 _READ_SAFE_POST_PATHS = {
     "/api/v1/solar/model/evaluate",
     "/api/v1/schema/validate",
 }
 
-# API paths that must stay reachable WITHOUT a key. Platform health probes
-# (Render, the Dockerfile HEALTHCHECK, an ECS target group) cannot send an
-# X-API-Key, so gating these behind auth makes the orchestrator declare the
-# service unhealthy and restart it in a loop — the process is fine, the probe
-# just can't authenticate. The health payload is deliberately non-sensitive
-# (up/degraded + component status).
-_PUBLIC_API_PATHS = {"/api/v1/health", "/api/v1/copilot/health"}
+# Authenticated /auth routes that are POSTs but are not "writes" in the
+# role sense — they act on the caller's OWN session or password, so a read-only
+# member must be able to reach them. Without this a `read` user could sign in and
+# then be refused their own password change.
+_SELF_SERVICE_POST_PATHS = {
+    "/api/v1/auth/switch-org",
+    "/api/v1/auth/password/change",
+    "/api/v1/auth/sessions/revoke-others",
+}
 
 
 def _is_public(path: str, method: str) -> bool:
@@ -204,7 +335,7 @@ def _is_public(path: str, method: str) -> bool:
     normalized = path.rstrip("/") or "/"
     if normalized in _PUBLIC_PATHS or path in _PUBLIC_PATHS:
         return True
-    if normalized in _PUBLIC_API_PATHS:
+    if normalized in _PUBLIC_API_PATHS or normalized in _PUBLIC_AUTH_PATHS:
         return True
     if path.startswith(("/static", "/assets")):
         return True
@@ -214,7 +345,7 @@ def _is_public(path: str, method: str) -> bool:
     return False
 
 
-def _deny(status_code: int, detail: str) -> JSONResponse:
+def _deny(status_code: int, detail: str, **extra) -> JSONResponse:
     """Build an auth-failure response.
 
     We RETURN this rather than raising HTTPException. FastAPI translates
@@ -225,29 +356,35 @@ def _deny(status_code: int, detail: str) -> JSONResponse:
     traceback. That turned every unauthenticated call into "500 Internal Server
     Error" instead of a clean 401, and made the logs look like a server crash.
     """
-    return JSONResponse(status_code=status_code, content={"detail": detail})
+    payload = {"detail": detail}
+    payload.update(extra)
+    response = JSONResponse(status_code=status_code, content=payload)
+    if status_code == 401:
+        # Tells a client WHICH credential to present. A CLI holding an expired
+        # token needs to distinguish "refresh me" from "you sent the wrong kind".
+        response.headers["WWW-Authenticate"] = 'Bearer realm="nextxr"'
+    return response
+
+
+# ── Middleware ──────────────────────────────────────────────────────────
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    """FastAPI middleware that enforces API key authentication."""
+    """Resolve the caller's credential into a Principal, or refuse the request."""
 
     def __init__(self, app):
         super().__init__(app)
         log_auth_posture()
-        # Tenant-scope posture sits next to the auth line: "enforcement ON" and
-        # "every key is admin-scoped" are different deployments, and an operator
-        # reading CloudWatch after a rollout needs to see both.
+        # The deployment posture, all in one place. An operator reading
+        # CloudWatch after a rollout needs to see auth, tenancy, identity and
+        # every store on adjacent lines — AWS_DEPLOYMENT.md §11 tells them to.
         try:
             from server.tenancy import log_posture as _tenancy_posture
             _tenancy_posture()
         except Exception as e:
             print(f"[tenancy] posture unavailable: {e}", flush=True)
-        # Same reasoning as the auth line: a misconfigured deploy must announce
-        # itself at boot rather than be discovered when twins go missing, models
-        # 404 on half the tasks, or live updates quietly stop for some users.
-        # These four lines are the deployment posture, and AWS_DEPLOYMENT.md §11
-        # tells operators to read them in CloudWatch after every rollout.
-        for mod in ("db", "storage", "bus", "historian"):
+
+        for mod in ("identity", "db", "storage", "bus", "historian"):
             try:
                 __import__(mod).log_posture()
             except Exception as e:
@@ -258,21 +395,61 @@ class AuthMiddleware(BaseHTTPMiddleware):
                     raise
                 print(f"[{mod}] posture unavailable: {e}", flush=True)
 
+        # Schema version. Reported always; APPLIED only when the deployment asked
+        # for it (NXR_AUTO_MIGRATE), because several tasks starting together would
+        # otherwise queue on the advisory lock and time out their health checks.
+        # The recommended shape is a one-off migrate task before the service rolls
+        # — this line is how an operator confirms it ran.
+        try:
+            from db import migrations as _migrations
+            _migrations.run_at_startup()
+            _migrations.log_posture()
+        except Exception as e:
+            print(f"[migrations] posture unavailable: {e}", flush=True)
+
+        # Refuse to boot on a configuration that would fail intermittently and
+        # unexplainably in a fleet — an ephemeral JWT key while auth is enforced.
+        # Better a failed deploy than half the requests 401ing at random.
+        try:
+            from identity.tokens import require_secret
+            require_secret()
+        except RuntimeError:
+            raise
+        except Exception as e:
+            print(f"[identity] token posture unavailable: {e}", flush=True)
+
+        # Create the first platform admin if the environment asks for one.
+        try:
+            from identity import bootstrap_admin
+            created = bootstrap_admin()
+            if created:
+                print(f"[identity] bootstrap platform admin created ({created}). "
+                      f"Remove NXR_BOOTSTRAP_ADMIN_* from the task definition now.",
+                      flush=True)
+        except Exception as e:
+            print(f"[identity] bootstrap skipped: {e}", flush=True)
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         path = request.url.path
+        normalized = path.rstrip("/") or "/"
 
         # Honor the identity headers the Integration Hub gateway forwards for
         # tenant scoping / audit logging (the browser never holds these). Stash
         # them on request.state so downstream handlers can read them; they never
-        # gate access on their own (the X-API-Key does that).
+        # gate access on their own.
         request.state.identity = {
             "user": request.headers.get("X-Goalcert-User"),
             "role": request.headers.get("X-Goalcert-Role"),
             "org": request.headers.get("X-Goalcert-Org"),
         }
+        request.state.principal = None
 
-        # Public paths (frontend app, assets, docs)
         if _is_public(path, request.method):
+            # Public, but still resolve any credential that WAS supplied. A
+            # signed-in user hitting /auth/logout or /auth/refresh should be
+            # recognised, and the health endpoints report more detail to an
+            # authenticated operator.
+            await self._try_authenticate(request, path, normalized)
             return await call_next(request)
 
         # Device credential: authenticate HERE so the ingest hot path does one
@@ -280,14 +457,17 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # tenancy.scope_of() can pin the request to that device's tenant.
         # Note `is not None`, not truthiness. A client that SENDS the header is
         # attempting device authentication, so an empty value must fail as a bad
-        # device token rather than falling through to "Missing X-API-Key header" —
-        # two different messages for two malformed credentials is a distinction an
+        # device token rather than falling through to "Missing credential" — two
+        # different messages for two malformed credentials is a distinction an
         # attacker can probe, and a confusing mixed signal for an operator.
         device_token = request.headers.get("X-Device-Token")
-        if device_token is not None and path.rstrip("/") in _DEVICE_TOKEN_PATHS:
+        if device_token is not None and normalized in _DEVICE_TOKEN_PATHS:
             try:
                 from ingest import devices as _devices
-                request.state.device = _devices.authenticate(device_token)
+                device = _devices.authenticate(device_token)
+                request.state.device = device
+                from identity import principal_for_device
+                request.state.principal = principal_for_device(device)
             except Exception as e:
                 # Coarse on purpose: distinguishing "unknown token" from
                 # "disabled" from "expired" confirms to whoever is holding stolen
@@ -297,48 +477,133 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return _deny(401, "Invalid or inactive device token")
             return await call_next(request)
 
-        # Require API key
-        api_key = request.headers.get("X-API-Key")
-        if not api_key:
-            # No key on the request. In dev (no NXR_API_KEYS configured) we let it
-            # through — UNLESS auth is explicitly required (NXR_REQUIRE_AUTH), the
-            # production posture. That closes the fail-open hole for a real deploy
-            # while leaving local-dev behaviour (open) unchanged.
-            if not os.getenv("NXR_API_KEYS") and not _require_auth():
+        principal, failure = await self._try_authenticate(request, path, normalized)
+
+        if failure is not None:
+            return failure
+
+        if principal is None:
+            if not auth_required():
+                # Explicitly-opted-out dev mode. tenancy.scope_of() supplies the
+                # open admin scope; nothing else in the stack needs to know.
                 return await call_next(request)
-            return _deny(401, "Missing X-API-Key header")
-
-        key_info = _resolve_key(api_key)
-        if key_info is None:
-            return _deny(401, "Invalid API key")
-
-        # Check tenant access
-        tenant = request.query_params.get("tenant")
-        if tenant and not check_tenant_access(key_info, tenant):
             return _deny(
-                403,
-                f"Key '{key_info.name}' cannot access tenant '{tenant}'",
-            )
+                401,
+                "Authentication required. Send an 'Authorization: Bearer <token>' "
+                "header (sign in at /api/v1/auth/login) or an 'X-API-Key' header.")
 
-        # Check write access for mutations.
-        #
-        # "POST implies mutation" is the right default and it is not universally
-        # true: a few endpoints are pure FUNCTIONS that read nothing and write
-        # nothing, and are POSTs only because their input is a structured body too
-        # large or too nested for a query string. Refusing those to a read-only key
-        # is a false negative — an analyst with read access should be able to run
-        # the PV model against a datasheet, or validate a Turtle fragment, without
-        # being handed a credential that can also delete twins.
+        # Write access. "POST implies mutation" is the right default and it is not
+        # universally true: a few endpoints are pure FUNCTIONS that read nothing
+        # and write nothing, and are POSTs only because their input is a
+        # structured body too large or too nested for a query string. Refusing
+        # those to a read-only credential is a false negative — an analyst with
+        # read access should be able to run the PV model against a datasheet
+        # without being handed a credential that can also delete twins.
         #
         # The exemption is a short, explicit ALLOW-list rather than a heuristic,
         # because the failure directions are asymmetric: wrongly exempting a
-        # mutating route hands write access to every read key, while wrongly
-        # omitting a pure one costs a 403 that someone reports.
-        if (request.method in ("POST", "PATCH", "PUT", "DELETE")
-                and path.rstrip("/") not in _READ_SAFE_POST_PATHS):
-            if not check_write_access(key_info):
-                return _deny(403, f"Key '{key_info.name}' has read-only access")
+        # mutating route hands write access to every read credential, while
+        # wrongly omitting a pure one costs a 403 that someone reports.
+        if request.method in ("POST", "PATCH", "PUT", "DELETE") \
+                and normalized not in _READ_SAFE_POST_PATHS \
+                and normalized not in _SELF_SERVICE_POST_PATHS \
+                and not normalized.startswith("/api/v1/auth/"):
+            if not principal.can_write:
+                return _deny(403, f"'{principal.label}' has read-only access.")
 
-        # Attach key info to request state for downstream use
-        request.state.api_key = key_info
         return await call_next(request)
+
+    async def _try_authenticate(self, request: Request, path: str,
+                                normalized: str):
+        """Resolve whichever credential the request carries.
+
+        Returns (principal_or_None, failure_response_or_None). A SUPPLIED but
+        INVALID credential is a failure (401) even on a public path — silently
+        treating a bad token as anonymous would let a client with an expired
+        session believe it was signed in.
+        """
+        bearer = request.headers.get("Authorization")
+        if bearer:
+            from identity.tokens import bearer_from_header
+            token = bearer_from_header(bearer)
+            if token:
+                from identity import principal_from_access_token
+                principal = principal_from_access_token(token)
+                if principal is None:
+                    return None, _deny(
+                        401, "Session expired or invalid. Sign in again.",
+                        code="token_invalid")
+                request.state.principal = principal
+                # Back-compat: a few handlers still read request.state.api_key.
+                request.state.api_key = _compat_key_info(principal)
+                return principal, None
+
+        api_key = request.headers.get("X-API-Key")
+        if api_key:
+            principal = None
+            if _identity_enabled():
+                try:
+                    from identity import principal_from_api_key
+                    principal = principal_from_api_key(api_key)
+                except Exception as e:
+                    # The identity tables are unreachable. Fall through to the
+                    # env keys rather than failing every request — that is the
+                    # break-glass path, and it is why NXR_API_KEYS still exists.
+                    print(f"[auth] identity lookup unavailable, falling back to "
+                          f"NXR_API_KEYS: {e}", flush=True)
+
+            if principal is None:
+                key_info = _resolve_key(api_key)
+                if key_info is not None:
+                    principal = _principal_from_env_key(key_info)
+                    request.state.api_key = key_info
+
+            if principal is None:
+                return None, _deny(401, "Invalid API key.")
+
+            request.state.principal = principal
+            if getattr(request.state, "api_key", None) is None:
+                request.state.api_key = _compat_key_info(principal)
+
+            # Defence in depth: the query-string tenant check that predates the
+            # global dependency. Real enforcement is `enforce_tenant_scope`,
+            # which sees path and body too, but a cheap early refusal here costs
+            # nothing and closes the window if that dependency is ever removed.
+            tenant = request.query_params.get("tenant")
+            if tenant:
+                from server.tenancy import scope_of
+                if not scope_of(request).allows(tenant):
+                    return None, _deny(
+                        403, f"'{principal.label}' cannot access tenant '{tenant}'.")
+            return principal, None
+
+        return None, None
+
+
+def _principal_from_env_key(key_info: ApiKeyInfo):
+    """A Principal for a legacy NXR_API_KEYS entry.
+
+    `tenants=None` means "resolve from the org", which an env key has none of —
+    so the scope is carried by `request.state.api_key` and read by
+    `tenancy._scope_from_key`, preserving the exact `"*"` / prefix / set
+    semantics those keys have always had. Encoding them into a Principal instead
+    would mean two implementations of the same rule.
+    """
+    from identity import Principal
+    return Principal(
+        kind="api_key",
+        key_id=f"env:{key_info.name}",
+        org_id=None,
+        role=key_info.role,
+        tenants=None,
+        label=key_info.name,
+    )
+
+
+def _compat_key_info(principal) -> ApiKeyInfo:
+    """Shape a Principal like the old ApiKeyInfo for handlers that still read
+    `request.state.api_key`. Scope fields are left empty: `tenancy.scope_of()`
+    resolves a database-backed principal from `org_tenants`, and a half-filled
+    duplicate here would be a second source of truth to disagree with it."""
+    return ApiKeyInfo(key="", tenant="", role=principal.role,
+                      name=principal.label or principal.kind)

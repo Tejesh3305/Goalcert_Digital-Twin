@@ -14,14 +14,15 @@ Usage:
 
 import argparse
 import sys
-from pathlib import Path
 
 try:
-    from rdflib import Graph, RDF, RDFS, OWL, URIRef
+    from rdflib import OWL, RDF, RDFS, Graph, URIRef
 except ImportError:
     sys.exit("Install deps first:  pip install rdflib owlrl pyshacl")
 
-from ontology_graph import ROOT, NXR_CORE as NXR, PLATFORM_FILES, PACK_FILES
+from ontology_graph import NXR_CORE as NXR
+from ontology_graph import PACK_FILES, PLATFORM_FILES, ROOT
+
 
 # The shared layer lists, split into (folder, file) pairs for friendly output.
 def _split(rel):
@@ -61,7 +62,7 @@ def summary(g):
     obj_props = set(g.subjects(RDF.type, OWL.ObjectProperty))
     dt_props = set(g.subjects(RDF.type, OWL.DatatypeProperty))
     nxr_classes = sorted(str(c) for c in classes if str(c).startswith(NXR))
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     print(f"  Total classes:          {len(classes)}")
     print(f"  Platform (nxr) classes: {len(nxr_classes)}")
     print(f"  Object properties:      {len(obj_props)}")
@@ -72,7 +73,7 @@ def summary(g):
     pa = URIRef(NXR + "PhysicalAsset")
     me = URIRef("http://purl.obolibrary.org/obo/BFO_0000040")
     supers = set(g.objects(ah, RDFS.subClassOf))
-    print(f"\n  Inference check — hvac:AirHandler superclasses include:")
+    print("\n  Inference check — hvac:AirHandler superclasses include:")
     print(f"    nxr:PhysicalAsset      {'YES' if pa in supers else 'no'}")
     print(f"    bfo:MaterialEntity     {'YES' if me in supers else 'no'}  "
           f"(inferred transitively)")

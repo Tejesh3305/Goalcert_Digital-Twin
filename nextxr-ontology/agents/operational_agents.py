@@ -20,7 +20,6 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -189,8 +188,8 @@ def diagnosis_agent(state: dict) -> dict:
 
     # Write diagnosis node to graph (best-effort).
     try:
-        from graph.writer import GraphWriter
         from changelog.service import ChangeLog
+        from graph.writer import GraphWriter
         writer = GraphWriter(changelog=ChangeLog())
         top = hypotheses[0] if hypotheses else {"cause": "Unknown", "confidence": 0.5}
         res = writer.create(
@@ -283,8 +282,8 @@ def recommender_agent(state: dict) -> dict:
 
     # Write recommendations to graph (best-effort).
     try:
-        from graph.writer import GraphWriter
         from changelog.service import ChangeLog
+        from graph.writer import GraphWriter
         writer = GraphWriter(changelog=ChangeLog())
         diag_node = diagnosis.get("diagnosis_node_id")
 

@@ -19,15 +19,17 @@ from __future__ import annotations
 import copy
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from behaviors.registry import TelemetrySample
+from changelog.service import ChangeLog
 from feed.simulate import FindingsLoop
 from graph.writer import GraphWriter
-from graph.query import GraphQuery
-from changelog.service import ChangeLog
+
 from twins.coordinator import (
-    apply_state_dict, get_coordinator, state_to_dict,
+    apply_state_dict,
+    get_coordinator,
+    state_to_dict,
 )
 
 
@@ -72,7 +74,7 @@ class _FrameQuery:
     of the twin's LATEST frame, keyed by short local name (case-insensitive).
     Lets Tier-A cross-signal rules read siblings without touching Neo4j."""
 
-    def __init__(self, twin: "LiveTwin"):
+    def __init__(self, twin: LiveTwin):
         self._twin = twin
 
     def _props(self) -> dict:
@@ -227,7 +229,7 @@ class LiveTwin:
         self.frames += 1
         if not persist:
             return frame
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         units = self.spec["units"]
         for sig, val in frame.items():
             sample = TelemetrySample(
@@ -367,7 +369,7 @@ class MachineEngine:
                 except Exception:
                     pass  # never kill the ticker
 
-    def _adopt_if_new_owner(self, tw: "LiveTwin") -> None:
+    def _adopt_if_new_owner(self, tw: LiveTwin) -> None:
         """On taking over a tenant, continue from the previous owner's state
         instead of from our own stale copy — otherwise a failover shows up as
         the twin jumping backwards to wherever this task last had it."""

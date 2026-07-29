@@ -31,16 +31,17 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from graph.connection import get_driver, close_driver          # noqa: E402
-from graph.query import GraphQuery                              # noqa: E402
-from graph.writer import GraphWriter, Rel                       # noqa: E402
-from changelog.service import ChangeLog                         # noqa: E402
-from behaviors.registry import BehaviorRegistry, Tier           # noqa: E402
-from behaviors.hvac import (                                    # noqa: E402
-    TemperatureThresholdRule, TemperatureZScoreBaseline,
+from behaviors.hvac import (  # noqa: E402
+    TemperatureThresholdRule,
+    TemperatureZScoreBaseline,
     ThermalPhysicsBehavior,
 )
-from feed.simulate import simulate_temperature, FindingsLoop    # noqa: E402
+from behaviors.registry import BehaviorRegistry, Tier  # noqa: E402
+from changelog.service import ChangeLog  # noqa: E402
+from feed.simulate import FindingsLoop, simulate_temperature  # noqa: E402
+from graph.connection import close_driver, get_driver  # noqa: E402
+from graph.query import GraphQuery  # noqa: E402
+from graph.writer import GraphWriter, Rel  # noqa: E402
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"

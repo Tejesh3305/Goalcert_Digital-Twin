@@ -84,7 +84,7 @@ def _save_glb_from_output(output, glb_out) -> bool:
                 got = walk(v)
                 if got:
                     return got
-        elif isinstance(o, (list, tuple)):
+        elif isinstance(o, list | tuple):
             for v in o:
                 got = walk(v)
                 if got:

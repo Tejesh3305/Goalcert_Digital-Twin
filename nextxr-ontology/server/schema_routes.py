@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, Body, HTTPException
 
 router = APIRouter(prefix="/api/v1/schema", tags=["schema"])
 

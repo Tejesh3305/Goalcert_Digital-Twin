@@ -75,9 +75,45 @@ def _isolate_environment():
         "NXR_API_KEYS": json.dumps(API_KEYS),
         "NXR_REQUIRE_AUTH": "1",
         "NXR_DATA_DIR": str(_STATE),
+        # Identity. A fixed signing key, because the app now REFUSES to boot with
+        # an ephemeral one while auth is enforced (identity/tokens.py) — the same
+        # guard a real deploy hits, and the test environment is a real deploy as
+        # far as that check is concerned. Fixed rather than random so a token
+        # minted in one test still verifies in another.
+        "NXR_JWT_SECRET": "test-jwt-secret-do-not-use-outside-the-test-suite",
+        "NXR_SECRET_PEPPER": "test-pepper",
+        # Self-service signup is closed by default once auth is enforced; the
+        # identity tests need it open to exercise the flow.
+        "NXR_ALLOW_SIGNUP": "1",
+        # Plain-HTTP TestClient: a Secure cookie would never come back.
+        "NXR_COOKIE_SECURE": "0",
+        # Short-circuit the bootstrap admin — a test suite must not depend on
+        # environment-provisioned accounts existing.
+        "NXR_BOOTSTRAP_ADMIN_EMAIL": "",
+        "NXR_BOOTSTRAP_ADMIN_PASSWORD": "",
+        # Neo4j is not running here, and `graph/connection.py` now REFUSES to
+        # fall back to the repository's published dev password once auth is
+        # enforced. Setting it explicitly keeps the connection failure a plain
+        # "nothing is listening" (which every route degrades around) instead of
+        # a credential-policy error in the middle of unrelated assertions.
+        "NEO4J_PASSWORD": "test-neo4j-password",
+        # Every TestClient enters the app's lifespan, which probes Neo4j. With
+        # nothing listening the default 4s acquisition timeout is paid on each
+        # one, and the identity suite builds a fresh client per test — minutes of
+        # the run spent waiting for a connection that will never succeed.
+        "NEO4J_CONN_TIMEOUT": "0.3",
+        "NEO4J_ACQ_TIMEOUT": "0.3",
+        "NEO4J_RETRY_TIME": "0.3",
         # Keep the bus in-process and silent: these tests assert on HTTP status
         # codes, not on fan-out, and a Redis probe would add seconds per test.
         "NXR_BUS_DISABLED": "1",
+        # Rate limiting OFF for the shared fixture. The authorization sweep walks
+        # every tenant-carrying route in the app and would trip the copilot
+        # bucket partway through, turning 403 assertions into 429s — a real
+        # limiter doing its job, but it would mean the isolation suite stopped
+        # testing isolation. `test_ratelimit.py` builds its own client with the
+        # limiter ON and asserts on it directly.
+        "NXR_RATELIMIT_DISABLED": "1",
         # Never let a test reach a real LLM. Absent keys make copilot/ return
         # its documented fallback rather than billing anyone.
         "ANTHROPIC_API_KEY": "",

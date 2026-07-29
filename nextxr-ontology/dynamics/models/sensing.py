@@ -15,8 +15,8 @@ what it measures (self-consistency) and is where measurement realism lives.
 
 from __future__ import annotations
 
-from dynamics.model import DynamicsModel, EntityState, EntityContext
 from dynamics import flows
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 

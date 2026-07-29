@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.gateway import get_gateway
 from agents.engine import INTERRUPT_KEY
+from agents.gateway import get_gateway
 
 EXTENSION_POINTS = ["adapter", "behavior", "view", "webhook", "transform", "auth"]
 
@@ -107,7 +107,7 @@ def plugin_interviewer(state: dict) -> dict:
 def plugin_scaffolder(state: dict) -> dict:
     """Generate Plugin SDK boilerplate for the chosen extension point.
     The developer writes the real logic; we scaffold the contract."""
-    gw = get_gateway()
+    get_gateway()
     ext = state.get("extension_point") or "adapter"
     name = state.get("plugin_name") or "my-plugin"
     config = state.get("plugin_config") or {}

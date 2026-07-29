@@ -28,21 +28,21 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-
-from agents.twin_graph import app as twin_app
 from agents.bundle_graph import app as bundle_app
-from agents.state import new_twin_state, new_bundle_state
 from agents.engine import INTERRUPT_KEY
 from agents.gateway import get_gateway
 from agents.registry import get_registry
+from agents.state import new_bundle_state, new_twin_state
+from agents.twin_graph import app as twin_app
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel
+
+from server.tenancy import authorize_session_state
 
 router = APIRouter(prefix="/api/v1/agents", tags=["agents"])
 
@@ -63,8 +63,8 @@ def _public(state: dict) -> dict:
 
 # ── Request models ─────────────────────────────────────────────────
 class TwinStart(BaseModel):
-    tenant: Optional[str] = None
-    twin_name: Optional[str] = None
+    tenant: str | None = None
+    twin_name: str | None = None
 
 
 class Message(BaseModel):
@@ -73,8 +73,8 @@ class Message(BaseModel):
 
 
 class BundleStart(BaseModel):
-    domain: Optional[str] = None
-    bundle_name: Optional[str] = None
+    domain: str | None = None
+    bundle_name: str | None = None
 
 
 class SessionRef(BaseModel):
@@ -111,17 +111,21 @@ def twin_message(req: Message):
 
 
 @router.get("/twin/{session_id}")
-def twin_state(session_id: str):
+def twin_state(session_id: str, request: Request):
     cur = twin_app.get_state(session_id)
     if cur is None:
         raise HTTPException(404, "Unknown session")
+    # The session id is not a tenant, so the global dependency cannot
+    # authorize this route. The state carries the owning tenant, and this
+    # is where it gets checked (server/tenancy.py).
+    authorize_session_state(request, cur)
     return {"session_id": session_id, "state": _public(cur)}
 
 
 class ExpandRequest(BaseModel):
     tenant: str
     message: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
 
 @router.post("/twin/expand")
@@ -132,7 +136,7 @@ def twin_expand(req: ExpandRequest):
     the agents handle type resolution, validation, and commit. This reuses
     the Schema Mapper + Validator + Graph Writer without re-classifying.
     """
-    from agents.twin_agents import schema_mapper, validator, graph_writer
+    from agents.twin_agents import graph_writer, schema_mapper, validator
 
     session_id = req.session_id or _new_session("expand")
     tenant = req.tenant
@@ -333,7 +337,7 @@ def _decode_data_url(data: str) -> bytes:
 
 
 def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
-                                  name: Optional[str], domain: Optional[str] = None) -> dict:
+                                  name: str | None, domain: str | None = None) -> dict:
     """Photo of an object → TRELLIS (RunPod) → GLB, via the merged 3-D platform
     pipeline (server/threed_platform — unchanged from its standalone form, just
     invoked in-process instead of over HTTP). Runs the same job store +
@@ -345,9 +349,10 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
     full physics pack, sensors, components, findings — but its rendered model is
     the reconstructed GLB, not the stock model. With no domain it commits a
     generic `scanned-object` twin (mesh only)."""
-    from server.threed_platform.app.store import store as threed_store
-    from server.threed_platform.app.orchestrator import submit as threed_submit
     from twins.service import TEMPLATES
+
+    from server.threed_platform.app.orchestrator import submit as threed_submit
+    from server.threed_platform.app.store import store as threed_store
 
     # A machine-domain hint tells the reconstructor what the photo is (recorded on
     # the job's understanding + echoed in the pipeline report).
@@ -403,10 +408,10 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
     committed = False
     commit_note = None
     try:
-        from twins import TwinRegistry
-        from graph.writer import GraphWriter
-        from graph.connection import get_driver
         from changelog.service import ChangeLog
+        from graph.connection import get_driver
+        from graph.writer import GraphWriter
+        from twins import TwinRegistry
         get_driver().verify_connectivity()  # fail fast if the DB is offline
         TwinRegistry().create(name=twin_name, domain=twin_domain,
                               writer=GraphWriter(changelog=ChangeLog()),
@@ -447,14 +452,14 @@ def _build_twin_from_object_photo(image_bytes: bytes, filename: str,
 class BuildFromPlan(BaseModel):
     data: str                          # image data URL (PDFs rasterised client-side)
     filename: str = "plan.png"
-    name: Optional[str] = None
-    facility: Optional[str] = None
+    name: str | None = None
+    facility: str | None = None
     floors: int = 1
     # Object-photo route only: a machine domain (turbine-engine, edm-machine, …)
     # to map the reconstruction onto — the committed twin becomes THAT domain
     # (physics + sensors) with the reconstructed GLB as its model. Ignored for
     # floor plans. None → a generic scanned-object twin.
-    domain: Optional[str] = None
+    domain: str | None = None
 
 
 def _build_from_plan_sync(req: BuildFromPlan) -> dict:
@@ -491,8 +496,13 @@ def _build_from_plan_sync(req: BuildFromPlan) -> dict:
                                              req.name, req.domain)
 
     from agents import bim_support as bs
-    from agents.twin_agents import (PLAN_PARSER_SYSTEM, schema_mapper,
-                                    validator, graph_writer, scene_generator)
+    from agents.twin_agents import (
+        PLAN_PARSER_SYSTEM,
+        graph_writer,
+        scene_generator,
+        schema_mapper,
+        validator,
+    )
 
     gw = get_gateway()
     facility = req.facility or bs.infer_facility(req.filename)
@@ -674,10 +684,14 @@ def bundle_approve(req: SessionRef):
 
 
 @router.get("/bundle/{session_id}")
-def bundle_state(session_id: str):
+def bundle_state(session_id: str, request: Request):
     cur = bundle_app.get_state(session_id)
     if cur is None:
         raise HTTPException(404, "Unknown session")
+    # The session id is not a tenant, so the global dependency cannot
+    # authorize this route. The state carries the owning tenant, and this
+    # is where it gets checked (server/tenancy.py).
+    authorize_session_state(request, cur)
     return {"session_id": session_id, "state": _public(cur)}
 
 
@@ -709,10 +723,14 @@ def ops_diagnose(req: DiagnoseRequest):
 
 
 @router.get("/ops/{session_id}")
-def ops_state(session_id: str):
+def ops_state(session_id: str, request: Request):
     cur = ops_app.get_state(session_id)
     if cur is None:
         raise HTTPException(404, "Unknown session")
+    # The session id is not a tenant, so the global dependency cannot
+    # authorize this route. The state carries the owning tenant, and this
+    # is where it gets checked (server/tenancy.py).
+    authorize_session_state(request, cur)
     return {"session_id": session_id, "state": _public(cur)}
 
 
@@ -792,8 +810,8 @@ def ops_analysis(req: OpsAnalysisReq):
 
 class OpsCascadeReq(BaseModel):
     tenant: str
-    entity_id: Optional[str] = None
-    fault: Optional[str] = None
+    entity_id: str | None = None
+    fault: str | None = None
     finding_ids: list[str] = []
 
 
@@ -867,10 +885,14 @@ def plugin_message(req: Message):
 
 
 @router.get("/plugin/{session_id}")
-def plugin_state(session_id: str):
+def plugin_state(session_id: str, request: Request):
     cur = plugin_app.get_state(session_id)
     if cur is None:
         raise HTTPException(404, "Unknown session")
+    # The session id is not a tenant, so the global dependency cannot
+    # authorize this route. The state carries the owning tenant, and this
+    # is where it gets checked (server/tenancy.py).
+    authorize_session_state(request, cur)
     return {"session_id": session_id, "state": _public(cur)}
 
 
@@ -880,8 +902,8 @@ from agents.state import new_accelerator_state
 
 
 class AccelStart(BaseModel):
-    domain: Optional[str] = None
-    pack_name: Optional[str] = None
+    domain: str | None = None
+    pack_name: str | None = None
 
 
 @router.post("/accelerator/start")
@@ -907,8 +929,12 @@ def accelerator_message(req: Message):
 
 
 @router.get("/accelerator/{session_id}")
-def accelerator_state(session_id: str):
+def accelerator_state(session_id: str, request: Request):
     cur = accel_app.get_state(session_id)
     if cur is None:
         raise HTTPException(404, "Unknown session")
+    # The session id is not a tenant, so the global dependency cannot
+    # authorize this route. The state carries the owning tenant, and this
+    # is where it gets checked (server/tenancy.py).
+    authorize_session_state(request, cur)
     return {"session_id": session_id, "state": _public(cur)}

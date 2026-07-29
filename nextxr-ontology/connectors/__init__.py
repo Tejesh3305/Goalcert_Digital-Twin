@@ -35,16 +35,32 @@ command that fixes each.
 from __future__ import annotations
 
 from .base import (
-    Connector, ConnectorConfig, ConnectorHealth, MissingDependency,
-    available_protocols, build_connector, register_connector,
+    Connector,
+    ConnectorConfig,
+    ConnectorHealth,
+    MissingDependency,
+    available_protocols,
+    build_connector,
+    register_connector,
 )
 from .manager import (
-    ConnectorManager, delete, get, get_manager, list_configs,
-    protocol_availability, save,
+    ConnectorManager,
+    delete,
+    get,
+    get_manager,
+    list_configs,
+    protocol_availability,
+    save,
 )
 from .pointmap import (
-    DeadbandFilter, Point, PointMap, PointMapError, decode_registers,
-    expand_asset_template, extract_json_path, registers_to_bytes,
+    DeadbandFilter,
+    Point,
+    PointMap,
+    PointMapError,
+    decode_registers,
+    expand_asset_template,
+    extract_json_path,
+    registers_to_bytes,
 )
 from .profiles import BUILTIN_PROFILES, build_profile, list_profiles
 

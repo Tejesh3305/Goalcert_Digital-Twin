@@ -17,10 +17,9 @@ from __future__ import annotations
 
 import gzip
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
-
 from conftest import KEY_ACME, KEY_ADMIN, KEY_READER, hdr
 
 TENANT = "acme"
@@ -61,7 +60,7 @@ def _hour_aligned(hours_ago: int) -> datetime:
     the assertion fails, and at 07:05 it does not. That is a flaky test, and one whose
     failure looks exactly like a real aggregation bug.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return (now.replace(minute=0, second=0, microsecond=0)
             - timedelta(hours=hours_ago))
 
@@ -108,7 +107,7 @@ def test_device_token_is_returned_once_and_never_again(api, device):
 def test_ingest_requires_a_credential(api, historian_ready):
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"tenant": TENANT, "samples": _samples(
-                        1, start=datetime.now(timezone.utc))})
+                        1, start=datetime.now(UTC))})
     assert resp.status_code == 401
 
 
@@ -140,7 +139,7 @@ def test_bad_device_token_is_rejected_indistinguishably(api, historian_ready):
                   "nxrd_" + "a" * 43, disabled, expired):
         resp = api.post("/api/v1/ingest/telemetry",
                         json={"samples": _samples(
-                            1, start=datetime.now(timezone.utc))},
+                            1, start=datetime.now(UTC))},
                         headers={"X-Device-Token": token})
         statuses.add(resp.status_code)
         messages.add(resp.json().get("detail"))
@@ -152,7 +151,7 @@ def test_bad_device_token_is_rejected_indistinguishably(api, historian_ready):
 def test_read_only_key_cannot_ingest(api, historian_ready):
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"tenant": TENANT,
-                          "samples": _samples(1, start=datetime.now(timezone.utc))},
+                          "samples": _samples(1, start=datetime.now(UTC))},
                     headers=hdr(KEY_READER))
     assert resp.status_code == 403, resp.text
 
@@ -162,7 +161,7 @@ def test_read_only_key_cannot_ingest(api, historian_ready):
 
 def test_device_ingest_stores_measurements(api, device):
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(hours=2)
+    start = datetime.now(UTC) - timedelta(hours=2)
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"samples": _samples(120, start=start)},
                     headers={"X-Device-Token": token})
@@ -182,7 +181,7 @@ def test_device_cannot_write_into_another_tenant(api, device):
     diagnose than an immediate rejection.
     """
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(hours=5)
+    start = datetime.now(UTC) - timedelta(hours=5)
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"tenant": OTHER, "samples": _samples(3, start=start)},
                     headers={"X-Device-Token": token})
@@ -198,7 +197,7 @@ def test_device_may_name_its_own_tenant(api, device):
     """Naming the device's OWN tenant is harmless and must still work — a
     gateway config that sets it explicitly should not break."""
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(hours=7)
+    start = datetime.now(UTC) - timedelta(hours=7)
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"tenant": TENANT,
                           "samples": _samples(3, start=start,
@@ -213,7 +212,7 @@ def test_replay_is_idempotent(api, device):
     double-count, and the guarantee must not depend on the client remembering an
     Idempotency-Key header."""
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(hours=8)
+    start = datetime.now(UTC) - timedelta(hours=8)
     batch = {"samples": _samples(50, start=start)}
 
     first = api.post("/api/v1/ingest/telemetry", json=batch,
@@ -230,10 +229,10 @@ def test_partial_batch_returns_207_and_keeps_good_samples(api, device):
     one failed. A 400 for the whole batch loses 499 good readings and teaches the
     operator nothing."""
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(hours=12)
+    start = datetime.now(UTC) - timedelta(hours=12)
     good = _samples(9, start=start)
     bad = [{"asset_id": ASSET, "signal": SIGNAL, "value": 1.0,
-            "ts": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()}]
+            "ts": (datetime.now(UTC) + timedelta(days=3)).isoformat()}]
 
     resp = api.post("/api/v1/ingest/telemetry", json={"samples": good + bad},
                     headers={"X-Device-Token": token})
@@ -252,7 +251,7 @@ def test_asset_prefix_scoped_device_cannot_write_outside_it(api, historian_ready
                              "asset_prefix": "line-a-"},
                        headers=hdr(KEY_ADMIN)).json()
     token = created["token"]
-    start = datetime.now(timezone.utc) - timedelta(hours=3)
+    start = datetime.now(UTC) - timedelta(hours=3)
 
     allowed = _samples(2, start=start, asset="line-a-pump-1")
     forbidden = _samples(2, start=start, asset="line-b-pump-9")
@@ -275,7 +274,7 @@ def test_rotate_invalidates_the_previous_token(api, historian_ready):
                    headers=hdr(KEY_ADMIN)).json()["token"]
     assert new != old
 
-    start = datetime.now(timezone.utc) - timedelta(hours=4)
+    start = datetime.now(UTC) - timedelta(hours=4)
     assert api.post("/api/v1/ingest/telemetry",
                     json={"samples": _samples(1, start=start)},
                     headers={"X-Device-Token": old}).status_code == 401
@@ -293,7 +292,7 @@ def test_disabled_device_cannot_ingest(api, historian_ready):
              json={"enabled": False}, headers=hdr(KEY_ADMIN))
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"samples": _samples(
-                        1, start=datetime.now(timezone.utc) - timedelta(hours=1))},
+                        1, start=datetime.now(UTC) - timedelta(hours=1))},
                     headers={"X-Device-Token": token})
     assert resp.status_code == 401
 
@@ -302,7 +301,7 @@ def test_bulk_ndjson_gzipped(api, device):
     """Backfill: NDJSON so it streams and survives truncation at a known
     boundary, gzip because telemetry compresses ~10x."""
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(days=2)
+    start = datetime.now(UTC) - timedelta(days=2)
     lines = "\n".join(json.dumps(s) for s in
                       _samples(200, start=start, signal="hvac:ReturnTemp"))
     resp = api.post("/api/v1/ingest/telemetry/bulk",
@@ -316,7 +315,7 @@ def test_bulk_ndjson_gzipped(api, device):
 
 def test_bulk_reports_malformed_lines_by_line_number(api, device):
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(days=3)
+    start = datetime.now(UTC) - timedelta(days=3)
     good = [json.dumps(s) for s in _samples(2, start=start, signal="hvac:Bulk2")]
     payload = "\n".join([good[0], "{not json", good[1], "[]"])
     resp = api.post("/api/v1/ingest/telemetry/bulk", content=payload.encode(),
@@ -331,7 +330,7 @@ def test_bulk_reports_malformed_lines_by_line_number(api, device):
 
 def test_oversized_batch_is_refused_with_guidance(api, device):
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(days=1)
+    start = datetime.now(UTC) - timedelta(days=1)
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"samples": _samples(10_001, start=start, step_s=1)},
                     headers={"X-Device-Token": token})
@@ -344,7 +343,7 @@ def test_oversized_batch_is_refused_with_guidance(api, device):
 
 def test_history_returns_what_was_ingested(api, device):
     _, token = device
-    start = datetime.now(timezone.utc) - timedelta(minutes=40)
+    start = datetime.now(UTC) - timedelta(minutes=40)
     api.post("/api/v1/ingest/telemetry",
              json={"samples": _samples(40, start=start, signal="hvac:ReadBack")},
              headers={"X-Device-Token": token})
@@ -447,7 +446,7 @@ def test_bad_quality_is_excluded_from_statistics_but_counted(api, device):
 
 def test_latest_reports_age_and_staleness(api, device):
     _, token = device
-    old = datetime.now(timezone.utc) - timedelta(hours=6)
+    old = datetime.now(UTC) - timedelta(hours=6)
     api.post("/api/v1/ingest/telemetry",
              json={"samples": [{"asset_id": "stale-test", "signal": "t",
                                 "value": 22.4, "unit": "DEG_C",
@@ -540,7 +539,7 @@ def test_device_listing_is_scope_filtered(api, device):
 def test_ingest_with_api_key_requires_a_named_tenant(api, historian_ready):
     resp = api.post("/api/v1/ingest/telemetry",
                     json={"samples": _samples(
-                        1, start=datetime.now(timezone.utc) - timedelta(hours=1))},
+                        1, start=datetime.now(UTC) - timedelta(hours=1))},
                     headers=hdr(KEY_ACME))
     assert resp.status_code == 400
     assert "device token" in resp.json()["detail"].lower()
@@ -581,8 +580,8 @@ def test_a_raising_behaviour_is_counted_not_swallowed(historian_ready):
     asserting on that would have proved nothing.
     """
     import ingest
-    from ingest import pipeline
     from historian import Measurement
+    from ingest import pipeline
 
     class _Exploding:
         calls = 0
@@ -591,7 +590,7 @@ def test_a_raising_behaviour_is_counted_not_swallowed(historian_ready):
             type(self).calls += 1
             raise RuntimeError(f"rule blew up on {sample.entity_id}")
 
-    start = datetime.now(timezone.utc) - timedelta(minutes=90)
+    start = datetime.now(UTC) - timedelta(minutes=90)
     batch = [Measurement(TENANT, f"asset-{i}", "t",
                          start + timedelta(seconds=i), 1.0, "x")
              for i in range(3)]
@@ -616,8 +615,8 @@ def test_unavailable_registry_is_reported(historian_ready):
     """When the behaviour registry cannot be built at all, that must surface too —
     not be mistaken for "no rules matched"."""
     import ingest
-    from ingest import pipeline
     from historian import Measurement
+    from ingest import pipeline
 
     pipeline.reset_loops()
     original = pipeline._loop_for
@@ -626,7 +625,7 @@ def test_unavailable_registry_is_reported(historian_ready):
         result = ingest.submit(
             TENANT,
             [Measurement(TENANT, "reg-test", "t",
-                         datetime.now(timezone.utc) - timedelta(minutes=5),
+                         datetime.now(UTC) - timedelta(minutes=5),
                          1.0, "x")],
             evaluate=True, publish=False)
     finally:

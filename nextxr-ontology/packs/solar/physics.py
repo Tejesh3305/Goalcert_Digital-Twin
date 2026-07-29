@@ -50,16 +50,23 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass, field
-from typing import Optional
 
 from packs._core.physics import (
-    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+    clamp,
+    first_order_lag,
+    jitter,
+    margin_hi,
+    margin_lo,
+    worst_health,
 )
 
 from . import desoto as D
 from .signals import (
-    DERIVED_SIGNALS, INVERTER_SIGNALS, METER_SIGNALS, STRING_SIGNALS,
-    UNITS, WEATHER_SIGNALS,
+    DERIVED_SIGNALS,
+    INVERTER_SIGNALS,
+    METER_SIGNALS,
+    STRING_SIGNALS,
+    WEATHER_SIGNALS,
 )
 
 # The pack's flat signal view, for the SPEC/runtime.
@@ -146,7 +153,7 @@ _EFF_CURVE = ((0.00, 0.00), (0.02, 0.72), (0.05, 0.900), (0.10, 0.958),
 def inverter_efficiency(load_fraction: float) -> float:
     """Piecewise-linear interpolation of the efficiency curve."""
     x = clamp(load_fraction, 0.0, 1.0)
-    for (x0, y0), (x1, y1) in zip(_EFF_CURVE, _EFF_CURVE[1:]):
+    for (x0, y0), (x1, y1) in zip(_EFF_CURVE, _EFF_CURVE[1:], strict=False):
         if x <= x1:
             if x1 == x0:
                 return y1
@@ -212,7 +219,7 @@ class SolarState:
     # overwritten by a model.
     measured_env: bool = False
 
-    _rng: Optional[random.Random] = None
+    _rng: random.Random | None = None
 
     def rng(self) -> random.Random:
         """Seeded, so a run is reproducible and a projection is comparable to the
@@ -325,11 +332,11 @@ class SolarPhysics:
         state.module_temp = first_order_lag(state.module_temp, target, 420.0, dt)
         state.cell_temp = D.cell_temp_from_module(state.module_temp, state.poa)
 
-    def apply_measurements(self, state: SolarState, *, poa: Optional[float] = None,
-                           ghi: Optional[float] = None,
-                           module_temp: Optional[float] = None,
-                           ambient_temp: Optional[float] = None,
-                           wind_speed: Optional[float] = None) -> None:
+    def apply_measurements(self, state: SolarState, *, poa: float | None = None,
+                           ghi: float | None = None,
+                           module_temp: float | None = None,
+                           ambient_temp: float | None = None,
+                           wind_speed: float | None = None) -> None:
         """Drive the model from REAL sensors (§2.2). This is what turns the
         simulator into a twin.
 
@@ -437,7 +444,7 @@ class SolarPhysics:
         if live:
             v_array = sum(op["v_mp"] for _, op in live) / len(live)
             i_total = 0.0
-            for s, op in live:
+            for _s, op in live:
                 # Off-MPP penalty, quadratic in the voltage mismatch: a string forced
                 # away from its own maximum-power voltage loses output.
                 mismatch = abs(op["v_mp"] - v_array) / max(1.0, op["v_mp"])
@@ -554,7 +561,7 @@ class SolarPhysics:
         """
         days = dt / 86400.0
         severity = clamp(state.fault_severity, 0.0, 1.0)
-        rng = state.rng()
+        state.rng()
 
         for s in state.strings:
             # Natural soiling accumulates while dry and saturates — dust reaches an

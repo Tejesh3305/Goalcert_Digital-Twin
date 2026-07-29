@@ -31,13 +31,21 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, CheckpointSaver
+from agents.engine import END, CheckpointSaver, StateGraph
 from agents.state import TwinBuildState
 from agents.twin_agents import (
-    concierge_agent, domain_classifier, capability_composer, validator,
-    graph_writer, vision_agent, schema_mapper, scene_generator,
-    route_after_concierge_v2, route_after_classify, route_after_validate,
+    capability_composer,
+    concierge_agent,
+    domain_classifier,
+    graph_writer,
+    route_after_classify,
+    route_after_concierge_v2,
     route_after_graph_writer,
+    route_after_validate,
+    scene_generator,
+    schema_mapper,
+    validator,
+    vision_agent,
 )
 
 _checkpointer = CheckpointSaver()

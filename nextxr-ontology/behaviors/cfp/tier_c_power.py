@@ -2,7 +2,8 @@
 CFP Tier-C power rules: UPS on-battery, generator fuel-low, transformer over-temp.
 """
 from datetime import timedelta
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class UPSOnBatteryRule(Behavior):

@@ -17,7 +17,7 @@ Nothing here is domain-specific. Packs import what they need:
 from __future__ import annotations
 
 import math
-from typing import Callable, Iterable, Optional
+from collections.abc import Callable, Iterable
 
 from behaviors.registry import Behavior, Finding, Tier
 
@@ -147,8 +147,8 @@ class HardLimit(Behavior):
 
 # ── forward-model RUL ───────────────────────────────────────────────────────
 def run_rul(state, physics, guards, *, horizon_min: float = 120.0, points: int = 120,
-            traj_signals: Optional[Iterable[str]] = None,
-            degrade: Optional[Callable] = None,
+            traj_signals: Iterable[str] | None = None,
+            degrade: Callable | None = None,
             crit_fraction: float = 0.34) -> dict:
     """Generic forward-model remaining-useful-life projection.
 

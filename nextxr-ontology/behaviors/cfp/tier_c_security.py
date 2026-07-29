@@ -2,7 +2,8 @@
 CFP Tier-C security rules: door forced/held-open, repeated access deny.
 """
 from datetime import timedelta
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class DoorForcedRule(Behavior):

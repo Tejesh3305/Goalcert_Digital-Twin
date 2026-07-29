@@ -13,13 +13,13 @@ followed by a fault, so every behavior gets a chance to fire.
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from behaviors.registry import TelemetrySample
 
 
 def _base_time():
-    return datetime(2026, 6, 2, 8, 0, tzinfo=timezone.utc)
+    return datetime(2026, 6, 2, 8, 0, tzinfo=UTC)
 
 
 def simulate_ups(tenant_id: str, entity_id: str, *,

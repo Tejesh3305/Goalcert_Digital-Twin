@@ -16,13 +16,14 @@ from __future__ import annotations
 import copy
 
 from packs._core.physics import status_from_health as _status
+
 from .physics import SIGNALS, redlines
 
 
 def component_health(state, frame, physics) -> dict:
     """Map the degradation accumulators + latest frame onto the 5 subsystems."""
     foul = getattr(state, "compressor_fouling", 0.0)
-    wear = getattr(state, "bearing_wear", 0.0)
+    getattr(state, "bearing_wear", 0.0)
     comb = getattr(state, "combustor_distress", 0.0)
     leak = getattr(state, "oil_leak", 0.0)
 

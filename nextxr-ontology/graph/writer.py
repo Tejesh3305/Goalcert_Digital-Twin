@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 # Make the ontology gate (tools/) importable regardless of how we're launched.
 _TOOLS = Path(__file__).resolve().parent.parent / "tools"
@@ -33,13 +32,12 @@ if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
 import gate  # noqa: E402  — tools/gate.py: the single validate() function
-from rdflib import URIRef, RDF  # noqa: E402
-from rdflib.namespace import Namespace  # noqa: E402
+from bus import BusEvent, get_event_bus  # noqa: E402
+from changelog.service import ChangeLog  # noqa: E402
+from rdflib import URIRef  # noqa: E402
 
 from graph.connection import get_driver  # noqa: E402
-from changelog.service import ChangeLog  # noqa: E402
 from graph.state_machine import validate_transition  # noqa: E402
-from bus import BusEvent, get_event_bus  # noqa: E402
 
 NXR = "https://ontology.nextxr.io/v3/core#"
 TAXONOMY_PRED = URIRef(NXR + "taxonomyCategory")
@@ -84,12 +82,12 @@ class Rel:
 class WriteResult:
     """Outcome of a mutation. Truthy iff the write was committed."""
     ok: bool
-    node_id: Optional[str] = None
-    label: Optional[str] = None
-    canonical_type: Optional[str] = None
-    event_id: Optional[str] = None
+    node_id: str | None = None
+    label: str | None = None
+    canonical_type: str | None = None
+    event_id: str | None = None
     violations: list = field(default_factory=list)
-    error: Optional[str] = None
+    error: str | None = None
 
     def __bool__(self) -> bool:
         return self.ok
@@ -99,7 +97,7 @@ class WriteResult:
 #  Small helpers
 # --------------------------------------------------------------------------
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _new_uuid7() -> str:
@@ -164,13 +162,13 @@ def _subject_iri(node_id: str) -> str:
 class GraphWriter:
     """The one component allowed to mutate the graph."""
 
-    def __init__(self, changelog: Optional[ChangeLog] = None, bus=None):
+    def __init__(self, changelog: ChangeLog | None = None, bus=None):
         self.changelog = changelog or ChangeLog()
         # The live fan-out bus. Defaults to the process-wide singleton (Redis if
         # reachable, else in-memory). Publishing is best-effort and happens AFTER
         # the Change Log append — the bus can never affect a write.
         self.bus = bus if bus is not None else get_event_bus()
-        self._label_cache: dict[str, Optional[str]] = {}
+        self._label_cache: dict[str, str | None] = {}
 
     @property
     def driver(self):
@@ -197,7 +195,7 @@ class GraphWriter:
             pass
 
     # ---- ontology label resolution -----------------------------------
-    def resolve_label(self, canonical_type: str) -> Optional[str]:
+    def resolve_label(self, canonical_type: str) -> str | None:
         """Look up the closed-taxonomy category (= Neo4j label) for a class
         IRI, walking up rdfs:subClassOf if the class doesn't declare its own.
         Returns None for an unknown / ungoverned type — which the writer
@@ -314,9 +312,9 @@ class GraphWriter:
 
     # ---- the single write path ---------------------------------------
     def create(self, *, tenant_id: str, canonical_type: str, actor: str,
-               properties: Optional[dict] = None,
-               relationships: Optional[list] = None,
-               node_id: Optional[str] = None) -> WriteResult:
+               properties: dict | None = None,
+               relationships: list | None = None,
+               node_id: str | None = None) -> WriteResult:
         """Create one node. validate -> commit -> emit -> stamp, or reject."""
         properties = dict(properties or {})
         rels = list(relationships or [])

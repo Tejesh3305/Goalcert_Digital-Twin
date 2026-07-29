@@ -70,11 +70,17 @@ VOLUME ["/data"]
 
 EXPOSE 8080
 
-# /api/v1/health returns 200 with status "healthy" (Neo4j up) or "degraded" (Neo4j down).
-# It deliberately never 503s, so a Neo4j blip does not roll the fleet — that is a product
-# decision (RUN.md), and it means this check verifies the PROCESS, not the database.
+# LIVENESS, not health. /api/v1/health/live touches no dependency and answers "is this
+# process alive" — the only question whose correct remedy is a restart. The previous
+# check hit /api/v1/health, which opens a Neo4j connection, pings RDS and does a
+# write+read+delete against S3 on EVERY probe: a slow dependency made the probe time out
+# and Docker/ECS killed a process that was working fine.
+#
+# Whether the task should receive TRAFFIC is a different question, answered by
+# /api/v1/health/ready (which is allowed to 503) — point the ALB target group there.
+# /api/v1/health remains the full diagnostic for dashboards and CloudWatch alarms.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD python -c "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/api/v1/health' % os.environ.get('PORT','8080'), timeout=4).status==200 else 1)"
+  CMD python -c "import urllib.request,os,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:%s/api/v1/health/live' % os.environ.get('PORT','8080'), timeout=4).status==200 else 1)"
 
 # server/main.py reads PORT itself (uvicorn.run(port=int(os.getenv("PORT", "8080")))).
 CMD ["python", "-m", "server.main"]

@@ -1,0 +1,298 @@
+# deploy.yml — build, migrate, roll.
+#
+# WHY THIS EXISTS
+# ---------------
+# Deployment was a human running `aws` commands from AWS_DEPLOYMENT.md §12.
+# That is not repeatable, not reviewable, not auditable, and — the practical
+# problem — the migration step was a separate instruction someone could forget,
+# which means a rollout where the code expects a column the database does not
+# have.
+#
+# THE ORDER IS THE WHOLE POINT
+#
+#   1. build          image, tagged with the commit SHA
+#   2. MIGRATE        a one-off ECS task, run to completion, checked
+#   3. deploy         roll the service only if the migration exited 0
+#   4. verify         wait for stability and smoke-test the new tasks
+#
+# Migrating BEFORE the roll is what makes this safe with additive migrations: the
+# old code keeps working against the new schema (it ignores the new column), so
+# old and new tasks coexist happily during the rolling window. It is also why
+# `db/migrations.py` documents the three-release rule for renames — a migration
+# that REMOVES something breaks the old tasks that are still serving.
+#
+# NO STATIC AWS CREDENTIALS. Authentication is OIDC (infra/terraform/modules/cicd),
+# so there is no access key in a GitHub secret to leak.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+concurrency:
+  # NEVER cancel a deploy in progress. Cancelling between the migration and the
+  # service update leaves a migrated database with un-rolled code — the one state
+  # this ordering exists to avoid. Queue instead.
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write        # required to request the OIDC token
+  packages: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'eu-west-1' }}
+
+jobs:
+  # The gate. A deploy must not be able to outrun the tests, so this re-runs them
+  # rather than trusting that the CI workflow passed on the same SHA.
+  verify:
+    name: Tests must pass
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Unit tests
+        run: python -m pytest -m "not integration" -q
+
+      - name: Tenant isolation
+        run: python -m pytest tests/test_tenant_isolation.py -q
+
+      - name: Identity and authentication
+        run: python -m pytest tests/test_identity.py tests/test_auth_enforcement.py -q
+
+  build:
+    name: Build and push
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-deploy-${{ github.run_id }}
+
+      - name: Log in to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Image tag
+        id: meta
+        run: |
+          # The SHA, not `latest`. A task definition pinned to a moving tag makes
+          # "which build is running" unanswerable and a rollback a guess.
+          echo "image=${{ vars.ECR_REPOSITORY }}:sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ vars.ECR_REPOSITORY }}:latest
+          # Layer cache in the registry — without it every deploy reinstalls the
+          # full Python dependency set and rebuilds the frontend, which is minutes.
+          cache-from: type=registry,ref=${{ vars.ECR_REPOSITORY }}:buildcache
+          cache-to: type=registry,ref=${{ vars.ECR_REPOSITORY }}:buildcache,mode=max
+          provenance: false
+
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ steps.meta.outputs.image }}
+          format: table
+          severity: CRITICAL,HIGH
+          # Report, do not block — yet. A base-image CVE with no fix available
+          # would otherwise stop an unrelated hotfix from shipping. Flip
+          # `exit-code` to 1 once the backlog is clear and a suppression file
+          # (.trivyignore) is in place for the accepted ones.
+          exit-code: 0
+
+  migrate:
+    name: Database migrations
+    needs: build
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-migrate-${{ github.run_id }}
+
+      - name: Run migrations as a one-off task
+        # A separate task, not a step in container start. Every task in a rolling
+        # deploy starting migrations at once would queue on the advisory lock, and
+        # the ones that wait would fail their health check — a failed deploy caused
+        # by the migration mechanism rather than the migration.
+        run: |
+          set -euo pipefail
+
+          NETWORK=$(aws ecs describe-services \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --services "${{ vars.ECS_SERVICE }}" \
+            --query 'services[0].networkConfiguration' --output json)
+
+          TASK_ARN=$(aws ecs run-task \
+            --cluster "${{ vars.ECS_CLUSTER }}" \
+            --task-definition "${{ vars.ECS_TASK_FAMILY }}" \
+            --launch-type FARGATE \
+            --network-configuration "$NETWORK" \
+            --overrides '{
+              "containerOverrides": [{
+                "name": "app",
+                "command": ["python", "-m", "db.migrations"]
+              }]
+            }' \
+            --query 'tasks[0].taskArn' --output text)
+
+          echo "Migration task: $TASK_ARN"
+          aws ecs wait tasks-stopped \
+            --cluster "${{ vars.ECS_CLUSTER }}" --tasks "$TASK_ARN"
+
+          EXIT_CODE=$(aws ecs describe-tasks \
+            --cluster "${{ vars.ECS_CLUSTER }}" --tasks "$TASK_ARN" \
+            --query 'tasks[0].containers[0].exitCode' --output text)
+
+          echo "--- migration output ---"
+          TASK_ID="${TASK_ARN##*/}"
+          aws logs get-log-events \
+            --log-group-name "/ecs/${{ vars.ECS_CLUSTER }}" \
+            --log-stream-name "app/app/${TASK_ID}" \
+            --query 'events[].message' --output text 2>/dev/null || \
+            echo "(log stream not available yet)"
+
+          if [ "$EXIT_CODE" != "0" ]; then
+            echo "::error::Migrations failed with exit code $EXIT_CODE. The service was NOT rolled."
+            exit 1
+          fi
+          echo "Migrations applied."
+
+  deploy:
+    name: Roll the service
+    needs: [build, migrate]
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gha-rollout-${{ github.run_id }}
+
+      - name: Current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition "${{ vars.ECS_TASK_FAMILY }}" \
+            --query taskDefinition > task-definition.json
+
+      - name: Point it at the new image
+        id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: app
+          image: ${{ needs.build.outputs.image }}
+
+      - name: Deploy
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service: ${{ vars.ECS_SERVICE }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          # Block until ECS reports the deployment stable. Without this the job
+          # goes green the moment the API call returns, which reports success for
+          # a rollout that is about to be rolled back by the circuit breaker.
+          wait-for-service-stability: true
+          wait-for-minutes: 15
+
+      - name: Deployment posture
+        # The lines every module prints at boot. Reading them here is what turns
+        # "the deploy succeeded" into "the deploy is correctly configured" — a
+        # task that silently fell back to per-task SQLite would deploy fine and
+        # be wrong.
+        run: |
+          sleep 20
+          echo "--- posture ---"
+          aws logs filter-log-events \
+            --log-group-name "/ecs/${{ vars.ECS_CLUSTER }}" \
+            --start-time $(( ($(date +%s) - 300) * 1000 )) \
+            --filter-pattern '?"[auth]" ?"[tenancy]" ?"[identity]" ?"[db]" ?"[blobs]" ?"[bus]" ?"[migrations]" ?"[ratelimit]" ?"[cors]"' \
+            --query 'events[].message' --output text || true
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          BASE="https://${{ vars.APP_DOMAIN }}"
+
+          echo "readiness:"
+          curl -fsS "$BASE/api/v1/health/ready" | head -c 400; echo
+
+          echo "health:"
+          curl -fsS "$BASE/api/v1/health" | head -c 400; echo
+
+          # The API must REFUSE an unauthenticated call. A 200 here means the
+          # deployment is serving customer data to anyone — a worse outcome than
+          # a failed deploy, so it fails the job.
+          echo "auth is enforced:"
+          STATUS=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/api/v1/twins")
+          if [ "$STATUS" != "401" ]; then
+            echo "::error::GET /api/v1/twins returned $STATUS without a credential (expected 401). The deployment is OPEN."
+            exit 1
+          fi
+          echo "  401 as expected"
+
+          # Security headers must be present.
+          echo "security headers:"
+          curl -fsSI "$BASE/api/v1/health" | grep -iE 'x-content-type-options|x-frame-options|strict-transport-security' || {
+            echo "::error::security headers missing"; exit 1;
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Deployment"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image | \`${{ needs.build.outputs.image }}\` |"
+            echo "| Commit | ${{ github.sha }} |"
+            echo "| Cluster | ${{ vars.ECS_CLUSTER }} |"
+            echo "| Service | ${{ vars.ECS_SERVICE }} |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

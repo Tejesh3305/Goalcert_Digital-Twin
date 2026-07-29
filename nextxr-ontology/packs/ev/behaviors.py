@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections import defaultdict, deque
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+
 from .physics import SIGNALS, redlines
 
 
@@ -73,7 +74,7 @@ class ChargerDerating(Behavior):
         weak = volt <= self._volt
         if not self._latch.rising(sample.entity_id, hot or weak):
             return []
-        why = "connector %.0f°C" % sample.value if hot else "grid voltage %.0f%%" % volt
+        why = f"connector {sample.value:.0f}°C" if hot else f"grid voltage {volt:.0f}%"
         return [Finding(
             behavior_id=self.behavior_id, tier=self.tier, flags=sample.entity_id, severity="warning",
             message=f"Charger power derating triggered ({why}) — reducing output to protect the "

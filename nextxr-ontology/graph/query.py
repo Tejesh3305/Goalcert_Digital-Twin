@@ -10,7 +10,6 @@ cross-tenant read.
 from __future__ import annotations
 
 import re
-from typing import Optional
 
 from graph.connection import get_driver
 
@@ -50,7 +49,7 @@ class GraphQuery:
         closed) driver reference."""
         return get_driver()
 
-    def get_node(self, tenant_id: str, node_id: str) -> Optional[dict]:
+    def get_node(self, tenant_id: str, node_id: str) -> dict | None:
         with self.driver.session() as s:
             rec = s.run(
                 "MATCH (n {tenantId:$t, id:$i}) RETURN properties(n) AS p LIMIT 1",
@@ -76,7 +75,7 @@ class GraphQuery:
             return [dict(r["p"]) for r in recs]
 
     def neighbors(self, tenant_id: str, node_id: str,
-                  rel_type: Optional[str] = None):
+                  rel_type: str | None = None):
         rel = f":{_validate_rel_type(rel_type)}" if rel_type else ""
         with self.driver.session() as s:
             recs = s.run(
@@ -86,7 +85,7 @@ class GraphQuery:
             )
             return [{"rel": r["rel"], "node": dict(r["p"])} for r in recs]
 
-    def get_findings(self, tenant_id: str, flagged_entity_id: Optional[str] = None):
+    def get_findings(self, tenant_id: str, flagged_entity_id: str | None = None):
         """List Finding nodes, optionally only those flagging a given entity."""
         with self.driver.session() as s:
             if flagged_entity_id:
@@ -105,7 +104,7 @@ class GraphQuery:
 
     # ---- Phase 1 expansion: operational agent support --------------------
 
-    def get_incidents(self, tenant_id: str, status: Optional[str] = None,
+    def get_incidents(self, tenant_id: str, status: str | None = None,
                       limit: int = 50) -> list[dict]:
         """List Incident nodes, optionally filtered by status."""
         with self.driver.session() as s:

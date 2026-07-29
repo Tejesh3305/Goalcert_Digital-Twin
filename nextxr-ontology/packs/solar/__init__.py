@@ -32,20 +32,47 @@ measured irradiance and cell temperature there is no baseline, and every
 
 from .behaviors import build_solar_registry
 from .desoto import (
-    G_REF, MaxPowerPoint, ModuleParams, OperatingParams, REFERENCE_MODULE,
-    REFERENCE_MODULE_PMP_STC, T_REF_C, cell_temp_from_module, estimate_rsh_ref,
-    iv_curve, max_power_point, module_temp_faiman, open_circuit_voltage,
-    short_circuit_current, solve_current, translate,
+    G_REF,
+    REFERENCE_MODULE,
+    REFERENCE_MODULE_PMP_STC,
+    T_REF_C,
+    MaxPowerPoint,
+    ModuleParams,
+    OperatingParams,
+    cell_temp_from_module,
+    estimate_rsh_ref,
+    iv_curve,
+    max_power_point,
+    module_temp_faiman,
+    open_circuit_voltage,
+    short_circuit_current,
+    solve_current,
+    translate,
 )
 from .physics import (
-    FAULTS, SIGNALS, SolarPhysics, SolarState, StringState, build_strings,
-    inverter_efficiency, redlines,
+    FAULTS,
+    SIGNALS,
+    SolarPhysics,
+    SolarState,
+    StringState,
+    build_strings,
+    inverter_efficiency,
+    redlines,
 )
 from .predict import component_health, predict
 from .signals import (
-    DERIVED_SIGNALS, INVERTER_SIGNALS, LOAD_SIGNALS, METER_SIGNALS,
-    OPERATING_STATES, SIGN_CONVENTIONS, STRING_SIGNALS, UNITS, WEATHER_SIGNALS,
-    is_generating, state_label, unit_for,
+    DERIVED_SIGNALS,
+    INVERTER_SIGNALS,
+    LOAD_SIGNALS,
+    METER_SIGNALS,
+    OPERATING_STATES,
+    SIGN_CONVENTIONS,
+    STRING_SIGNALS,
+    UNITS,
+    WEATHER_SIGNALS,
+    is_generating,
+    state_label,
+    unit_for,
 )
 
 # The self-describing domain spec the machine-twin runtime consumes.

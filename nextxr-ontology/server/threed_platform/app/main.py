@@ -14,12 +14,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import storage
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
-
-import storage
 
 from .config import settings
 from .orchestrator import submit

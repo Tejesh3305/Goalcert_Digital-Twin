@@ -32,7 +32,7 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from packs._core.physics import clamp, jitter
+from packs._core.physics import jitter
 
 # ────────────────────────────────────────────────────────────────────
 #  Signals

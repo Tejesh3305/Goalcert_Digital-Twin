@@ -28,7 +28,7 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from packs._core.physics import clamp, jitter
+from packs._core.physics import jitter
 
 # ────────────────────────────────────────────────────────────────────
 #  Signals
@@ -332,7 +332,7 @@ _KM_PER_UNIT = 0.30   # map units → km
 def _build_net() -> dict:
     idx = {s["id"]: s for s in _STATIONS}
     lines, fleet, total_km = [], [], 0.0
-    for li, ln in enumerate(_LINES):
+    for _li, ln in enumerate(_LINES):
         pts = [[idx[p]["x"], idx[p]["y"]] for p in ln["path"]]
         seglen = [math.dist(pts[i], pts[i + 1]) for i in range(len(pts) - 1)]
         length_km = round(sum(seglen) * _KM_PER_UNIT, 2)

@@ -26,12 +26,12 @@ import contextvars
 import json
 import logging
 from contextlib import contextmanager
-from typing import Optional
 
 from pydantic import BaseModel, Field
 
 from . import spend
 from .config import config
+
 # Domain-name normalisation (the copilot agents' one shared helper). The
 # knowledge/RAG store this used to live beside was removed; the alias map stays
 # so older callers still resolve to this platform's pack keys.
@@ -116,7 +116,7 @@ def _domain_ctx(domain: str | None) -> dict:
 
 # ── Call tracing: did this answer come from Claude, or from the stub? ──────
 
-_trace_var: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
+_trace_var: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
     "copilot_trace", default=None)
 
 
@@ -509,7 +509,7 @@ def _image_block(image_b64: str, filename: str) -> dict:
             "source": {"type": "base64", "media_type": media, "data": data}}
 
 
-def vision_to_twin_spec(image_b64: Optional[str], description: str,
+def vision_to_twin_spec(image_b64: str | None, description: str,
                         filename: str = "machine.png") -> TwinSpec:
     """Claude vision → structured twin spec. Falls back to a turbine stub."""
     def _stub() -> TwinSpec:
@@ -565,7 +565,7 @@ def narrate_sensors(state: dict, machine: str,
             return (f"Active finding: "
                     f"{findings[0].get('message', 'anomaly detected')[:90]}.")
         items = [(k.split(":")[-1], v) for k, v in list(signals.items())[:3]
-                 if isinstance(v, (int, float))]
+                 if isinstance(v, int | float)]
         if items:
             shown = ", ".join(f"{n} {v:.0f}" for n, v in items)
             return f"All readings nominal — {shown}. {machine} running clean."
@@ -647,7 +647,7 @@ def predictive_alert(prediction: dict, machine: str) -> str | None:
 
     def _stub() -> str:
         ttl = r.get("time_to_limit_min")
-        when = f"~{ttl:.0f} minutes" if isinstance(ttl, (int, float)) else "soon"
+        when = f"~{ttl:.0f} minutes" if isinstance(ttl, int | float) else "soon"
         return (f"PREDICTIVE ALERT: {r.get('mode')} projected to be reached in "
                 f"{when} at the current degradation rate. Reduce load and schedule "
                 f"an inspection.")
@@ -766,7 +766,7 @@ def analysis_agent(diagnostics: dict, prediction: dict, machine: str,
             for r in crossings:
                 ttl = r.get("time_to_limit_min")
                 lines.append(f"Projected to reach {r.get('mode')} in ~"
-                             f"{ttl:.0f} min." if isinstance(ttl, (int, float))
+                             f"{ttl:.0f} min." if isinstance(ttl, int | float)
                              else f"Projected to reach {r.get('mode')} within the horizon.")
         else:
             lines.append(f"No operating limit is projected to be crossed within "

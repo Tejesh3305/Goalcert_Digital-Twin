@@ -16,14 +16,13 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 _TOOLS = Path(__file__).resolve().parent.parent / "tools"
 if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))
 
-from rdflib import URIRef
 import gate
+from rdflib import URIRef
 
 NXR = "https://ontology.nextxr.io/v3/core#"
 
@@ -36,10 +35,10 @@ _TO = URIRef(NXR + "toState")
 _SUBCLASS = URIRef("http://www.w3.org/2000/01/rdf-schema#subClassOf")
 _LABEL = URIRef("http://www.w3.org/2000/01/rdf-schema#label")
 
-_cache: dict[str, Optional[dict]] = {}
+_cache: dict[str, dict | None] = {}
 
 
-def _load_state_machine(canonical_type: str) -> Optional[dict]:
+def _load_state_machine(canonical_type: str) -> dict | None:
     """Load the state machine for a canonical type from the ontology.
     Walks up rdfs:subClassOf chain to find inherited machines.
     Returns {initial, states, transitions: {from_state: [to_states]}} or None."""
@@ -95,8 +94,8 @@ def _load_state_machine(canonical_type: str) -> Optional[dict]:
     return result
 
 
-def validate_transition(canonical_type: str, old_status: Optional[str],
-                        new_status: str) -> Optional[str]:
+def validate_transition(canonical_type: str, old_status: str | None,
+                        new_status: str) -> str | None:
     """Check if transitioning from old_status to new_status is legal.
     Returns None if legal, or an error message string if illegal."""
     sm = _load_state_machine(canonical_type)
@@ -130,6 +129,6 @@ def validate_transition(canonical_type: str, old_status: Optional[str],
     return None
 
 
-def get_state_machine(canonical_type: str) -> Optional[dict]:
+def get_state_machine(canonical_type: str) -> dict | None:
     """Get the state machine definition for a type, if one exists."""
     return _load_state_machine(canonical_type)

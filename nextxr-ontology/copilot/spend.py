@@ -52,7 +52,8 @@ import json
 import os
 import threading
 import time
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 # ── Pricing ($ per 1M tokens: input, output) ────────────────────────────
 # List prices. Claude Sonnet 5 carries introductory pricing ($2/$10) through
@@ -192,7 +193,7 @@ ledger = Ledger()
 
 
 # ── Response memo + in-flight coalescing ────────────────────────────────
-def _truthy(v: Optional[str]) -> bool:
+def _truthy(v: str | None) -> bool:
     return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
 

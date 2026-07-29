@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import math
 
-from dynamics.model import DynamicsModel, EntityState, EntityContext
 from dynamics import flows
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 HSP = "https://ontology.nextxr.io/v3/hospital#"
@@ -305,7 +305,6 @@ class AutoclaveModel(DynamicsModel):
             f0 = 0.0                                                # new cycle resets F0
 
         pressure = max(1.0, 1.0 + max(0.0, T - 100.0) / 34.0 * 2.0)   # ~3 bar at 134 °C
-        running = heating or holding
         state.internal.update(temp=T, f0=f0)
         state.status = ("degraded" if (holding and f0 < ctx.fnum("f0FloorMin", 15.0) * 0.5)
                         else "running")

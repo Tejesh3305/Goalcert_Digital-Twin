@@ -66,7 +66,6 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, replace
-from typing import Optional
 
 # Physical constants.
 BOLTZMANN_EV = 8.617332478e-5     # eV/K — k in electron-volts, matching E_g in eV
@@ -109,7 +108,7 @@ class ModuleParams:
     eg_ref: float = EG_REF_SI     # eV    band gap at T_ref
     cells_in_series: int = 1      # informational; scaling is explicit below
 
-    def scale_to_string(self, modules_in_series: int) -> "ModuleParams":
+    def scale_to_string(self, modules_in_series: int) -> ModuleParams:
         """Series-connect `modules_in_series` identical modules.
 
         In series the same current flows through every module while voltages add,
@@ -373,7 +372,7 @@ def iv_curve(p: OperatingParams, points: int = 60) -> list[dict]:
 # ── Diagnostics support ─────────────────────────────────────────────────────
 
 
-def estimate_rsh_ref(v: float, i: float, p: OperatingParams) -> Optional[float]:
+def estimate_rsh_ref(v: float, i: float, p: OperatingParams) -> float | None:
     """Back out R_sh_ref from ONE measured operating point (V, I).
 
     Rearranging the diode equation for the shunt term:

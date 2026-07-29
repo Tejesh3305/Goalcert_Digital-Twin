@@ -59,7 +59,6 @@ raw) without having to re-derive history.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 import db
 
@@ -88,7 +87,7 @@ BUCKETS: dict[str, str] = {
 # How long each tier is kept. Raw is the expensive one and the least useful after
 # an incident is closed; the daily rollup is cheap enough to keep indefinitely
 # (None = never drop), which is what makes year-over-year comparison possible.
-RETENTION_DAYS: dict[str, Optional[int]] = {
+RETENTION_DAYS: dict[str, int | None] = {
     "raw": 30,
     "1m": 400,
     "1h": 1095,
@@ -109,7 +108,7 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-def retention_days(tier: str) -> Optional[int]:
+def retention_days(tier: str) -> int | None:
     """Retention for one tier, overridable per deployment. A customer with a
     regulatory retention floor sets these rather than editing code."""
     default = RETENTION_DAYS.get(tier)
@@ -235,7 +234,7 @@ SELECT add_continuous_aggregate_policy('{RAW_TABLE}_{name}',
 
 # ── Capability detection ────────────────────────────────────────────────────
 
-_TIMESCALE_CACHE: Optional[bool] = None
+_TIMESCALE_CACHE: bool | None = None
 
 
 def timescale_available(force: bool = False) -> bool:

@@ -52,8 +52,9 @@ import json
 import os
 import sqlite3
 import threading
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Iterable, Optional, Sequence
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from paths import DATA_DIR, data_path
@@ -66,6 +67,13 @@ SQLITE_FILES = {
     "checkpoints": "agent_checkpoints.db",
     "scenes":      "scenes.db",
     "threed":      "threed_jobs.db",
+    # Accounts: organisations, users, memberships, sessions, API keys, audit.
+    # Its own file locally for the same reason as every other store; on Postgres
+    # it shares the one database, so a login and the twin it authorises are in
+    # the same transaction domain.
+    "identity":    "identity.db",
+    "connectors":  "connectors.db",
+    "devices":     "devices.db",
     # Telemetry history. In production this is a TimescaleDB hypertable on the
     # SAME Postgres instance as the stores above (see historian/) — the local
     # SQLite file exists so `npm run dev` needs no server, and is explicitly not
@@ -163,9 +171,9 @@ def Json(obj: Any):
 def json_load(value: Any) -> Any:
     """Read a JSON column back. psycopg2 already parses JSONB into Python, so
     only the SQLite TEXT case needs decoding — and a NULL stays None."""
-    if value is None or isinstance(value, (dict, list)):
+    if value is None or isinstance(value, dict | list):
         return value
-    if isinstance(value, (bytes, bytearray)):
+    if isinstance(value, bytes | bytearray):
         value = value.decode("utf-8")
     return json.loads(value)
 
@@ -298,8 +306,7 @@ class Conn:
         handed back to the pool — a failover leaves sockets that look open."""
         try:
             import psycopg2
-            if isinstance(exc, (psycopg2.OperationalError,
-                                psycopg2.InterfaceError)):
+            if isinstance(exc, psycopg2.OperationalError | psycopg2.InterfaceError):
                 self._broken = True
         except Exception:
             pass
@@ -319,7 +326,7 @@ class Conn:
             self._release(self._raw, self._broken)
             self._release = None
 
-    def __enter__(self) -> "Conn":
+    def __enter__(self) -> Conn:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
@@ -333,7 +340,7 @@ class Conn:
         return False
 
 
-def _sqlite_path(store: str, path: Optional[Path]) -> Path:
+def _sqlite_path(store: str, path: Path | None) -> Path:
     if path is not None:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -341,7 +348,7 @@ def _sqlite_path(store: str, path: Optional[Path]) -> Path:
     return data_path(SQLITE_FILES.get(store, f"{store}.db"))
 
 
-def connect(store: str, *, path: Optional[Path] = None) -> Conn:
+def connect(store: str, *, path: Path | None = None) -> Conn:
     """Check out a connection for `store`.
 
     `path` forces a specific SQLite file even when Postgres is configured —

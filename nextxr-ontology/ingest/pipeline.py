@@ -45,9 +45,9 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Iterable, Optional, Sequence
+from datetime import UTC, datetime
 
 import historian
 from historian import Measurement
@@ -244,7 +244,7 @@ def _publish(tenant_id: str, measurements: Sequence[Measurement],
 
 
 def submit(tenant_id: str, measurements: Iterable[Measurement], *,
-           evaluate: Optional[bool] = None,
+           evaluate: bool | None = None,
            publish: bool = True) -> IngestResult:
     """Ingest already-typed measurements. The funnel every source ends at.
 
@@ -288,7 +288,7 @@ def submit(tenant_id: str, measurements: Iterable[Measurement], *,
 def submit_raw(tenant_id: str, rows: Iterable[dict], *,
                default_source: str = "api",
                default_asset_id: str = "",
-               evaluate: Optional[bool] = None,
+               evaluate: bool | None = None,
                publish: bool = True) -> IngestResult:
     """Ingest loosely-typed rows (an HTTP payload, an MQTT message, a CSV line).
 
@@ -325,14 +325,14 @@ def submit_raw(tenant_id: str, rows: Iterable[dict], *,
     return inner
 
 
-def status(tenant_id: Optional[str] = None) -> dict:
+def status(tenant_id: str | None = None) -> dict:
     """Is data actually arriving? The first question anyone asks of an ingest
     pipeline, and one the platform previously could not answer at all."""
     out: dict = {
         "historian": historian.info(),
         "behaviours_enabled": behaviours_enabled(),
         "behaviour_errors": loop_errors(),
-        "checked_at": datetime.now(timezone.utc).isoformat(),
+        "checked_at": datetime.now(UTC).isoformat(),
     }
     from . import devices
     out["devices"] = devices.stats()

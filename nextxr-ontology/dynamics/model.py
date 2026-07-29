@@ -30,9 +30,9 @@ so "ideal vs real" is consistent and configurable everywhere.
 
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 # --------------------------------------------------------------------------
@@ -63,10 +63,10 @@ class EntityContext:
     canonical_type: str                       # ontology class IRI
     props: dict                               # graph node properties
     inputs: dict[str, list]                   # predicate -> [EntityState] (upstream sources)
-    space: Optional[EntityState]              # the Zone/Room it sits in (ambient)
+    space: EntityState | None              # the Zone/Room it sits in (ambient)
     t: float                                  # sim time, seconds since start
     dt: float                                 # tick length, sim seconds
-    rng: "random.Random"                      # per-entity deterministic RNG
+    rng: random.Random                      # per-entity deterministic RNG
     outputs: dict[str, list] = field(default_factory=dict)  # predicate -> [downstream loads]
     contained: list = field(default_factory=list)  # [EntityState] inside this space
     params: dict = field(default_factory=dict)  # merged graph+bundle dynamics params
@@ -132,7 +132,7 @@ class DynamicsRegistry:
     def __init__(self):
         self._by_type: dict[str, DynamicsModel] = {}
         self._by_name: dict[str, DynamicsModel] = {}
-        self._resolve_cache: dict[str, Optional[DynamicsModel]] = {}
+        self._resolve_cache: dict[str, DynamicsModel | None] = {}
 
     def register(self, model: DynamicsModel) -> None:
         if not model.archetype and not model.models:
@@ -143,11 +143,11 @@ class DynamicsRegistry:
             self._by_type[iri] = model
         self._resolve_cache.clear()
 
-    def get(self, archetype_name: str) -> Optional[DynamicsModel]:
+    def get(self, archetype_name: str) -> DynamicsModel | None:
         """Fetch an archetype by its name (the binding-layer key)."""
         return self._by_name.get(archetype_name)
 
-    def resolve(self, canonical_type: str) -> Optional[DynamicsModel]:
+    def resolve(self, canonical_type: str) -> DynamicsModel | None:
         """Find the most-specific model for a class, walking up subClassOf.
         Returns None if no model (and no ancestor model) is registered."""
         if canonical_type in self._resolve_cache:
@@ -159,7 +159,7 @@ class DynamicsRegistry:
         self._resolve_cache[canonical_type] = m
         return m
 
-    def _walk_superclasses(self, canonical_type: str) -> Optional[DynamicsModel]:
+    def _walk_superclasses(self, canonical_type: str) -> DynamicsModel | None:
         """BFS up rdfs:subClassOf in the cached ontology graph for a registered
         ancestor model. Best-effort: if the ontology can't be loaded, return None."""
         try:

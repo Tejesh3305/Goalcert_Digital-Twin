@@ -12,7 +12,7 @@ the Tier-B vibration baseline monitor detects.
 
 from __future__ import annotations
 
-from dynamics.model import DynamicsModel, EntityState, EntityContext
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 SIG_FLOW = CFP + "flowRate"

@@ -12,12 +12,22 @@ import copy
 import random
 from dataclasses import dataclass, field
 
-from packs._core.physics import (
-    clamp, jitter, margin_hi, margin_lo, worst_health, status_from_health,
-)
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+
+from packs._core.physics import (
+    jitter,
+    margin_hi,
+    margin_lo,
+    status_from_health,
+    worst_health,
+)
+
 from .physics import (
-    battery_ecm, battery_thermal, battery_degradation, charging_dynamics, soc_ocv,
+    battery_degradation,
+    battery_ecm,
+    battery_thermal,
+    charging_dynamics,
+    soc_ocv,
 )
 
 SIGNALS = {

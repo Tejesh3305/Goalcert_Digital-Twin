@@ -11,6 +11,6 @@ The registry is metadata only; the twin's actual entities live in Neo4j under
 its tenant_id, and every mutation still flows through the single write path.
 """
 
-from .service import TwinRegistry, Twin, TEMPLATES
+from .service import TEMPLATES, Twin, TwinRegistry
 
 __all__ = ["TwinRegistry", "Twin", "TEMPLATES"]

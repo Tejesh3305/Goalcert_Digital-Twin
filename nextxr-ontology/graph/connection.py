@@ -10,6 +10,7 @@ Usage:
 
 import logging
 import os
+
 from neo4j import GraphDatabase
 
 # Silence benign server notifications (e.g. "relationship type FLAGS does not
@@ -19,9 +20,41 @@ logging.getLogger("neo4j").setLevel(logging.ERROR)
 
 _DEFAULT_URI = "bolt://localhost:7687"
 _DEFAULT_USER = "neo4j"
-_DEFAULT_PASSWORD = "nextxr2026"
+
+# The local docker-compose password. It is in the repository, so it is PUBLIC —
+# treat it as a fixture, never as a credential.
+#
+# It used to be the fallback whenever NEO4J_PASSWORD was unset, which meant a
+# deployment that forgot the variable authenticated to its production graph with
+# a password printed in the source. `_default_password()` now hands it out only
+# in the local-dev posture; with auth enforced, an unset variable is a hard
+# failure at connect time rather than a silent use of a known secret.
+_DEV_PASSWORD = "nextxr2026"
 
 _driver = None
+
+
+def _default_password() -> str:
+    configured = os.getenv("NEO4J_PASSWORD")
+    if configured:
+        return configured
+
+    try:
+        from server.auth import auth_required
+        production = auth_required()
+    except Exception:
+        # Imported outside the server (a CLI tool, a test harness). Fall back to
+        # the same signal the server uses rather than assuming either posture.
+        production = str(os.getenv("NXR_DEV_MODE", "")).strip().lower() \
+            not in ("1", "true", "yes", "on")
+
+    if production:
+        raise RuntimeError(
+            "NEO4J_PASSWORD is not set. Refusing to fall back to the "
+            "development password, which is published in this repository. Set "
+            "NEO4J_PASSWORD (from Secrets Manager on ECS), or set NXR_DEV_MODE=1 "
+            "for local development.")
+    return _DEV_PASSWORD
 
 
 def get_driver(uri=None, user=None, password=None):
@@ -32,7 +65,7 @@ def get_driver(uri=None, user=None, password=None):
             uri or os.getenv("NEO4J_URI", _DEFAULT_URI),
             auth=(
                 user or os.getenv("NEO4J_USER", _DEFAULT_USER),
-                password or os.getenv("NEO4J_PASSWORD", _DEFAULT_PASSWORD),
+                password or _default_password(),
             ),
             # Fail fast when Neo4j is down (e.g. Docker off) so the server still
             # boots and serves the frontend + bus/schema APIs instead of hanging

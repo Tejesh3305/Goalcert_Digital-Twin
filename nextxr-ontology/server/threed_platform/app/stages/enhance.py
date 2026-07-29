@@ -8,8 +8,8 @@ from __future__ import annotations
 
 from PIL import Image, ImageFilter, ImageOps
 
-from .base import Ctx, Stage
 from ..util.images import _LANCZOS
+from .base import Ctx, Stage
 
 
 class EnhanceStage(Stage):

@@ -36,14 +36,16 @@ import json
 import logging
 import threading
 import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import db
 from db import schema as db_schema
 
 from .base import (
-    Connector, ConnectorConfig, MissingDependency, available_protocols,
+    Connector,
+    ConnectorConfig,
+    MissingDependency,
+    available_protocols,
     build_connector,
 )
 from .pointmap import PointMap, PointMapError
@@ -75,7 +77,7 @@ for _module, _protocols in (("modbus", ("modbus_tcp", "modbus_rtu")),
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _ensure_schema() -> None:
@@ -167,7 +169,7 @@ def save(config: ConnectorConfig, *, validate: bool = True) -> ConnectorConfig:
     return config
 
 
-def get(connector_id: str) -> Optional[ConnectorConfig]:
+def get(connector_id: str) -> ConnectorConfig | None:
     _ensure_schema()
     with db.connect(_STORE) as conn:
         row = conn.execute("SELECT * FROM connectors WHERE connector_id = ?",
@@ -175,7 +177,7 @@ def get(connector_id: str) -> Optional[ConnectorConfig]:
     return _row_to_config(row) if row else None
 
 
-def list_configs(tenant_id: Optional[str] = None) -> list[ConnectorConfig]:
+def list_configs(tenant_id: str | None = None) -> list[ConnectorConfig]:
     _ensure_schema()
     with db.connect(_STORE) as conn:
         if tenant_id:
@@ -291,9 +293,9 @@ class ConnectorManager:
         self._running: dict[str, Connector] = {}
         self._lock = threading.RLock()
         self._leases = _Leases()
-        self._reconciler: Optional[threading.Thread] = None
+        self._reconciler: threading.Thread | None = None
         self._stop = threading.Event()
-        self._last_reconcile: Optional[str] = None
+        self._last_reconcile: str | None = None
         self._errors: dict[str, str] = {}
 
     # -- reconciliation ------------------------------------------------------
@@ -428,7 +430,7 @@ class ConnectorManager:
             self._stop_locked(connector_id)
         return {"stopped": was_running}
 
-    def health(self, connector_id: str) -> Optional[dict]:
+    def health(self, connector_id: str) -> dict | None:
         with self._lock:
             connector = self._running.get(connector_id)
             error = self._errors.get(connector_id)
@@ -453,7 +455,7 @@ class ConnectorManager:
         }
 
 
-_manager: Optional[ConnectorManager] = None
+_manager: ConnectorManager | None = None
 _manager_lock = threading.Lock()
 
 

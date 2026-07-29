@@ -6,13 +6,20 @@ Exposes two SPECs:
   * WARSHIP_SPEC — "defence-warship": a naval surface combatant with propulsion,
                    stability, structural fatigue and a damage-control view.
 """
+from .behaviors import build_defence_registry
 from .physics import (
-    DefenceBasePhysics, SIGNALS, UNITS, redlines, FAULTS,
-    gas_turbine_brayton, radar_propagation, ship_stability,
-    nbc_contamination_spread, structural_fatigue,
+    FAULTS,
+    SIGNALS,
+    UNITS,
+    DefenceBasePhysics,
+    gas_turbine_brayton,
+    nbc_contamination_spread,
+    radar_propagation,
+    redlines,
+    ship_stability,
+    structural_fatigue,
 )
 from .predict import component_health, predict
-from .behaviors import build_defence_registry
 from .warship import SPEC as WARSHIP_SPEC
 
 SPEC = {

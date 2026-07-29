@@ -50,7 +50,7 @@ import logging
 import os
 import threading
 import uuid
-from typing import Any, Optional
+from typing import Any
 
 log = logging.getLogger("nxr.twins.coordinator")
 
@@ -96,13 +96,13 @@ _JSONABLE = (str, int, float, bool, type(None))
 
 def _coerce(v: Any) -> Any:
     """Normalise a field value to something JSON can hold."""
-    return sorted(v) if isinstance(v, (set, frozenset)) else v
+    return sorted(v) if isinstance(v, set | frozenset) else v
 
 
 def _is_jsonable(v: Any) -> bool:
     if isinstance(v, _JSONABLE):
         return True
-    if isinstance(v, (list, tuple)):
+    if isinstance(v, list | tuple):
         return all(_is_jsonable(x) for x in v)
     if isinstance(v, dict):
         return all(isinstance(k, str) and _is_jsonable(x) for k, x in v.items())
@@ -152,7 +152,7 @@ def apply_state_dict(state: Any, data: dict) -> None:
             continue
         cur = getattr(state, f.name)
         val = data[f.name]
-        if isinstance(cur, (set, frozenset)) and isinstance(val, list):
+        if isinstance(cur, set | frozenset) and isinstance(val, list):
             val = type(cur)(val)
         setattr(state, f.name, val)
 
@@ -261,7 +261,7 @@ class TwinCoordinator:
             else:
                 log.debug("publish failed for %s: %s", tenant, e)
 
-    def fetch(self, tenant: str) -> Optional[dict]:
+    def fetch(self, tenant: str) -> dict | None:
         r = self.redis
         if r is None:
             return None
@@ -315,7 +315,7 @@ class TwinCoordinator:
                 "owned": sorted(self._owned)}
 
 
-_coordinator: Optional[TwinCoordinator] = None
+_coordinator: TwinCoordinator | None = None
 _coord_lock = threading.Lock()
 
 

@@ -2,7 +2,7 @@
 CFP Tier-C fire rules: smoke alarm, suppression discharge.
 Safety-critical — these rules are human-authored and human-reviewed.
 """
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class SmokeAlarmRule(Behavior):

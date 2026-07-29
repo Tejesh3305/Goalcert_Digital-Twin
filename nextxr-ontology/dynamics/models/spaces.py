@@ -21,8 +21,8 @@ CO2 and humidity follow simple mass balances driven by occupancy + ventilation.
 
 from __future__ import annotations
 
-from dynamics.model import DynamicsModel, EntityState, EntityContext
 from dynamics import flows
+from dynamics.model import DynamicsModel, EntityContext, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 CP_AIR = 1005.0      # J/(kg·K)

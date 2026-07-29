@@ -13,10 +13,17 @@ import { isSimTenant } from '../lib/simTwins'
 const TwinContext = createContext(null)
 const STORAGE_KEY = 'nxr_active_tenant'
 
-export function TwinProvider({ children }) {
+/**
+ * @param initialTenant  open THIS twin instead of restoring the last-opened one.
+ *   The hub passes it when a work order or an assignment names a specific asset —
+ *   without it the remote would restore whatever the browser last had open, and
+ *   "show me the asset in this job" would show a different asset. Standalone it
+ *   is undefined and the localStorage behaviour is unchanged.
+ */
+export function TwinProvider({ children, initialTenant }) {
   const [twins, setTwins] = useState([])
   const [activeTenant, setActiveTenant] = useState(
-    () => localStorage.getItem(STORAGE_KEY) || null,
+    () => initialTenant || localStorage.getItem(STORAGE_KEY) || null,
   )
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -42,6 +49,12 @@ export function TwinProvider({ children }) {
   }, [])
 
   useEffect(() => { refreshTwins() }, [refreshTwins])
+
+  // The host can retarget an already-mounted remote (the operator moves from one
+  // work order to the next without the panel being torn down).
+  useEffect(() => {
+    if (initialTenant) setActiveTenant(initialTenant)
+  }, [initialTenant])
 
   useEffect(() => {
     if (activeTenant) localStorage.setItem(STORAGE_KEY, activeTenant)

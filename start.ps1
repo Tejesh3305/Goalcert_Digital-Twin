@@ -4,14 +4,22 @@
 #   ./start.ps1 -NoDocker  backend only, in degraded mode (no DB) — UI still loads
 #   ./start.ps1 -Dev       also start the Vite dev server (npm run dev) for live reload
 #   ./start.ps1 -Build     rebuild the frontend before starting
+#   ./start.ps1 -Secure    run in the PRODUCTION posture: authentication required,
+#                          sign in at /login. Rehearse a release with this.
 #
 # This script makes the "503 / blank UI" problem self-healing: it detects when
 # Docker is down, starts it, and waits for Neo4j before launching the server.
+#
+# NOTE ON AUTHENTICATION: the API defaults to CLOSED (see server/auth.py). Without
+# -Secure this script sets NXR_DEV_MODE=1, which is the explicit local opt-out —
+# so the open posture is something you run on purpose rather than something a
+# deployment inherits by forgetting a variable.
 
 param(
     [switch]$NoDocker,
     [switch]$Dev,
-    [switch]$Build
+    [switch]$Build,
+    [switch]$Secure
 )
 
 $ErrorActionPreference = "Stop"
@@ -144,10 +152,50 @@ if ($Dev) {
     Write-Ok "Dev server starting at http://localhost:5173"
 }
 
-# ── 5. Backend ──────────────────────────────────────────────────────
+# ── 5. Local-development posture ────────────────────────────────────
+#
+# THE API NOW DEFAULTS TO CLOSED. `server/auth.py` used to serve any request
+# without a credential whenever NXR_API_KEYS was unset, which meant every
+# deployment that forgot an environment variable was open to the internet. That
+# default is inverted: authentication is REQUIRED unless something explicitly
+# opts out.
+#
+# NXR_DEV_MODE is that opt-out, and it lives HERE rather than in the code so the
+# escape hatch is something a developer runs deliberately on a laptop, not a hole
+# a deploy inherits by forgetting a variable. Pass -Secure to run the local
+# server in the production posture instead — worth doing before a release, since
+# it is the configuration that will actually ship.
+if ($Secure) {
+    Write-Step "Local server in PRODUCTION posture (authentication required)"
+    $env:NXR_DEV_MODE = $null
+    $env:NXR_REQUIRE_AUTH = "1"
+    if (-not $env:NXR_JWT_SECRET) {
+        # The app refuses to boot with an ephemeral signing key while auth is
+        # enforced (identity/tokens.py) — each task would sign tokens the others
+        # reject. A fixed local value keeps sessions alive across restarts.
+        $env:NXR_JWT_SECRET = "local-development-jwt-secret-not-for-production-use"
+        Write-Warn "NXR_JWT_SECRET not set — using a fixed local value"
+    }
+    if (-not $env:NEO4J_PASSWORD) { $env:NEO4J_PASSWORD = "nextxr2026" }
+    Write-Ok "auth enforced. Create an account at http://localhost:8080/signup"
+    $env:NXR_ALLOW_SIGNUP = "1"
+    $env:NXR_COOKIE_SECURE = "0"   # plain HTTP locally; a Secure cookie is never sent
+} else {
+    $env:NXR_DEV_MODE = "1"
+    Write-Warn "NXR_DEV_MODE=1 — the API is OPEN (no credential required)."
+    Write-Warn "This is the local-development posture only. Use -Secure to rehearse production."
+}
+
+# Migrations. Local dev is a single process, so applying them at boot is safe
+# here — on ECS several tasks would race and NXR_AUTO_MIGRATE stays 0 (a one-off
+# task runs them before the service rolls).
+$env:NXR_AUTO_MIGRATE = "1"
+
+# ── 6. Backend ──────────────────────────────────────────────────────
 Write-Step "Starting the NextXR backend"
 Write-Host "  → App:  http://localhost:8080" -ForegroundColor Green
 Write-Host "  → API:  http://localhost:8080/docs" -ForegroundColor Green
+if ($Secure) { Write-Host "  → Sign in: http://localhost:8080/login" -ForegroundColor Green }
 if ($Dev) { Write-Host "  → Dev:  http://localhost:5173 (live reload)" -ForegroundColor Green }
 Write-Host ""
 Push-Location $ontology

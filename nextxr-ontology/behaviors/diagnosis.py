@@ -22,20 +22,18 @@ Each step uses the ontology predicates:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Optional
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 
 
 @dataclass
 class DiagnosisResult:
-    incident_id: Optional[str] = None
-    diagnosis_id: Optional[str] = None
-    recommendation_id: Optional[str] = None
-    action_id: Optional[str] = None
+    incident_id: str | None = None
+    diagnosis_id: str | None = None
+    recommendation_id: str | None = None
+    action_id: str | None = None
     findings_grouped: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class DiagnosisEngine:

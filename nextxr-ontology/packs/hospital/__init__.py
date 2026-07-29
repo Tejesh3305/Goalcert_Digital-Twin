@@ -9,14 +9,23 @@ This is distinct from the CFP `packs/hospital` functional pack (dynamics
 archetypes + monitoring bindings) used by the plan→3D / feed path — this runs in
 the machine-twin runtime like railway-metro / turbine / edm.
 """
+from .behaviors import build_hospital_registry
 from .physics import (
-    HospitalCampusPhysics, SIGNALS, UNITS, redlines, FAULTS,
-    hospital_hvac_pressure, medical_gas_hydraulics, sterilisation_f0,
-    cold_chain_thermal, infection_spread_wellsriley, power_resilience,
-    legionella_thermal, patient_flow_queuing,
+    FAULTS,
+    SIGNALS,
+    UNITS,
+    HospitalCampusPhysics,
+    cold_chain_thermal,
+    hospital_hvac_pressure,
+    infection_spread_wellsriley,
+    legionella_thermal,
+    medical_gas_hydraulics,
+    patient_flow_queuing,
+    power_resilience,
+    redlines,
+    sterilisation_f0,
 )
 from .predict import component_health, predict
-from .behaviors import build_hospital_registry
 
 SPEC = {
     "key": "hospital-campus",

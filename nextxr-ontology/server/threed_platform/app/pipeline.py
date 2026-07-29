@@ -8,16 +8,16 @@ list here.
 from __future__ import annotations
 
 from .stages.base import Stage
-from .stages.validate import RouterStage, ValidateStage
-from .stages.understand import UnderstandStage
-from .stages.segment import SegmentStage
-from .stages.enhance import EnhanceStage
-from .stages.prior import GeometryPriorStage
-from .stages.reconstruct import ReconstructStage
-from .stages.mesh import MeshRepairStage, TopologyLODStage, MeshValidateStage
-from .stages.refine import UVTextureStage, MaterialStage, SemanticStage
 from .stages.deliver import ExportStage, PackageStage
 from .stages.drawing import DrawingStage
+from .stages.enhance import EnhanceStage
+from .stages.mesh import MeshRepairStage, MeshValidateStage, TopologyLODStage
+from .stages.prior import GeometryPriorStage
+from .stages.reconstruct import ReconstructStage
+from .stages.refine import MaterialStage, SemanticStage, UVTextureStage
+from .stages.segment import SegmentStage
+from .stages.understand import UnderstandStage
+from .stages.validate import RouterStage, ValidateStage
 
 # Common front door.
 COMMON: list[Stage] = [RouterStage(), ValidateStage()]

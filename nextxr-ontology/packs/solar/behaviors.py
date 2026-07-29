@@ -41,12 +41,13 @@ at all: a Tier-C threshold on output power cannot distinguish any of these three
 
 from __future__ import annotations
 
-import math
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
-from packs._core.physics import HardLimit as _HardLimit, Latch as _Latch
+
+from packs._core.physics import HardLimit as _HardLimit
+from packs._core.physics import Latch as _Latch
 
 from .physics import SIGNALS, redlines
 from .signals import is_generating
@@ -450,11 +451,11 @@ def _linear_trend(series: list[tuple[datetime, float]]) -> tuple[float, float]:
     sxx = sum((x - mean_x) ** 2 for x in xs)
     if sxx <= 0:
         return 0.0, 0.0
-    sxy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys))
+    sxy = sum((x - mean_x) * (y - mean_y) for x, y in zip(xs, ys, strict=False))
     slope = sxy / sxx
     intercept = mean_y - slope * mean_x
     ss_tot = sum((y - mean_y) ** 2 for y in ys)
-    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys))
+    ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(xs, ys, strict=False))
     r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
     return slope, max(0.0, min(1.0, r2))
 

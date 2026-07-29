@@ -11,8 +11,8 @@ and continuous-flow monitors fire.
 
 from __future__ import annotations
 
-from dynamics.model import DynamicsModel, EntityState, EntityContext
 from dynamics import flows
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 SIG_LEVEL = CFP + "tankLevel"        # % (matches cfp.tank_low_level)

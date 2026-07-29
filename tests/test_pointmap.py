@@ -20,12 +20,16 @@ independent of the implementation rather than a restatement of it.
 from __future__ import annotations
 
 import pytest
-
 from connectors.pointmap import (
-    DeadbandFilter, Point, PointMap, PointMapError, decode_registers,
-    expand_asset_template, extract_json_path, registers_to_bytes,
+    DeadbandFilter,
+    Point,
+    PointMap,
+    PointMapError,
+    decode_registers,
+    expand_asset_template,
+    extract_json_path,
+    registers_to_bytes,
 )
-
 
 # ── Byte assembly ───────────────────────────────────────────────────────────
 

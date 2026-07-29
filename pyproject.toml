@@ -76,3 +76,65 @@ ignore = [
 # Every module under nextxr-ontology/ does sys.path surgery before importing, so
 # imports legitimately follow statements there.
 "nextxr-ontology/**" = ["E402"]
+
+# ── The legacy backlog, scoped to the files that carry it ────────────────
+#
+# The lint job is BLOCKING (.github/workflows/ci.yml). It could not be while
+# ~850 findings existed, and a report nobody is forced to act on is a report
+# nobody reads — so the backlog was cleared: ~860 were fixed outright, and what
+# remains is listed here FILE BY FILE rather than switched off globally.
+#
+# That distinction is the whole point. A global `ignore = ["B904"]` would exempt
+# code written tomorrow. This exempts exactly the files that already had the
+# problem, so every NEW module — and every new function in an unlisted file — is
+# held to the full rule set. Deleting a line here is how the backlog shrinks, and
+# the gate stops anyone adding to it.
+#
+# What each rule means, and why it is survivable in these files:
+#
+#   B904  `raise X` inside `except` without `from e`. Costs the original
+#         traceback in logs ("during handling of the above exception..."),
+#         which is a debuggability loss rather than a behaviour change. Worth
+#         fixing; every one is in a route that converts a store error into an
+#         HTTPException.
+#   E702  Two statements on one line separated by `;`. Purely cosmetic. Almost
+#         all of these are compact `if x: a; b` guards in the physics models.
+#   E741  A variable named `l`, `I` or `O`. Ambiguous against `1`/`0` in some
+#         fonts. The instances here are loop indices and geometry lengths in
+#         BIM/layout code; renaming is mechanical but touches maths worth
+#         reading carefully before editing.
+#   B023  A closure over a loop variable. NOT a live bug in these three — each
+#         closure is called within its own iteration — but it is the shape that
+#         becomes one the moment the call is deferred.
+"nextxr-ontology/agents/bim_support.py" = ["E402", "E702", "E741"]
+"nextxr-ontology/agents/hospital_layout.py" = ["E402", "E702", "E741"]
+"nextxr-ontology/agents/ifc_parser.py" = ["E402", "E741"]
+"nextxr-ontology/behaviors/archetypes.py" = ["E402", "E702"]
+"nextxr-ontology/connectors/pointmap.py" = ["E402", "B904"]
+"nextxr-ontology/dynamics/models/datacenter.py" = ["E402", "E702"]
+"nextxr-ontology/dynamics/models/electrical.py" = ["E402", "E741"]
+"nextxr-ontology/dynamics/models/it.py" = ["E402", "E702"]
+"nextxr-ontology/dynamics/models/power_extra.py" = ["E402", "E702"]
+"nextxr-ontology/dynamics/models/sensing.py" = ["E402", "E702"]
+"nextxr-ontology/dynamics/models/transport.py" = ["E402", "E702"]
+"nextxr-ontology/dynamics/smoke_test.py" = ["E402", "B023"]
+"nextxr-ontology/historian/core.py" = ["E402", "B904"]
+"nextxr-ontology/packs/edm/physics.py" = ["E402", "E741"]
+"nextxr-ontology/packs/fleet/predict.py" = ["E402", "E741"]
+"nextxr-ontology/server/agent_routes.py" = ["E402", "B904"]
+"nextxr-ontology/server/connector_routes.py" = ["E402", "B904"]
+"nextxr-ontology/server/historian_routes.py" = ["E402", "B904"]
+"nextxr-ontology/server/hub_routes.py" = ["E402", "B904"]
+"nextxr-ontology/server/ingest_routes.py" = ["E402", "B904"]
+"nextxr-ontology/server/schema_routes.py" = ["E402", "B904"]
+"nextxr-ontology/server/twins_routes.py" = ["E402", "B904"]
+"nextxr-ontology/tools/gate.py" = ["E402", "B023", "B904"]
+"nextxr-ontology/tools/ontology_graph.py" = ["E402", "B904"]
+"nextxr-ontology/tools/schema_api.py" = ["E402", "B904"]
+"nextxr-ontology/tools/schema_service.py" = ["E402", "B023"]
+
+# The 3-D pipeline is vendored (server/threed_platform, merged from the
+# standalone apps/3d-platform). It has its own harness and is excluded from
+# coverage for the same reason; holding vendored code to this repository's lint
+# rules produces churn in a subtree that is replaced wholesale on the next merge.
+"nextxr-ontology/server/threed_platform/**" = ["E402", "B904", "E702", "E741", "B023"]

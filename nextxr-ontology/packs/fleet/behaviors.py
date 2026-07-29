@@ -20,9 +20,9 @@ live engine and the forward predictor.
 """
 from __future__ import annotations
 
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding, BehaviorRegistry
-from .physics import FleetPhysics, SIGNALS, redlines
+from behaviors.registry import Behavior, BehaviorRegistry, Finding, TelemetrySample, Tier
 
+from .physics import SIGNALS, FleetPhysics, redlines
 
 # ── Tier A: physics residuals ─────────────────────────────────────────
 

@@ -43,11 +43,11 @@ continues from the saved checkpoint.
 
 from __future__ import annotations
 
-import db
-
 import threading
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
+
+import db
 
 # Sentinel marking a graph terminus (matches LangGraph's END).
 END = "__end__"
@@ -65,7 +65,7 @@ class CheckpointSaver:
     """Persists graph state per thread_id (we key on session_id). Stores the
     full state JSON plus the node to resume at."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """`db_path` forces a private SQLite file (offline tools only)."""
         self.db_path = Path(db_path) if db_path else None
         self._lock = threading.Lock()
@@ -83,7 +83,7 @@ class CheckpointSaver:
                 conn.execute(stmt)
 
     def save(self, thread_id: str, graph_name: str, state: dict,
-             resume_at: Optional[str]):
+             resume_at: str | None):
         # CURRENT_TIMESTAMP, not datetime('now') — the latter is SQLite-only.
         with self._lock, self._connect() as conn:
             conn.execute(
@@ -94,7 +94,7 @@ class CheckpointSaver:
                 (thread_id, graph_name, db.Json(state), resume_at),
             )
 
-    def load(self, thread_id: str) -> Optional[dict]:
+    def load(self, thread_id: str) -> dict | None:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT state, resume_at FROM checkpoints WHERE thread_id=?",
@@ -127,7 +127,7 @@ class StateGraph:
         self._nodes: dict[str, Callable] = {}
         self._edges: dict[str, str] = {}                 # src -> dst (unconditional)
         self._cond: dict[str, tuple[Callable, dict]] = {}  # src -> (router, mapping)
-        self._entry: Optional[str] = None
+        self._entry: str | None = None
 
     def add_node(self, name: str, fn: Callable):
         if name in (END, INTERRUPT_KEY):
@@ -147,7 +147,7 @@ class StateGraph:
         self._entry = name
         return self
 
-    def compile(self, checkpointer: Optional[SqliteSaver] = None) -> "CompiledGraph":
+    def compile(self, checkpointer: SqliteSaver | None = None) -> CompiledGraph:
         if self._entry is None:
             raise ValueError("entry point not set")
         return CompiledGraph(self, checkpointer)
@@ -157,7 +157,7 @@ class CompiledGraph:
     """A runnable graph. invoke() runs from entry (or resumes a checkpoint)
     until END or an interrupt."""
 
-    def __init__(self, g: StateGraph, checkpointer: Optional[SqliteSaver]):
+    def __init__(self, g: StateGraph, checkpointer: SqliteSaver | None):
         self.g = g
         self.checkpointer = checkpointer
         self.max_steps = 100  # cycle guard
@@ -172,8 +172,8 @@ class CompiledGraph:
             return mapping[key]
         return self.g._edges.get(node, END)
 
-    def invoke(self, state: Optional[dict] = None, *, thread_id: str,
-               start_at: Optional[str] = None) -> dict:
+    def invoke(self, state: dict | None = None, *, thread_id: str,
+               start_at: str | None = None) -> dict:
         """Run the graph. If `state` is None, resume from the checkpoint for
         `thread_id`. Returns the state at END or at an interrupt (which carries
         an `__interrupt__` key naming why it paused)."""
@@ -214,7 +214,7 @@ class CompiledGraph:
             self.checkpointer.save(thread_id, self.g.name, state, END)
         return state
 
-    def get_state(self, thread_id: str) -> Optional[dict]:
+    def get_state(self, thread_id: str) -> dict | None:
         if not self.checkpointer:
             return None
         ckpt = self.checkpointer.load(thread_id)

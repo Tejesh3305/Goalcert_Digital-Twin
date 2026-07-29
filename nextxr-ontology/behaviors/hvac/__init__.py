@@ -2,9 +2,9 @@
 BehaviorRegistry. This is Track 3's toy domain: the cleanest test case for
 the three-tier model."""
 
-from .tier_c_threshold import TemperatureThresholdRule
-from .tier_b_zscore import TemperatureZScoreBaseline
 from .tier_a_physics import ThermalPhysicsBehavior
+from .tier_b_zscore import TemperatureZScoreBaseline
+from .tier_c_threshold import TemperatureThresholdRule
 
 __all__ = [
     "TemperatureThresholdRule",

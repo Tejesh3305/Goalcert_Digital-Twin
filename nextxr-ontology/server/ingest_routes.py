@@ -46,17 +46,16 @@ import gzip
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import ingest
 from fastapi import APIRouter, HTTPException, Request, Response
+from ingest import devices as device_registry
 from pydantic import BaseModel, Field
 
-import ingest
-from ingest import devices as device_registry
 from server.tenancy import TenantForbidden, require_write, scope_of
 
 router = APIRouter(prefix="/api/v1/ingest", tags=["ingest"])
@@ -76,8 +75,8 @@ class SamplePayload(BaseModel):
     """One reading. `asset_id` may be omitted when the batch sets it once."""
     asset_id: str = ""
     signal: str
-    value: Optional[float] = None
-    ts: Optional[str] = None
+    value: float | None = None
+    ts: str | None = None
     unit: str = ""
     quality: int = 192
     source: str = ""
@@ -93,7 +92,7 @@ class TelemetryBatch(BaseModel):
     where a human's script must say which twin it is writing to, and it is
     authorized by the global tenant dependency like every other tenant field.
     """
-    tenant: Optional[str] = None
+    tenant: str | None = None
     asset_id: str = Field("", description="Default asset for samples that omit it")
     source: str = Field("", description="Default source label, e.g. 'opcua'")
     samples: list[SamplePayload] = Field(default_factory=list)
@@ -104,9 +103,9 @@ class TelemetryBatch(BaseModel):
 class DeviceCreate(BaseModel):
     tenant: str
     name: str = ""
-    device_id: Optional[str] = None
+    device_id: str | None = None
     asset_prefix: str = ""
-    ttl_days: Optional[int] = None
+    ttl_days: int | None = None
 
 
 class EnabledRequest(BaseModel):
@@ -127,7 +126,7 @@ def _client_ip(request: Request) -> str:
     return (getattr(request.client, "host", "") or "")[:64]
 
 
-def _resolve_writer(request: Request, body_tenant: Optional[str]) -> tuple[str, dict]:
+def _resolve_writer(request: Request, body_tenant: str | None) -> tuple[str, dict]:
     """(tenant_id, principal) for an ingest call.
 
     Device token first. It is the stronger credential for this purpose because the
@@ -251,7 +250,7 @@ async def ingest_telemetry(batch: TelemetryBatch, request: Request,
 
 @router.post("/telemetry/bulk")
 async def ingest_bulk(request: Request, response: Response,
-                      tenant: Optional[str] = None,
+                      tenant: str | None = None,
                       asset_id: str = "", source: str = "backfill"):
     """Backfill from NDJSON — one JSON object per line, optionally gzipped.
 
@@ -313,7 +312,7 @@ async def ingest_bulk(request: Request, response: Response,
 
 
 @router.get("/status")
-def ingest_status(request: Request, tenant: Optional[str] = None):
+def ingest_status(request: Request, tenant: str | None = None):
     """Is data arriving, and from whom.
 
     Reports the historian backend, per-device last-seen, and any device that has
@@ -363,7 +362,7 @@ def create_device(req: DeviceCreate, request: Request):
 
 
 @router.get("/devices")
-def list_devices(request: Request, tenant: Optional[str] = None):
+def list_devices(request: Request, tenant: str | None = None):
     """Devices this caller may see. Never includes a token or its hash."""
     scope = scope_of(request)
     rows = device_registry.list_for_tenant(tenant)

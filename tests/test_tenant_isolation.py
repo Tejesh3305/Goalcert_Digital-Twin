@@ -31,9 +31,13 @@ matters is that a foreign tenant is refused BEFORE any store is touched.
 from __future__ import annotations
 
 import pytest
-
 from conftest import (
-    KEY_ACME, KEY_ACME_MULTI, KEY_ACME_PREFIX, KEY_ADMIN, KEY_READER, hdr,
+    KEY_ACME,
+    KEY_ACME_MULTI,
+    KEY_ACME_PREFIX,
+    KEY_ADMIN,
+    KEY_READER,
+    hdr,
 )
 
 VICTIM = "victim-tenant"
@@ -312,10 +316,29 @@ def test_error_body_does_not_leak_other_tenants(api):
 def test_missing_key_is_401_not_500(api):
     """A raised HTTPException in outer middleware becomes a 500 with a
     traceback; auth.py returns a response instead. Pinned so that never
-    regresses — it once turned every unauthenticated call into "server crash"."""
+    regresses — it once turned every unauthenticated call into "server crash".
+
+    The assertion is on the STATUS and on the response being actionable, not on
+    the exact wording. There are now two credential types, so the message names
+    both; pinning the old literal string tested the copy rather than the
+    behaviour, and would fail again the next time a word changed.
+    """
     resp = api.get("/api/v1/stats", params={"tenant": "acme"})
     assert resp.status_code == 401
-    assert resp.json()["detail"] == "Missing X-API-Key header"
+    detail = resp.json()["detail"]
+    assert "X-API-Key" in detail and "Bearer" in detail
+    # A 401 must tell the client which scheme to use, or a CLI cannot recover.
+    assert resp.headers.get("WWW-Authenticate", "").startswith("Bearer")
+
+
+def test_no_default_demo_key_exists(api):
+    """The image once shipped with `nxr-demo-key` as a working ADMIN credential
+    whenever NXR_API_KEYS was unset. Anyone who read the source had root on any
+    deployment that forgot to configure keys."""
+    for guess in ("nxr-demo-key", "nxr-read-only"):
+        resp = api.get("/api/v1/stats", params={"tenant": "acme"},
+                       headers=hdr(guess))
+        assert resp.status_code == 401, f"{guess} still authenticates"
 
 
 def test_invalid_key_is_401(api):

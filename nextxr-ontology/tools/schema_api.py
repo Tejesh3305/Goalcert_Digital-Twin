@@ -18,7 +18,7 @@ rather than a cryptic ImportError, so the library half keeps working.
 from __future__ import annotations
 
 try:
-    from fastapi import FastAPI, HTTPException, Body
+    from fastapi import Body, FastAPI, HTTPException
 except ImportError:  # pragma: no cover
     raise SystemExit(
         "The HTTP surface needs FastAPI:  pip install fastapi uvicorn\n"

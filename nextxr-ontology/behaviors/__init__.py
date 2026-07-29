@@ -11,7 +11,11 @@ Tiers:
 """
 
 from .registry import (
-    Behavior, BehaviorRegistry, Finding, TelemetrySample, Tier,
+    Behavior,
+    BehaviorRegistry,
+    Finding,
+    TelemetrySample,
+    Tier,
 )
 
 __all__ = ["Behavior", "BehaviorRegistry", "Finding", "TelemetrySample", "Tier"]

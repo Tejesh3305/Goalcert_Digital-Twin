@@ -16,12 +16,20 @@ import random
 from dataclasses import dataclass, field
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+
 from packs._core.physics import (
-    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+    clamp,
+    first_order_lag,
+    jitter,
+    margin_hi,
+    margin_lo,
     status_from_health,
+    worst_health,
 )
+
 from .physics import (
-    train_dynamics, wheel_rail_contact, SIGNALS as NET_SIGNALS,
+    train_dynamics,
+    wheel_rail_contact,
 )
 
 # Thermal time constants (s): the traction motor is a large thermal mass; the

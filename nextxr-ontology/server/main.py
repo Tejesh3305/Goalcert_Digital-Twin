@@ -34,54 +34,70 @@ TOOLS = ROOT / "tools"
 if str(TOOLS) not in sys.path:
     sys.path.insert(0, str(TOOLS))
 
-from fastapi import Depends, FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
-
-from server.auth import AuthMiddleware
-from server.tenancy import enforce_tenant_scope
-
-from graph.connection import get_driver, close_driver
-from graph.writer import GraphWriter, Rel
-from graph.query import GraphQuery
-from changelog.service import ChangeLog
-from behaviors.registry import Behavior, BehaviorRegistry, Tier
+from behaviors.cfp.tier_b_chiller import ChillerCOPBaseline
+from behaviors.cfp.tier_b_vibration import PumpVibrationBaseline
+from behaviors.cfp.tier_c_filter import FilterCloggedRule
+from behaviors.cfp.tier_c_fire import SmokeAlarmRule
+from behaviors.cfp.tier_c_network import HeartbeatLossRule
+from behaviors.cfp.tier_c_power import (
+    GeneratorFuelLowRule,
+    TransformerOverTempRule,
+    UPSOnBatteryRule,
+)
+from behaviors.cfp.tier_c_security import DoorForcedRule, RepeatedDenyRule
+from behaviors.cfp.tier_c_water import (
+    ContinuousFlowLeakRule,
+    LeakDetectedRule,
+    TankLowLevelRule,
+)
+from behaviors.diagnosis import DiagnosisEngine
 from behaviors.hvac import (
     TemperatureThresholdRule,
     TemperatureZScoreBaseline,
     ThermalPhysicsBehavior,
 )
-from behaviors.cfp.tier_c_power import (
-    UPSOnBatteryRule, GeneratorFuelLowRule, TransformerOverTempRule,
-)
-from behaviors.cfp.tier_c_fire import SmokeAlarmRule
-from behaviors.cfp.tier_c_security import DoorForcedRule, RepeatedDenyRule
-from behaviors.cfp.tier_c_water import (
-    LeakDetectedRule, TankLowLevelRule, ContinuousFlowLeakRule,
-)
-from behaviors.cfp.tier_c_network import HeartbeatLossRule
-from behaviors.cfp.tier_c_filter import FilterCloggedRule
-from behaviors.cfp.tier_b_chiller import ChillerCOPBaseline
-from behaviors.cfp.tier_b_vibration import PumpVibrationBaseline
-from feed.simulate import simulate_temperature, FindingsLoop
-from behaviors.diagnosis import DiagnosisEngine
+from behaviors.registry import Behavior, BehaviorRegistry, Tier
+from changelog.service import ChangeLog
+from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from feed.simulate import FindingsLoop, simulate_temperature
+from graph.connection import get_driver
+from graph.query import GraphQuery
+from graph.writer import GraphWriter, Rel
 
-from server.query_api import router as query_router
-from server.write_api import router as write_router
-from server.schema_routes import router as schema_router
-from server.twins_routes import router as twins_router
-from server.twin_runtime_routes import router as twin_runtime_router
 from server.agent_routes import router as agent_router
-from server.copilot_routes import router as copilot_router
-from server.hub_routes import router as hub_router
-from server.historian_routes import router as historian_router
-from server.ingest_routes import router as ingest_router
+from server.auth import AuthMiddleware
+from server.auth_routes import router as auth_router
 from server.connector_routes import router as connector_router
+from server.copilot_routes import router as copilot_router
+from server.historian_routes import router as historian_router
+from server.hub_routes import router as hub_router
+from server.ingest_routes import router as ingest_router
+from server.observability import RequestContextMiddleware
+from server.observability import configure as _configure_logging
+from server.query_api import router as query_router
+from server.ratelimit import RateLimitMiddleware
+from server.schema_routes import router as schema_router
+from server.security import (
+    BodyLimitMiddleware,
+    SecurityHeadersMiddleware,
+    cors_allow_credentials,
+    cors_origins,
+)
 from server.solar_routes import router as solar_router
+from server.tenancy import enforce_tenant_scope
 from server.threed_platform.app.main import app as threed_platform_app
+from server.twin_runtime_routes import router as twin_runtime_router
+from server.twins_routes import router as twins_router
+from server.write_api import router as write_router
 
 # ── App setup ───────────────────────────────────────────────────────
+
+# Before the app object exists, so the posture lines printed while the middleware
+# stack is assembled are already structured rather than raw stdout.
+_configure_logging()
 
 app = FastAPI(
     title="NextXR Digital Twin",
@@ -107,17 +123,54 @@ app = FastAPI(
     dependencies=[Depends(enforce_tenant_scope)],
 )
 
-# CORS origins default to "*" (unchanged for local dev and the federated hub).
-# In production set NXR_CORS_ORIGINS to a comma-separated allow-list to lock the
-# API down to known origins.
-_cors_origins = [o.strip() for o in os.getenv("NXR_CORS_ORIGINS", "*").split(",") if o.strip()] or ["*"]
+# ── Middleware stack ────────────────────────────────────────────────────
+#
+# ORDER IS LOAD-BEARING, AND IT READS BACKWARDS. Starlette wraps each
+# `add_middleware` around the previous one, so the LAST added is the OUTERMOST
+# and therefore runs FIRST. Reading top to bottom below, the request passes
+# through them bottom to top:
+#
+#     request  ->  CORS  ->  security headers  ->  body limit  ->  rate limit
+#              ->  auth  ->  tenant dependency  ->  route
+#
+#   CORS outermost      so a preflight OPTIONS is answered without a credential;
+#                       otherwise the browser's preflight 401s and every
+#                       cross-origin call fails before it is made.
+#   body limit          before anything reads the body.
+#   RATE LIMIT BEFORE AUTH — the important one. /auth/login must be limited for
+#                       callers who never authenticate, and a limiter inside auth
+#                       would never see them. The cost is that unauthenticated
+#                       traffic is charged by IP, which is correct for it.
+#   auth innermost      so `request.state.principal` is set for the routes and
+#                       for the global tenant dependency.
+app.add_middleware(AuthMiddleware)
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(BodyLimitMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+# Outermost of the non-CORS middleware, so the request id exists before anything
+# else can log and the access line's duration covers the entire stack.
+app.add_middleware(RequestContextMiddleware)
+
+_cors_origins = cors_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_credentials=cors_allow_credentials(),
     allow_methods=["*"],
-    allow_headers=["*"],
+    # Explicit rather than "*", because `allow_credentials=True` makes the CORS
+    # spec forbid the wildcard — the browser rejects the response and the failure
+    # looks like an unrelated network error.
+    allow_headers=["Authorization", "Content-Type", "X-API-Key",
+                   "X-Device-Token", "X-Goalcert-User", "X-Goalcert-Role",
+                   "X-Goalcert-Org", "X-Request-ID"],
+    expose_headers=["X-Request-ID", "Retry-After", "X-RateLimit-Limit"],
 )
-app.add_middleware(AuthMiddleware)
+
+# Identity first: /api/v1/auth is how a caller OBTAINS a credential, so it must
+# be reachable before anything that requires one. Its public sub-paths (login,
+# signup, refresh, password reset) are listed in server/auth.py; the rest of the
+# router authenticates normally.
+app.include_router(auth_router)
 
 app.include_router(query_router)
 app.include_router(write_router)
@@ -146,6 +199,21 @@ app.include_router(hub_router)
 # → the 2d-to-3d parser). Was a standalone service (apps/3d-platform); now mounted
 # in-process so "Build a Twin" can call it directly. Its own job-tester UI is at
 # /api/v1/threed/ (unchanged pipeline — see server/threed_platform/README.md).
+#
+# TENANT ENFORCEMENT ON A MOUNTED SUB-APP. `app.mount()` does not pass the parent
+# app's dependencies to the child, so `enforce_tenant_scope` — declared once on
+# `app` above and therefore covering every other route — does NOT cover this one.
+# AuthMiddleware still does (it is middleware, so it wraps the whole ASGI tree and
+# a credential is required), but authorization was silently absent.
+#
+# That was recorded as a known residual on the grounds that the job store is keyed
+# by job id and carries no tenant column, so there was nothing to authorize. It is
+# installed explicitly here anyway, for two reasons: the residual only holds while
+# the sub-app stays tenant-free, and nothing was enforcing that — a `tenant` field
+# added to a job payload would have re-opened the hole with no test failing. Now
+# the dependency is present, so a tenant that appears in a request to this sub-app
+# is authorized the moment it exists.
+threed_platform_app.router.dependencies.append(Depends(enforce_tenant_scope))
 app.mount("/api/v1/threed", threed_platform_app)
 
 
@@ -154,8 +222,10 @@ app.mount("/api/v1/threed", threed_platform_app)
 # raises a driver connection error. Instead of a raw 500, convert it once,
 # here, into a clean 503 with guidance — so every current and future
 # DB-backed route degrades the same friendly way.
-from neo4j.exceptions import ServiceUnavailable, SessionExpired, AuthError  # noqa: E402
+from datetime import UTC
+
 from fastapi.responses import JSONResponse  # noqa: E402
+from neo4j.exceptions import AuthError, ServiceUnavailable, SessionExpired  # noqa: E402
 
 
 @app.exception_handler(ServiceUnavailable)
@@ -379,7 +449,7 @@ def _build_registry() -> BehaviorRegistry:
     # class binding layer) becomes a live Behavior with no new Python.
     try:
         from agents.registry import get_registry
-        from behaviors.archetypes import make_behavior, behavior_models_to_rules
+        from behaviors.archetypes import behavior_models_to_rules, make_behavior
         seen = set()  # dedupe by behavior_id (register() rejects duplicates)
         for bundle in get_registry().list_published():
             rules = list(bundle.get("rules", []))
@@ -405,9 +475,10 @@ def _simulate_authored_domain(tenant: str, entity_id: str, domain: str,
     Reads the published bundle's primary_signal and rules to determine what
     signal to generate and at what setpoint. Produces a ramp profile that
     triggers Tier-C threshold rules in the second half of the run."""
-    from behaviors.registry import TelemetrySample
-    from datetime import datetime, timezone, timedelta
     import random
+    from datetime import datetime, timedelta
+
+    from behaviors.registry import TelemetrySample
 
     # Find the bundle for this domain and its primary signal.
     signal = f"{domain}:Temperature"  # fallback
@@ -437,7 +508,7 @@ def _simulate_authored_domain(tenant: str, entity_id: str, domain: str,
         pass
 
     rng = random.Random(42)
-    t0 = datetime.now(timezone.utc)
+    t0 = datetime.now(UTC)
     minutes = 60
     normal_minutes = 30
     samples = []
@@ -618,8 +689,8 @@ def _augment_registry_with_bindings(registry, tenant, query):
     a twin of ANY domain gets its bound monitors with no code — the same way the
     dynamics engine gets its generative models. Dedupe by behavior_id."""
     try:
-        from dynamics.bindings import monitoring_rules_for
         from behaviors.archetypes import make_behavior
+        from dynamics.bindings import monitoring_rules_for
         seen = {b.behavior_id for b in registry.all()}
         types = set()
         for label in ("PhysicalAsset", "Location"):
@@ -654,7 +725,7 @@ def _run_dynamics_loop(tenant: str, ahu_id: str, cl: ChangeLog, speed: float = 6
     try:
         writer = GraphWriter(changelog=cl)
         query = GraphQuery()
-        from dynamics import build_dynamics_registry, DynamicsEngine
+        from dynamics import DynamicsEngine, build_dynamics_registry
 
         registry = _build_registry()
         _augment_registry_with_bindings(registry, tenant, query)
@@ -964,6 +1035,7 @@ def on_shutdown():
 
 if __name__ == "__main__":
     import os
+
     import uvicorn
     # Cloud platforms (Render, Heroku, …) inject the port to bind via $PORT.
     uvicorn.run("server.main:app", host="0.0.0.0",

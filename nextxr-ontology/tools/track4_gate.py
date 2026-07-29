@@ -27,8 +27,8 @@ from __future__ import annotations
 
 import json
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from urllib.parse import urlencode
 
 API = "http://localhost:8080/api/v1"

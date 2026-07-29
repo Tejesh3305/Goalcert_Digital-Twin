@@ -35,10 +35,10 @@ import json
 import os
 import threading
 from dataclasses import dataclass
-from typing import Optional
 
 # One key, one model policy, for the whole platform.
 from copilot.config import config as _claude
+
 
 def _claude_model_or_default(env_name: str, default: str = "") -> str:
     """Honour a per-gateway model override ONLY if it names a Claude model.
@@ -74,7 +74,7 @@ VISION_MIN_TOKENS = 16000
 _JSON_ONLY = "\nReturn ONLY the JSON object, with no prose and no code fences."
 
 
-def _salvage_json(text: str) -> Optional[dict]:
+def _salvage_json(text: str) -> dict | None:
     """Best-effort: parse a JSON object from a reply that may be wrapped in prose
     or ```json fences, or lightly truncated."""
     if not text:
@@ -125,8 +125,8 @@ def _image_blocks(image_urls: list[str], limit: int = 4) -> list[dict]:
 class LLMResult:
     text: str
     backend: str            # "anthropic" | "stub"
-    model: Optional[str] = None
-    raw: Optional[dict] = None
+    model: str | None = None
+    raw: dict | None = None
 
 
 class LLMGateway:
@@ -186,7 +186,7 @@ class LLMGateway:
             self._session_calls.pop(session_id, None)
 
     # ---- internal ----------------------------------------------------
-    def _message(self, *, system, content, max_tokens: int, model: Optional[str],
+    def _message(self, *, system, content, max_tokens: int, model: str | None,
                  thinking: bool = False) -> str:
         """One Claude call -> concatenated text. Raises on failure."""
         kwargs = {
@@ -206,7 +206,7 @@ class LLMGateway:
     # ---- core completion ---------------------------------------------
     def complete(self, *, tenant_id: str, session_id: str, system: str,
                  user: str, temperature: float = 0.3,
-                 max_tokens: int = 700, model: Optional[str] = None,
+                 max_tokens: int = 700, model: str | None = None,
                  stub) -> LLMResult:
         """Free-text completion. `stub` is a zero-arg callable returning the
         deterministic fallback string — REQUIRED so every call works keyless.
@@ -227,7 +227,7 @@ class LLMGateway:
     def complete_json(self, *, tenant_id: str, session_id: str, system: str,
                       user: str, stub: dict, temperature: float = 0.1,
                       max_tokens: int = 700,
-                      model: Optional[str] = None) -> dict:
+                      model: str | None = None) -> dict:
         """Structured JSON completion. Always returns a dict (never raises): on
         any failure or invalid JSON the stub is returned, so routing logic always
         has a valid shape."""
@@ -245,7 +245,7 @@ class LLMGateway:
     def complete_vision(self, *, tenant_id: str, session_id: str, system: str,
                         user_text: str, image_urls: list[str],
                         temperature: float = 0.3, max_tokens: int = 1200,
-                        model: Optional[str] = None, stub) -> LLMResult:
+                        model: str | None = None, stub) -> LLMResult:
         """Vision completion: text + images."""
         if self._anthropic() is None or not self._check_and_count(session_id):
             return LLMResult(text=stub(), backend="stub")
@@ -263,7 +263,7 @@ class LLMGateway:
                              system: str, user_text: str, image_urls: list[str],
                              stub: dict, temperature: float = 0.1,
                              max_tokens: int = 8000,
-                             model: Optional[str] = None) -> dict:
+                             model: str | None = None) -> dict:
         """Structured JSON vision completion — the floor-plan parser's path.
 
         Claude is strong on dense architectural drawings, and this is the one
@@ -295,7 +295,7 @@ class LLMGateway:
         return dict(stub)
 
 
-_gateway: Optional[LLMGateway] = None
+_gateway: LLMGateway | None = None
 _gw_lock = threading.Lock()
 
 

@@ -33,12 +33,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import List, Union
 
 try:
-    from rdflib import Graph, RDF
-    from rdflib.namespace import SH
     from pyshacl import validate as _shacl_validate
+    from rdflib import RDF, Graph
+    from rdflib.namespace import SH
 except ImportError:  # pragma: no cover
     raise SystemExit("Install deps first:  pip install rdflib owlrl pyshacl")
 
@@ -65,7 +64,7 @@ class Violation:
 class ValidationResult:
     """The verdict of the gate. Truthy iff the mutation conforms."""
     conforms: bool
-    violations: List[Violation] = field(default_factory=list)
+    violations: list[Violation] = field(default_factory=list)
     report_text: str = ""
 
     # 'pass | violation' — read either way.
@@ -93,7 +92,7 @@ def ontology_graph() -> Graph:
     return _shapes_graph()
 
 
-def _as_graph(mutation: Union[str, Graph]) -> Graph:
+def _as_graph(mutation: str | Graph) -> Graph:
     if isinstance(mutation, Graph):
         return mutation
     g = Graph()
@@ -101,8 +100,8 @@ def _as_graph(mutation: Union[str, Graph]) -> Graph:
     return g
 
 
-def _extract_violations(report_graph: Graph) -> List[Violation]:
-    out: List[Violation] = []
+def _extract_violations(report_graph: Graph) -> list[Violation]:
+    out: list[Violation] = []
     for res in report_graph.subjects(RDF.type, SH.ValidationResult):
         def one(p):
             v = report_graph.value(res, p)
@@ -118,7 +117,7 @@ def _extract_violations(report_graph: Graph) -> List[Violation]:
     return out
 
 
-def validate(mutation: Union[str, Graph]) -> ValidationResult:
+def validate(mutation: str | Graph) -> ValidationResult:
     """Validate a proposed mutation (a Turtle string or an rdflib Graph
     describing the node(s) about to be written) against the full
     NextXR shape set. Returns a ValidationResult — pass or violation."""

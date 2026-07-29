@@ -28,7 +28,12 @@ import random
 from dataclasses import dataclass, field
 
 from packs._core.physics import (
-    clamp, jitter, first_order_lag, margin_hi, margin_lo, worst_health,
+    clamp,
+    first_order_lag,
+    jitter,
+    margin_hi,
+    margin_lo,
+    worst_health,
 )
 
 # ────────────────────────────────────────────────────────────────────

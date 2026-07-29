@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import math
 
-
 # ── Melbourne tram network (from the PTV "Melbourne tram network" map, 2024) ──
 # Schematic node coordinates eyeballed from the official + Mallis maps.
 _N = {

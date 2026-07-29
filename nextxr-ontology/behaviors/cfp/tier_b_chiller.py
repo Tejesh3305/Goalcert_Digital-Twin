@@ -3,7 +3,8 @@ CFP Tier-B chiller rule: COP (coefficient of performance) baseline drift.
 Learns a normal COP from the warmup window, then flags efficiency degradation.
 """
 import math
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class ChillerCOPBaseline(Behavior):

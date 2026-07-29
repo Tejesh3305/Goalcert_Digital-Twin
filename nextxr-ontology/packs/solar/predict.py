@@ -37,7 +37,6 @@ action rather than only a date.
 from __future__ import annotations
 
 import copy
-from datetime import timedelta
 
 from packs._core.physics import status_from_health as _status
 

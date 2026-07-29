@@ -16,7 +16,7 @@ for a real one.
 """
 from __future__ import annotations
 
-from .config import config, copilot_status
 from .agents import agent_trace
+from .config import config, copilot_status
 
 __all__ = ["config", "copilot_status", "agent_trace"]

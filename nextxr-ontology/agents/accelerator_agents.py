@@ -17,9 +17,9 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from agents.engine import INTERRUPT_KEY
 from agents.gateway import get_gateway
 from agents.registry import get_registry
-from agents.engine import INTERRUPT_KEY
 
 
 def _convo(state: dict) -> str:

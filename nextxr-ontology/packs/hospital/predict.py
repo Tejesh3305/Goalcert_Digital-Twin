@@ -6,15 +6,14 @@ from __future__ import annotations
 
 import copy
 
-from .physics import SIGNALS, redlines
-
-
 from packs._core.physics import status_from_health as _status
+
+from .physics import SIGNALS, redlines
 
 
 def component_health(state, frame, physics) -> dict:
     or_p = frame.get(SIGNALS["or_pressure"], 15.0)
-    iso_p = frame.get(SIGNALS["iso_pressure"], -8.0)
+    frame.get(SIGNALS["iso_pressure"], -8.0)
     ach = frame.get(SIGNALS["air_changes"], 22.0)
     f0 = frame.get(SIGNALS["autoclave_f0"], 18.0)
     o2 = frame.get(SIGNALS["o2_pressure"], 405.0)

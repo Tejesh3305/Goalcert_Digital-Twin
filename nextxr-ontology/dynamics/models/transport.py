@@ -10,7 +10,8 @@ faults as cycle count grows.
 from __future__ import annotations
 
 import math
-from dynamics.model import DynamicsModel, EntityState, EntityContext
+
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 SIG_RUN = CFP + "runState"

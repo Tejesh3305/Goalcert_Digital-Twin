@@ -24,12 +24,19 @@ test would catch.
 
 from __future__ import annotations
 
+from datetime import UTC
+
 import pytest
-
-from conftest import KEY_ACME, KEY_ADMIN, KEY_READER, hdr
-
+from conftest import KEY_ACME, KEY_READER, hdr
 from packs.solar import (
-    FAULTS, SIGNALS, SPEC, SolarPhysics, component_health, predict as solar_predict,
+    FAULTS,
+    SIGNALS,
+    SPEC,
+    SolarPhysics,
+    component_health,
+)
+from packs.solar import (
+    predict as solar_predict,
 )
 
 TENANT = "acme"
@@ -120,8 +127,8 @@ def test_revenue_meter_power_points_are_signed():
 
 
 def test_meter_sign_convention_is_documented_and_correctable():
-    from packs.solar.signals import METER_SIGNALS, SIGN_CONVENTIONS
     from connectors.profiles import revenue_meter
+    from packs.solar.signals import METER_SIGNALS, SIGN_CONVENTIONS
 
     assert "POSITIVE = importing" in SIGN_CONVENTIONS[METER_SIGNALS["active_power"]]
     inverted = revenue_meter("MDB", invert_power=True)
@@ -434,7 +441,7 @@ def test_sensor_drift_is_caught_by_the_learned_ratio_baseline():
     """A fixed plausibility band CANNOT catch a 25 % drift — the ratio lands at 1.35,
     inside any defensible band. The learned-baseline arm is what actually detects it,
     which is why the rule has two arms."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import SensorPlausibility
@@ -448,7 +455,7 @@ def test_sensor_drift_is_caught_by_the_learned_ratio_baseline():
         def get_property(self, tenant, entity, key, default=None):
             return self.ghi if key == "ghi" else default
 
-    start = datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 12, tzinfo=UTC)
 
     def sample(poa, i):
         return TelemetrySample(signal=SIGNALS["poa"], entity_id="met-1",
@@ -497,7 +504,7 @@ def test_soiling_rule_stays_quiet_below_diagnostic_irradiance():
     """A percentage residual at dawn has a tiny denominator and swings wildly. A
     cleaning ticket raised at 5 a.m. costs a truck roll and teaches operators to close
     tickets unread."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import SymmetricOutputDrop
@@ -509,7 +516,7 @@ def test_soiling_rule_stays_quiet_below_diagnostic_irradiance():
             return {"poairradiance": 40.0, "operatingstate": 1.0,
                     "currentimbalance": 0.5}.get(key, default)
 
-    start = datetime(2026, 7, 1, 5, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 5, tzinfo=UTC)
     for i in range(10):
         found = rule.evaluate(TelemetrySample(
             signal=SIGNALS["delta_p_pct"], entity_id="inv-1", value=-40.0,
@@ -519,7 +526,7 @@ def test_soiling_rule_stays_quiet_below_diagnostic_irradiance():
 
 
 def test_soiling_rule_stays_quiet_when_the_inverter_is_not_generating():
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import SymmetricOutputDrop
@@ -532,7 +539,7 @@ def test_soiling_rule_stays_quiet_when_the_inverter_is_not_generating():
             return {"poairradiance": 900.0, "operatingstate": 6.0,
                     "currentimbalance": 0.5}.get(key, default)
 
-    start = datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 12, tzinfo=UTC)
     for i in range(10):
         assert rule.evaluate(TelemetrySample(
             signal=SIGNALS["delta_p_pct"], entity_id="inv-1", value=-40.0,
@@ -543,7 +550,7 @@ def test_soiling_rule_stays_quiet_when_the_inverter_is_not_generating():
 def test_soiling_rule_requires_a_sustained_deficit():
     """A passing cloud produces the soiling signature for thirty seconds. Soiling does
     not clear."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import SymmetricOutputDrop
@@ -555,7 +562,7 @@ def test_soiling_rule_requires_a_sustained_deficit():
             return {"poairradiance": 900.0, "operatingstate": 3.0,
                     "currentimbalance": 1.0}.get(key, default)
 
-    start = datetime(2026, 7, 1, 12, tzinfo=timezone.utc)
+    start = datetime(2026, 7, 1, 12, tzinfo=UTC)
     # 10 minutes of deficit — a cloud. Must not fire.
     for i in range(10):
         assert rule.evaluate(TelemetrySample(
@@ -580,7 +587,7 @@ def test_soiling_rule_requires_a_sustained_deficit():
 def test_string_collapse_rule_needs_per_string_data():
     """§2.1 specifies combiner monitoring because this diagnosis is impossible without
     it. Staying silent is right; guessing from the aggregate is not."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import StringVoltageCollapse
@@ -593,14 +600,14 @@ def test_string_collapse_rule_needs_per_string_data():
 
     assert rule.evaluate(TelemetrySample(
         signal=SIGNALS["dc_voltage"], entity_id="inv-1", value=500.0, unit="V",
-        timestamp=datetime(2026, 7, 1, 12, tzinfo=timezone.utc),
+        timestamp=datetime(2026, 7, 1, 12, tzinfo=UTC),
         tenant_id=TENANT), NoStrings()) == []
 
 
 def test_shunt_decay_rule_requires_a_long_baseline_and_a_real_trend():
     """"Gradual progressive decline": the slope measures "decline", R² measures
     "progressive". Noise with a downward slope must not raise a PID ticket."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import ShuntResistanceDecay
@@ -609,7 +616,7 @@ def test_shunt_decay_rule_requires_a_long_baseline_and_a_real_trend():
         def get_property(self, tenant, entity, key, default=None):
             return 900.0 if key in ("poairradiance", "poa") else default
 
-    start = datetime(2026, 4, 1, 12, tzinfo=timezone.utc)
+    start = datetime(2026, 4, 1, 12, tzinfo=UTC)
 
     def feed(rule, values):
         out = []
@@ -633,7 +640,7 @@ def test_shunt_decay_rule_requires_a_long_baseline_and_a_real_trend():
 def test_shunt_decay_rule_samples_daily_not_per_tick():
     """A 1 Hz feed over 90 days is 7.8 M points. Regressing over that in a rule
     evaluated every second would be absurd, and no more informative."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     from behaviors.registry import TelemetrySample
     from packs.solar.behaviors import ShuntResistanceDecay
@@ -643,7 +650,7 @@ def test_shunt_decay_rule_samples_daily_not_per_tick():
             return 900.0 if key in ("poairradiance", "poa") else default
 
     rule = ShuntResistanceDecay()
-    start = datetime(2026, 4, 1, 12, tzinfo=timezone.utc)
+    start = datetime(2026, 4, 1, 12, tzinfo=UTC)
     for minute in range(200):
         rule.evaluate(TelemetrySample(
             signal=SIGNALS["rsh"], entity_id="inv-1", value=500.0, unit="OHM",
@@ -772,7 +779,7 @@ def test_component_health_maps_to_distinct_interventions(physics):
     health = component_health(state, frame, physics)
     assert set(health) == {"modules", "strings", "cells", "inverter", "sensors",
                            "overall"}
-    for key, value in health.items():
+    for _key, value in health.items():
         assert 0.0 <= value["health"] <= 1.0
         assert value["status"] in ("ok", "warning", "critical")
 

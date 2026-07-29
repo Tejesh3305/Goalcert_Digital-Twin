@@ -43,19 +43,29 @@ argument rather than defaulting it.
 
 from __future__ import annotations
 
-from .pointmap import (
-    FC_READ_HOLDING, Point, PointMap, expand_asset_template,
-)
-
 # ── Signal IRIs, imported so a typo cannot diverge from the catalogue ────────
 from packs.solar.signals import (
     INVERTER_SIGNALS as INV,
+)
+from packs.solar.signals import (
     LOAD_SIGNALS as LOAD,
+)
+from packs.solar.signals import (
     METER_SIGNALS as MTR,
+)
+from packs.solar.signals import (
     STRING_SIGNALS as STR,
+)
+from packs.solar.signals import (
     WEATHER_SIGNALS as ENV,
 )
 
+from .pointmap import (
+    FC_READ_HOLDING,
+    Point,
+    PointMap,
+    expand_asset_template,
+)
 
 # ── §2.1 Smart Commercial Inverter — SunSpec Model 103 (3-phase, int+SF) ────
 #
@@ -402,7 +412,7 @@ def weather_station(asset_id: str, *, base_address: int = 0, unit_id: int = 1,
               min_value=0.0, max_value=100.0, deadband=1.0),
     ]
     # PT100/RTD per thermal zone. Register 6 onward by default.
-    for offset, (zone_asset, register) in enumerate(
+    for _offset, (zone_asset, register) in enumerate(
             (module_temp_zones or {asset_id: base_address + 6}).items()):
         points.append(Point(
             signal=ENV["module_temp"], asset_id=zone_asset,

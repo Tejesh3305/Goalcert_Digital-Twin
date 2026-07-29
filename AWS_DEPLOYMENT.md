@@ -11,6 +11,72 @@ image is non-root, `$PORT`-driven, healthchecked, and serves its own frontend.
 
 ---
 
+## 0. Read this first — what changed
+
+Everything below §1 remains accurate as the *explanation* of the topology. Three
+things about the *mechanics* have changed, and they change what you actually run.
+
+### The infrastructure is now code
+
+`infra/terraform/` creates every resource this document describes — VPC, RDS,
+ElastiCache, S3, ALB, ECS, Secrets Manager, IAM, alarms. **Sections 12.1–12.9
+are the manual equivalent, kept for reference.** Prefer:
+
+```bash
+cd infra/terraform/environments/prod
+terraform init && terraform apply -var-file=prod.tfvars
+```
+
+The `next_steps` output prints the exact remaining commands. See
+`infra/terraform/README.md`.
+
+### Deployment is now a pipeline
+
+`.github/workflows/deploy.yml` builds the image, **runs the migrations as a
+one-off task**, rolls the service, and smoke-tests the result — including an
+assertion that an unauthenticated request is refused. It authenticates with
+GitHub OIDC, so there is no AWS access key in a repository secret.
+
+The migration step is the part that was missing. Adding a column and redeploying
+previously produced a fleet whose queries referenced a column that did not exist.
+
+### The API is closed by default, and it has users
+
+The two changes that matter most for a deploy:
+
+**1. Authentication no longer fails open.** It used to be served without a
+credential whenever `NXR_API_KEYS` was unset — so a deployment that forgot one
+variable was open to the internet, `/copilot` LLM billing included. The default
+is now REQUIRED; `NXR_DEV_MODE=1` is the explicit local opt-out.
+
+**2. There are accounts.** Users, organisations, memberships, sessions,
+database-backed API keys, and an audit log — see `identity/` and §13. People sign
+in at `/login`; machines use keys issued from the UI. Revoking either is
+immediate and needs no redeploy.
+
+Consequences for the task definition:
+
+| Variable | | |
+|---|---|---|
+| `NXR_JWT_SECRET` | **required** | The app refuses to boot without it while auth is enforced. Each task would otherwise sign tokens the others reject — intermittent 401s that look like a client bug. |
+| `NXR_SECRET_PEPPER` | recommended | Peppers API-key and refresh-token hashes. Rotating it invalidates every key and session. |
+| `NXR_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | first deploy only | Creates the first platform admin. **Remove after it runs.** |
+| `NXR_AUTO_MIGRATE` | `0` | Migrations run as a one-off task, not at container start — several tasks would race the advisory lock and fail their health checks. |
+
+### The health check moved
+
+| Endpoint | 503s? | Point this at |
+|---|---|---|
+| `/api/v1/health/live` | never | ECS/Docker **liveness**, and the Dockerfile HEALTHCHECK |
+| `/api/v1/health/ready` | **yes** | The **ALB target group** |
+| `/api/v1/health` | never | Dashboards and CloudWatch alarms (unchanged) |
+
+The target group previously pointed at `/api/v1/health`, which never fails — so a
+task with no database stayed in rotation serving errors, and a rolling deploy
+shifted all traffic to new tasks before they could answer.
+
+---
+
 ## 1. Runtime topology
 
 ```
@@ -369,16 +435,38 @@ stubs the reconstruction step.
 
 ## 10. Security posture
 
-- **API keys are mandatory in production.** With `NXR_API_KEYS` unset the service is
-  **open** — every `/api` call, including the LLM-billing `/copilot` endpoints, is
-  served without a key. Set `NXR_API_KEYS` (JSON array of `{key,tenant,role,name}`)
-  and put it in Secrets Manager. Set `NXR_REQUIRE_AUTH=1` to reject keyless calls
-  even before keys load. At startup the app prints an `[auth]` line stating whether
-  enforcement is ON or the API is OPEN — check it in CloudWatch after every deploy.
-- **The built-in demo keys** (`nxr-demo-key`, `nxr-read-only` in `auth.py`) load
-  **only** when `NXR_API_KEYS` is unset, i.e. never in a correctly-configured prod
-  deploy. Do not rely on them.
-- **CORS:** default `*`. Set `NXR_CORS_ORIGINS` to the real frontend/hub origins.
+- **Authentication is required by default.** This is the inversion of the previous
+  posture. With nothing configured, the API now REFUSES requests rather than
+  serving them; `NXR_DEV_MODE=1` is the explicit local opt-out. The old default
+  meant every deployment that forgot a variable was open to the internet,
+  `/copilot` LLM billing included, with only a boot-log warning to say so.
+  The app still prints an `[auth]` line at startup — check it after every deploy.
+- **The built-in demo keys are gone.** `nxr-demo-key` and `nxr-read-only` used to
+  be minted whenever `NXR_API_KEYS` was unset, so anyone who read the source had
+  an admin credential on any deployment that forgot to configure keys. There is
+  no default credential of any kind now.
+- **Accounts are the primary credential.** Users, organisations, memberships and
+  database-backed API keys live in RDS (`identity/`), so revoking access is
+  immediate rather than a redeploy. `NXR_API_KEYS` still works as the break-glass
+  path when the identity tables are unreachable.
+- **`NXR_JWT_SECRET` is mandatory.** The app refuses to boot without it while auth
+  is enforced — see §13.
+- **Passwords** are Argon2id (scrypt fallback), never reversible. API keys and
+  refresh tokens are stored as peppered SHA-256 and returned exactly once.
+- **Rate limiting is on by default** (`server/ratelimit.py`), bounding password
+  guessing on `/auth/login` and spend on `/copilot`. Set `NXR_REDIS_URL` so the
+  buckets are shared across tasks; without it each task counts separately and the
+  fleet-wide limit is N× the configured value.
+- **Security headers** are set on every response — `X-Content-Type-Options`,
+  `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, a CSP on the SPA,
+  and HSTS when `NXR_HSTS=1`. Set `NXR_TRUST_PROXY=1` behind the ALB so
+  `X-Forwarded-For` is honoured for audit logs and rate-limit keys.
+- **CORS:** same-origin only by default once auth is enforced (the container
+  serves the SPA and the API together). Set `NXR_CORS_ORIGINS` only for a
+  separately-hosted frontend.
+- **`NEO4J_PASSWORD` is mandatory.** The development password is published in this
+  repository and is no longer a fallback — the driver refuses to connect without
+  an explicit password once auth is enforced.
 - **Database:** RDS in private/isolated subnets, security group open to the task
   SG only, storage encrypted at rest, and TLS enforced in transit
   (`sslmode=require` in the URL or `NXR_DB_SSLMODE`) — without it psycopg2 will
@@ -660,3 +748,141 @@ for i in 1 2 3 4; do curl -s https://twin.example.com/api/v1/health | jq -c .twi
 `aws ecs update-service --task-definition <previous-revision> --force-new-deployment`.
 Safe by default: schema changes are additive `CREATE TABLE IF NOT EXISTS`, so an
 older image runs against the current database unchanged.
+
+---
+
+## 13. Identity operations
+
+The subsystem that did not exist before. `identity/` owns accounts,
+organisations, sessions and machine credentials; `server/tenancy.py` remains the
+single enforcement point and now resolves against a real ownership table
+(`org_tenants`) instead of a string-prefix convention over an environment
+variable.
+
+### The first administrator
+
+A fresh database has no users, so nobody can create the first one. Set these on
+the **first deploy only**:
+
+```
+NXR_BOOTSTRAP_ADMIN_EMAIL=admin@example.com
+NXR_BOOTSTRAP_ADMIN_PASSWORD=<from Secrets Manager>
+NXR_BOOTSTRAP_ORG=NextXR
+```
+
+The boot log prints `[identity] bootstrap platform admin created (usr_…)`. It is
+idempotent twice over — skipped if the email exists, and refused entirely once
+any user exists unless `NXR_BOOTSTRAP_FORCE=1`. **Remove both variables from the
+task definition afterwards**; a credential left in a task definition is a
+standing instruction to create an admin.
+
+### Onboarding a customer
+
+1. Sign in as the platform admin.
+2. **Account → Members → Invite** (or `POST /api/v1/auth/orgs/{org}/members`).
+   A new user gets a random password and a reset token — they set their own.
+   With `NXR_MAIL_FROM` unset the token is returned in the API response so you
+   can deliver it yourself.
+3. Twins the org creates are claimed by it automatically
+   (`tenancy.new_tenant_id`). To assign an existing twin:
+   `identity.store.claim_tenant(tenant_id, org_id)`.
+
+### Roles
+
+| Role | Reach |
+|---|---|
+| `owner` | Everything `admin` can do, plus managing members and the org itself |
+| `admin` | Full read/write across the org's tenants; issues and revokes API keys |
+| `write` | Read + write within the org's tenants |
+| `read` | Read-only within the org's tenants |
+
+No role may grant one above itself, and the last owner cannot be demoted or
+removed. `User.is_platform_admin` is a column rather than a role — it is our
+staff, not a customer's, so no amount of escalation inside an org reaches it.
+
+### Machine credentials
+
+Issued from **Account → API keys**, or:
+
+```bash
+curl -X POST https://twin.example.com/api/v1/auth/orgs/$ORG/keys \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"ci","role":"write","expires_in_days":90}'
+```
+
+The secret is returned **once** and stored only as a peppered hash. A key with no
+explicit `tenants` reaches everything its org owns, resolved live — so a twin
+created tomorrow is reachable by a key issued today.
+
+Revocation takes effect within ~5 seconds fleet-wide (the resolution cache TTL in
+`identity/resolve.py`) and immediately on the task that served the revocation.
+
+### Rotating secrets
+
+| Secret | Effect of rotating |
+|---|---|
+| `NXR_JWT_SECRET` | Every access token is rejected. Users re-authenticate silently via their refresh cookie — no visible sign-out. |
+| `NXR_SECRET_PEPPER` | **Every API key and every session is invalidated.** Keys must be re-issued. Treat as a break-glass action. |
+| A user's password | That user's other sessions are revoked. |
+| RDS password | Update the `database-url` secret and roll the service. |
+
+### Incident response
+
+```bash
+# Sign one user out everywhere
+python -c "import identity.store as s; s.revoke_user_sessions('usr_...')"
+
+# Disable an account (keeps the audit trail; a delete does not)
+python -c "import identity.store as s; s.update_user('usr_...', status='disabled')"
+
+# Suspend a whole organisation — every member and every key stops working
+python -c "import identity.store as s; s.update_org('acme', status='suspended')"
+
+# Who did what
+curl -H "Authorization: Bearer $TOKEN" \
+  https://twin.example.com/api/v1/auth/orgs/$ORG/audit
+```
+
+Refresh-token **reuse detection** is automatic: a token presented after it has
+been rotated means two parties hold it, so the whole session family is revoked
+and a `session.reuse_detected` row is written to the audit log. Alarm on it — it
+is the signal that a token leaked.
+
+---
+
+## 14. Database migrations
+
+`db/schema.py` owns the *shape* of every table; `db/migrations.py` owns *change*.
+`CREATE TABLE IF NOT EXISTS` cannot add a column, so a deploy that needed one
+previously produced a fleet whose queries referenced a column that was not there.
+
+```bash
+python -m db.migrations --status     # applied vs pending
+python -m db.migrations --verify     # do schema.py and the chain agree?
+python -m db.migrations --dry-run    # print the SQL, change nothing
+python -m db.migrations              # apply
+```
+
+**Run them as a one-off ECS task before the service rolls** — which is what the
+deploy workflow does, and why `NXR_AUTO_MIGRATE` stays `0`. With several tasks
+starting at once they would queue on the advisory lock, and the ones that wait
+fail their health check: a failed deploy caused by the migration *mechanism*
+rather than by the migration.
+
+### Writing one
+
+Forward-only — there is no `downgrade()`. A rollback of a schema change on a live
+database discards data written in the meantime, and a down-migration nobody has
+ever run is an untested script with a reassuring name. To undo a migration, write
+a new one.
+
+**Additive first.** Deploy the column, then the code that writes it, then the
+code that reads it, and only then drop the old one — three releases, not one. A
+single release that renames a column is broken for the entire rolling-deploy
+window, because old and new tasks serve simultaneously.
+
+On SQLite each store is a separate **file**, so a migration must name the store
+its tables live in (`store="twins"`). On Postgres they share one database and the
+name is only diagnostic — which means getting it wrong fails locally and works in
+production, or the reverse.

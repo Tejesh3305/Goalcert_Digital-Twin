@@ -61,7 +61,7 @@ import queue
 import ssl
 import threading
 import time
-from typing import Any, Optional
+from typing import Any
 
 from historian import QUALITY_BAD, QUALITY_GOOD, QUALITY_UNCERTAIN
 
@@ -92,7 +92,7 @@ class MqttConnector(Connector):
         self._client = None
         self._queue: queue.Queue = queue.Queue(maxsize=MAX_QUEUE)
         self._connected = threading.Event()
-        self._connect_error: Optional[str] = None
+        self._connect_error: str | None = None
         self._dropped = 0
         self._decoded_sparkplug = 0
         self._undecodable = 0
@@ -252,11 +252,11 @@ class MqttConnector(Connector):
 
     # ── Reading (drain the queue) ───────────────────────────────────────────
 
-    def read_once(self) -> list[tuple[Point, Optional[float], int]]:
+    def read_once(self) -> list[tuple[Point, float | None, int]]:
         if not self._connected.is_set() and self._client is not None:
             raise ConnectionError("MQTT connection lost")
 
-        out: list[tuple[Point, Optional[float], int]] = []
+        out: list[tuple[Point, float | None, int]] = []
         drained = 0
         # Bounded drain: a huge backlog is submitted across several cycles so one
         # call cannot block the poll loop for an unbounded time.

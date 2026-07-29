@@ -21,6 +21,8 @@ _TOOLS = ROOT / "tools"
 if str(_TOOLS) not in sys.path:
     sys.path.insert(0, str(_TOOLS))  # so `import gate` (the SHACL write-gate) works
 
+from datetime import UTC
+
 from agents.gateway import get_gateway
 from agents.registry import get_registry
 
@@ -49,9 +51,9 @@ def graph_writer(state: dict) -> dict:
 
     On a connection error it RAISES (per spec) so the workflow can retry the
     same idempotent op — it does NOT loop back to Concierge."""
-    from graph.writer import GraphWriter, Rel
-    from graph.sensor_defaults import inject_observes
     from changelog.service import ChangeLog
+    from graph.sensor_defaults import inject_observes
+    from graph.writer import GraphWriter, Rel
     from twins import TwinRegistry
 
     tenant_id = state["tenant_id"]
@@ -62,8 +64,10 @@ def graph_writer(state: dict) -> dict:
 
     # Ensure schema exists (idempotent); keep the shared driver open.
     try:
+        import contextlib
+        import io
+
         from graph import schema
-        import contextlib, io
         with contextlib.redirect_stdout(io.StringIO()):
             schema.apply_schema(dry_run=False, close=False)
     except Exception:
@@ -205,9 +209,9 @@ def validator(state: dict) -> dict:
 
     Errors are human-readable so the Concierge can voice them. Pure code."""
     import gate  # tools/gate.py
-    from graph.writer import GraphWriter, Rel
     from graph.crud import _new_id
     from graph.sensor_defaults import inject_observes
+    from graph.writer import GraphWriter, Rel
 
     drafts = state.get("draft_entities", [])
     rel_drafts = state.get("draft_relationships", [])
@@ -272,8 +276,8 @@ def validator(state: dict) -> dict:
 
 
 def _now_iso_z() -> str:
-    from datetime import datetime, timezone
-    return datetime.now(timezone.utc).isoformat()
+    from datetime import datetime
+    return datetime.now(UTC).isoformat()
 
 
 def _humanize(violation: str) -> str:

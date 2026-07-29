@@ -21,13 +21,12 @@ it like the demo's archviz scenes.
 
 from __future__ import annotations
 
-from paths import data_dir
-
-import db
-
 import json
 import math
 from pathlib import Path
+
+import db
+from paths import data_dir
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 BIM = "https://ontology.nextxr.io/v3/bim#"

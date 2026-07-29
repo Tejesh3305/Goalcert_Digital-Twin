@@ -14,8 +14,9 @@ Usage:
 """
 
 import sys
-from graph.connection import get_driver, close_driver
-from graph.crud import create_node, read_node, list_nodes, delete_node
+
+from graph.connection import close_driver, get_driver
+from graph.crud import create_node, delete_node, list_nodes, read_node
 
 
 def clean(tenant_id, label="PhysicalAsset"):

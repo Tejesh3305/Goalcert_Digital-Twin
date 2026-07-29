@@ -3,7 +3,8 @@ CFP Tier-B pump rule: vibration baseline for rotating equipment health.
 Learns normal vibration velocity, flags when it exceeds the learned range.
 """
 import math
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class PumpVibrationBaseline(Behavior):

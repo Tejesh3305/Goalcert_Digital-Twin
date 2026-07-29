@@ -24,7 +24,6 @@ Pure stdlib. Signal keys are canonical CURIEs (fleet:*).
 """
 from __future__ import annotations
 
-import math
 import random
 from dataclasses import dataclass, field
 
@@ -459,7 +458,7 @@ class FleetPhysics:
         total_w = sum(weights) or 1.0
         vehicles = []
         n = 0
-        for r, w in zip(routes, weights):
+        for r, w in zip(routes, weights, strict=False):
             count = max(1, int(round(target * w / total_w)))
             for k in range(count):
                 if r["id"] == "35":

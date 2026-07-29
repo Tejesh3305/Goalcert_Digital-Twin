@@ -17,7 +17,7 @@ Usage:   python bus/bus_test.py        (from the nextxr-ontology/ dir)
 """
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -25,7 +25,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from bus import (  # noqa: E402
-    BusEvent, InMemoryBus, NullBus, get_event_bus, reset_event_bus, stream_key,
+    BusEvent,
+    InMemoryBus,
+    NullBus,
+    get_event_bus,
+    reset_event_bus,
+    stream_key,
 )
 
 _passed = 0
@@ -49,7 +54,7 @@ def _mk(tenant, entity_id, action="create", seq=None):
         event_id=f"EVT-{entity_id}", tenant_id=tenant, entity_id=entity_id,
         entity_type="https://ontology.nextxr.io/v3/core#Finding",
         label="Finding", action=action, actor="test",
-        ts=datetime.now(timezone.utc).isoformat(),
+        ts=datetime.now(UTC).isoformat(),
         field_changes={"status": {"old": None, "new": "open"}},
     )
     if seq is not None:

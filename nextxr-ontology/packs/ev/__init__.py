@@ -7,14 +7,24 @@ Exposes two SPECs:
   * BATTERY_SPEC — "ev-battery-pack": one battery pack at cell level (ECM + thermal
                    + degradation) with a cell heatmap.
 """
+from .battery import SPEC as BATTERY_SPEC
+from .behaviors import build_ev_registry
 from .physics import (
-    EVChargingNetworkPhysics, SIGNALS, UNITS, redlines, FAULTS,
-    battery_ecm, battery_thermal, battery_degradation, charging_dynamics,
-    grid_transformer_aging, ev_range_prediction, pmsm_motor, soc_ocv,
+    FAULTS,
+    SIGNALS,
+    UNITS,
+    EVChargingNetworkPhysics,
+    battery_degradation,
+    battery_ecm,
+    battery_thermal,
+    charging_dynamics,
+    ev_range_prediction,
+    grid_transformer_aging,
+    pmsm_motor,
+    redlines,
+    soc_ocv,
 )
 from .predict import component_health, predict
-from .behaviors import build_ev_registry
-from .battery import SPEC as BATTERY_SPEC
 
 SPEC = {
     "key": "ev-charging-network",

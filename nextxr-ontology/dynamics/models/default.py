@@ -13,7 +13,7 @@ monitored entity's signal + measurement noise). For now this keeps the twin aliv
 
 from __future__ import annotations
 
-from dynamics.model import DynamicsModel, EntityState, EntityContext
+from dynamics.model import DynamicsModel, EntityContext, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 SIG_PWR = CFP + "activePower"

@@ -15,27 +15,24 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
-
-from graph.writer import GraphWriter, Rel
 from changelog.service import ChangeLog
+from fastapi import APIRouter, HTTPException
+from graph.writer import GraphWriter, Rel
+from pydantic import BaseModel, Field
 
 router = APIRouter(prefix="/api/v1", tags=["write"])
 
 # Sensor subclasses need sosa:observes pointing at an ontology concept. The map
 # and injection helper are shared with the agent write path — see
 # graph/sensor_defaults.py for why they must not diverge.
-from graph.sensor_defaults import SENSOR_OBSERVES as _SENSOR_OBSERVES  # noqa: E402
 from graph.sensor_defaults import inject_observes  # noqa: E402
 
-_writer: Optional[GraphWriter] = None
+_writer: GraphWriter | None = None
 
 
 def _get_writer() -> GraphWriter:

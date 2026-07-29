@@ -13,13 +13,19 @@ it unchanged.
   * behaviors.py — the 3-tier findings registry
   * scenario.py  — the injectable fault catalogue + demo scenario presets
 """
+from .behaviors import build_fleet_registry
 from .physics import (
-    FleetPhysics, FleetState, DesignPoint, Redlines,
-    SIGNALS, UNITS, redlines,
+    SIGNALS,
+    UNITS,
+    DesignPoint,
+    FleetPhysics,
+    FleetState,
+    Redlines,
+    redlines,
 )
 from .predict import component_health, predict
-from .behaviors import build_fleet_registry
-from .scenario import FAULTS as FAULT_CATALOGUE, SCENARIOS
+from .scenario import FAULTS as FAULT_CATALOGUE
+from .scenario import SCENARIOS
 
 # The runtime consumes a list of fault-id strings (mirrors the other packs).
 FAULTS = list(FleetPhysics.FAULTS)

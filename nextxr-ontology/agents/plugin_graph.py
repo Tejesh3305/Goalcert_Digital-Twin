@@ -16,12 +16,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, CheckpointSaver
-from agents.state import PluginScaffoldState
+from agents.engine import END, CheckpointSaver, StateGraph
 from agents.plugin_agents import (
-    plugin_interviewer, plugin_scaffolder,
+    plugin_interviewer,
+    plugin_scaffolder,
     route_after_plugin_interview,
 )
+from agents.state import PluginScaffoldState
 
 _checkpointer = CheckpointSaver()
 

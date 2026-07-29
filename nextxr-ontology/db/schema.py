@@ -46,15 +46,22 @@ _T = {
 # from _T. Every statement is IF NOT EXISTS: ensure() is run on every boot.
 DDL: dict[str, list[str]] = {
     "twins": [
+        # `org_id` is denormalised from `org_tenants`, which stays the source of
+        # truth for AUTHORIZATION — a twin is reachable because its org owns it
+        # there, never because of this column. It exists so the twin listing can
+        # filter by organisation in one query instead of one lookup per row.
+        # See migration 0003_twin_org_owner for the upgrade path.
         """CREATE TABLE IF NOT EXISTS twins (
                tenant_id     TEXT PRIMARY KEY,
                name          TEXT NOT NULL,
                domain        TEXT NOT NULL,
                description   TEXT NOT NULL DEFAULT '',
                created_at    TEXT NOT NULL,
-               seed_asset_id TEXT
+               seed_asset_id TEXT,
+               org_id        TEXT
            )""",
         "CREATE INDEX IF NOT EXISTS idx_twins_created ON twins (created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_twins_org ON twins (org_id)",
     ],
     "changelog": [
         # `seq` orders a tenant's hash chain. Postgres gets a real sequence;
@@ -165,6 +172,148 @@ DDL: dict[str, list[str]] = {
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_devices_token "
         "ON ingest_devices (token_hash)",
     ],
+    # ── IDENTITY ────────────────────────────────────────────────────────
+    #
+    # Who the platform's users are, which organisation they belong to, and what
+    # that organisation owns. Before this existed the ONLY credential was a JSON
+    # blob in the NXR_API_KEYS environment variable: adding a customer meant
+    # editing an env var and rolling the fleet, revoking one meant the same, and
+    # the change log's `actor` column pointed at nothing. There was no login.
+    #
+    # The organisation — not the user — is the unit that owns twins. A user
+    # reaches a tenant only through a membership in the org that owns it
+    # (`org_tenants`), which is what lets one person belong to two customers
+    # without either seeing the other's data. `server/tenancy.py` is still the
+    # single enforcement point; these tables are what it now resolves against
+    # instead of an environment variable.
+    "identity": [
+        """CREATE TABLE IF NOT EXISTS organizations (
+               org_id        TEXT PRIMARY KEY,
+               name          TEXT NOT NULL,
+               plan          TEXT NOT NULL DEFAULT 'trial',
+               status        TEXT NOT NULL DEFAULT 'active',
+               tenant_prefix TEXT NOT NULL,
+               settings      {json},
+               created_at    TEXT NOT NULL,
+               updated_at    TEXT NOT NULL
+           )""",
+        # Email is the login identifier, so it is stored lowercased and carries a
+        # UNIQUE index rather than a UNIQUE column: the index is what makes
+        # "is this address taken" a lookup instead of a scan, and both are needed.
+        """CREATE TABLE IF NOT EXISTS users (
+               user_id           TEXT PRIMARY KEY,
+               email             TEXT NOT NULL,
+               password_hash     TEXT NOT NULL,
+               name              TEXT NOT NULL DEFAULT '',
+               status            TEXT NOT NULL DEFAULT 'active',
+               is_platform_admin INTEGER NOT NULL DEFAULT 0,
+               email_verified_at TEXT,
+               created_at        TEXT NOT NULL,
+               updated_at        TEXT NOT NULL,
+               last_login_at     TEXT,
+               failed_logins     INTEGER NOT NULL DEFAULT 0,
+               locked_until      TEXT,
+               mfa_secret        TEXT
+           )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users (email)",
+        # A user's role is per-organisation. Someone can be an owner at their own
+        # company and a read-only guest at a partner's, and one column on `users`
+        # could not express that.
+        """CREATE TABLE IF NOT EXISTS memberships (
+               org_id     TEXT NOT NULL,
+               user_id    TEXT NOT NULL,
+               role       TEXT NOT NULL DEFAULT 'read',
+               created_at TEXT NOT NULL,
+               PRIMARY KEY (org_id, user_id)
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_memberships_user ON memberships (user_id)",
+        # Refresh-token sessions. Only the HASH is stored, for the same reason as
+        # device tokens: a table an operator can read back is a table an attacker
+        # can read once. `rotated_from` is what makes reuse detection possible —
+        # presenting a refresh token that has already been rotated means the token
+        # was stolen, and the whole family is revoked rather than just that one.
+        """CREATE TABLE IF NOT EXISTS sessions (
+               session_id   TEXT PRIMARY KEY,
+               user_id      TEXT NOT NULL,
+               org_id       TEXT,
+               refresh_hash TEXT NOT NULL,
+               issued_at    TEXT NOT NULL,
+               expires_at   TEXT NOT NULL,
+               revoked_at   TEXT,
+               rotated_from TEXT,
+               ip           TEXT,
+               user_agent   TEXT
+           )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_refresh "
+        "ON sessions (refresh_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id)",
+        # Machine credentials, moved out of NXR_API_KEYS. `key_hash` is the only
+        # copy of the secret; `prefix` is the first few displayable characters so
+        # the UI can say WHICH key without being able to reconstruct it — the
+        # same shape as a GitHub PAT listing.
+        """CREATE TABLE IF NOT EXISTS api_keys (
+               key_id       TEXT PRIMARY KEY,
+               org_id       TEXT NOT NULL,
+               key_hash     TEXT NOT NULL,
+               prefix       TEXT NOT NULL,
+               name         TEXT NOT NULL DEFAULT '',
+               role         TEXT NOT NULL DEFAULT 'read',
+               tenants      {json},
+               created_by   TEXT NOT NULL DEFAULT '',
+               created_at   TEXT NOT NULL,
+               expires_at   TEXT,
+               revoked_at   TEXT,
+               last_used_at TEXT
+           )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys (key_hash)",
+        "CREATE INDEX IF NOT EXISTS idx_api_keys_org ON api_keys (org_id)",
+        # A tenant belongs to exactly ONE organisation — hence tenant_id, not a
+        # composite, as the primary key. This is the join that turns "which org is
+        # this user in" into "which twins may they see", and it is deliberately a
+        # lookup rather than the old string-prefix convention: a prefix rule
+        # cannot express a twin transferred between orgs, and silently grants
+        # access to any tenant someone names with the right leading characters.
+        """CREATE TABLE IF NOT EXISTS org_tenants (
+               tenant_id  TEXT PRIMARY KEY,
+               org_id     TEXT NOT NULL,
+               created_at TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_org_tenants_org ON org_tenants (org_id)",
+        # Single-use, short-lived tokens for email verification and password
+        # reset. Hashed like everything else, and `used_at` makes them one-shot
+        # so a reset link in a mailbox is not a standing credential.
+        """CREATE TABLE IF NOT EXISTS auth_tokens (
+               token_hash TEXT PRIMARY KEY,
+               user_id    TEXT NOT NULL,
+               purpose    TEXT NOT NULL,
+               created_at TEXT NOT NULL,
+               expires_at TEXT NOT NULL,
+               used_at    TEXT
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_auth_tokens_user "
+        "ON auth_tokens (user_id, purpose)",
+        # WHO DID WHAT. The change log next door is the tamper-evident record of
+        # what happened to the GRAPH; this is the record of what happened to the
+        # ACCOUNT — logins, key issuance, role changes, revocations. Both actor
+        # columns are nullable because an action has exactly one of them: a human
+        # session or a machine key.
+        """CREATE TABLE IF NOT EXISTS audit_log (
+               audit_id     {serial_pk},
+               ts           TEXT NOT NULL,
+               org_id       TEXT,
+               actor_user   TEXT,
+               actor_key    TEXT,
+               action       TEXT NOT NULL,
+               target_type  TEXT NOT NULL DEFAULT '',
+               target_id    TEXT NOT NULL DEFAULT '',
+               outcome      TEXT NOT NULL DEFAULT 'ok',
+               ip           TEXT,
+               user_agent   TEXT,
+               detail       {json}
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log (org_id, ts DESC)",
+        "CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log (actor_user, ts DESC)",
+    ],
     # Field-protocol connectors (Modbus / OPC-UA / MQTT).
     #
     # Durable configuration, not runtime state: a site commissions dozens of these
@@ -272,7 +421,10 @@ def create_extensions() -> list[tuple[str, str]]:
 # ── CLI ─────────────────────────────────────────────────────────────────
 _TABLES = {"twins": ["twins"], "changelog": ["events"],
            "bundles": ["published_bundles"], "checkpoints": ["checkpoints"],
-           "scenes": ["scene_cache"], "threed": ["threed_jobs"]}
+           "scenes": ["scene_cache"], "threed": ["threed_jobs"],
+           "devices": ["ingest_devices"], "connectors": ["connectors"],
+           "identity": ["organizations", "users", "memberships", "sessions",
+                        "api_keys", "org_tenants", "auth_tokens", "audit_log"]}
 
 
 def _row_count(store: str, table: str):

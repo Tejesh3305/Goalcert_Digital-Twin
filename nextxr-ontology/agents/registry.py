@@ -20,11 +20,10 @@ API the Capability Composer uses:
 
 from __future__ import annotations
 
-import db
-
 import threading
 from pathlib import Path
-from typing import Optional
+
+import db
 
 CORE = "https://ontology.nextxr.io/v3/core#"
 HVAC = "https://ontology.nextxr.io/v3/hvac#"
@@ -70,7 +69,7 @@ BUILTIN_BUNDLES: dict[str, dict] = {
 class BundleRegistry:
     """Unified query/load over built-in + published bundles."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """`db_path` forces a private SQLite file (offline tools only)."""
         self.db_path = Path(db_path) if db_path else None
         self._lock = threading.Lock()
@@ -113,7 +112,7 @@ class BundleRegistry:
                             "entity_count": len(b.get("entity_templates", []))})
         return out
 
-    def load(self, bundle_id: str) -> Optional[dict]:
+    def load(self, bundle_id: str) -> dict | None:
         """Full bundle by id (published store first, then built-ins)."""
         for b in self._published():
             if b["bundle_id"] == bundle_id:
@@ -121,7 +120,7 @@ class BundleRegistry:
         return BUILTIN_BUNDLES.get(bundle_id)
 
     # ---- publish (the Bundle Author's Publisher writes here) ----------
-    def publish(self, bundle: dict, tenant_id: Optional[str] = None) -> str:
+    def publish(self, bundle: dict, tenant_id: str | None = None) -> str:
         """Persist a published bundle. Idempotent on bundle_id (upsert)."""
         bid = bundle["bundle_id"]
         with self._lock, self._connect() as conn:
@@ -141,7 +140,7 @@ class BundleRegistry:
                 for b in self._published()]
 
 
-_registry: Optional[BundleRegistry] = None
+_registry: BundleRegistry | None = None
 _lock = threading.Lock()
 
 

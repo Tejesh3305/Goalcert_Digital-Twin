@@ -21,12 +21,15 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from agents.engine import StateGraph, END, CheckpointSaver
-from agents.state import OperationalState
+from agents.engine import END, CheckpointSaver, StateGraph
 from agents.operational_agents import (
-    context_gatherer, diagnosis_agent, recommender_agent,
-    route_after_gather, route_after_diagnose,
+    context_gatherer,
+    diagnosis_agent,
+    recommender_agent,
+    route_after_diagnose,
+    route_after_gather,
 )
+from agents.state import OperationalState
 
 _checkpointer = CheckpointSaver()
 

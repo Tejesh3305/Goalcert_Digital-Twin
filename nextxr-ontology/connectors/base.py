@@ -52,11 +52,10 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Optional
+from datetime import UTC, datetime
 
-import historian
 from historian import QUALITY_BAD, QUALITY_GOOD, QUALITY_UNCERTAIN, Measurement
 
 from .pointmap import DeadbandFilter, Point, PointMap
@@ -111,7 +110,7 @@ class ConnectorConfig:
     timeout_s: float = 3.0
     request_retries: int = 2
 
-    point_map: Optional[PointMap] = None
+    point_map: PointMap | None = None
     # Fallback asset for points whose map leaves asset_id blank.
     default_asset_id: str = ""
     # Publish BAD-quality samples when the device is unreachable, so a silent
@@ -147,10 +146,10 @@ class ConnectorHealth:
     connector_id: str
     state: str = "stopped"        # stopped|connecting|connected|degraded|error
     connected: bool = False
-    last_poll_at: Optional[str] = None
-    last_success_at: Optional[str] = None
+    last_poll_at: str | None = None
+    last_success_at: str | None = None
     last_error: str = ""
-    last_error_at: Optional[str] = None
+    last_error_at: str | None = None
     polls: int = 0
     poll_failures: int = 0
     consecutive_failures: int = 0
@@ -159,7 +158,7 @@ class ConnectorHealth:
     samples_suppressed: int = 0   # deadband — proof the filter is earning its keep
     bad_quality: int = 0
     reconnects: int = 0
-    next_retry_in_s: Optional[float] = None
+    next_retry_in_s: float | None = None
     points: int = 0
 
     def to_dict(self) -> dict:
@@ -174,7 +173,7 @@ class ConnectorHealth:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _catalogue_unit(signal: str) -> str:
@@ -197,14 +196,14 @@ class Connector(ABC):
     protocol = "abstract"
 
     def __init__(self, config: ConnectorConfig, *,
-                 submit: Optional[Callable] = None):
+                 submit: Callable | None = None):
         self.config = config
         self.health = ConnectorHealth(connector_id=config.connector_id)
         self.health.points = len(config.point_map.enabled_points()) \
             if config.point_map else 0
         self._deadband = DeadbandFilter()
         self._stop = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
         self._backoff = BACKOFF_INITIAL_S
         # Injected so tests can capture submissions without a historian, and so a
@@ -222,7 +221,7 @@ class Connector(ABC):
         """Close the transport. Must not raise."""
 
     @abstractmethod
-    def read_once(self) -> list[tuple[Point, Optional[float], int]]:
+    def read_once(self) -> list[tuple[Point, float | None, int]]:
         """One acquisition cycle.
 
         Returns (point, value, quality) triples. `value` None with quality BAD
@@ -268,8 +267,8 @@ class Connector(ABC):
 
     # ── Value → Measurement ─────────────────────────────────────────────────
 
-    def _quality_for(self, point: Point, value: Optional[float],
-                     protocol_quality: int) -> tuple[Optional[float], int]:
+    def _quality_for(self, point: Point, value: float | None,
+                     protocol_quality: int) -> tuple[float | None, int]:
         """Final value and quality. See the module docstring for the policy."""
         if value is None:
             return None, QUALITY_BAD
@@ -284,7 +283,7 @@ class Connector(ABC):
 
     def _to_measurements(self, readings, now_wall: float) -> list[Measurement]:
         """Apply quality, deadband and units; produce Measurements."""
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         out: list[Measurement] = []
         for point, raw, protocol_quality in readings:
             value, quality = self._quality_for(point, raw, protocol_quality)
@@ -347,7 +346,7 @@ class Connector(ABC):
         rather than as an absence of data (see the module docstring)."""
         if not (self.config.emit_bad_on_disconnect and self.config.point_map):
             return
-        ts = datetime.now(timezone.utc)
+        ts = datetime.now(UTC)
         batch = []
         for point in self.config.point_map.enabled_points():
             asset_id = point.asset_id or self.config.default_asset_id

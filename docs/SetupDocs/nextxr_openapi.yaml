@@ -1,0 +1,2501 @@
+openapi: 3.0.3
+info:
+  title: NextXR Digital Twin Platform API
+  description: |
+    Ontology-driven industrial digital-twin API. Covers twin lifecycle, the
+    semantic graph and its governance, the machine-twin physics runtime,
+    telemetry ingestion and history, field-protocol connectors, solar PV
+    analytics, the embedded AI copilot, agentic twin authoring, 3-D
+    reconstruction, the live event bus and platform health.
+
+    136 endpoints across 12 routers plus a mounted 3-D sub-application.
+
+    ## Authentication
+
+    Two credential types, deliberately not interchangeable.
+
+    - **`X-API-Key`** — a human/service credential carrying a **role**
+      (`admin`, `write`, `read`) and a **tenant scope**. Configured as a JSON
+      array in `NXR_API_KEYS`; the built-in demo keys load **only** when that
+      variable is unset (i.e. never in a correctly-configured deployment).
+      Set `NXR_REQUIRE_AUTH=1` to reject keyless calls even before keys load.
+    - **`X-Device-Token`** — a telemetry device credential granting exactly one
+      verb (append telemetry) in exactly one tenant, optionally narrowed to an
+      asset prefix. Returned once at registration; only the hash is stored.
+      It is never accepted on a read, control or copilot route, and an API key
+      is never accepted on the ingest routes in its place.
+
+    > While `NXR_API_KEYS` is unset the API is **OPEN** — every `/api` call,
+    > including the LLM-billing `/copilot` endpoints, is served without a key.
+
+    ## Multi-tenancy
+
+    Every request is scoped to a tenant. Tenant authorisation is a single
+    application-level dependency (`server/tenancy.py`) that runs **after**
+    routing, so it checks the tenant wherever it appears — query string, path
+    parameter **and** request body — on every `/api` route. A key scoped to one
+    tenant receives `403` for another.
+
+    Four key scope forms, evaluated most specific first:
+
+    | Form | Meaning |
+    |---|---|
+    | `{"tenant": "acme"}` | exactly one tenant |
+    | `{"tenant_prefix": "acme-"}` | every tenant under a prefix (the only form that may create twins) |
+    | `{"tenants": ["acme","acme-2"]}` | an explicit set |
+    | `{"tenant": "*"}` | admin — all tenants |
+
+    ## Streaming
+
+    `GET /api/v1/bus/stream` returns a Server-Sent Events stream of the caller's
+    tenant events. Long-lived; behind an ALB set the idle timeout to at least
+    300 seconds.
+
+    ## Degradation
+
+    `GET /api/v1/health` **always** returns 200 and reports component status in
+    the payload, so a client can distinguish "server up, database down"
+    (`degraded`) from "server unreachable". Neo4j being unreachable converts to a
+    `503` with operator guidance on any route that needs it.
+  version: 1.0.0
+  contact:
+    name: GoalCert Engineering
+    email: engineering@goalcert.com
+  license:
+    name: Commercial in Confidence
+
+servers:
+  - url: https://twin.goalcert.com
+    description: Production
+  - url: https://twin-staging.goalcert.com
+    description: Staging
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: graph
+    description: Read the ontology graph — entities, findings, change log, topology, bus, health
+  - name: write
+    description: Mutate the ontology graph through the validate-commit-changelog-bus path
+  - name: schema
+    description: Ontology introspection, SHACL validation and taxonomy governance
+  - name: twins
+    description: Twin registry — templates, create, read, delete
+  - name: twin-runtime
+    description: Machine-twin physics runtime — state, diagnostics, prediction, control
+  - name: ingest
+    description: Inbound telemetry and the device credentials that push it
+  - name: historian
+    description: Measurement history, trends and coverage (TimescaleDB)
+  - name: connectors
+    description: Field-protocol connectors (Modbus, OPC-UA, MQTT) and point-map profiles
+  - name: solar
+    description: Enterprise solar PV analytics — De Soto model, residuals, diagnosis, AR, training
+  - name: copilot
+    description: Embedded Claude agents — narration, diagnosis, work orders, procedures, chat
+  - name: agents
+    description: Agentic build — twin builder, bundle author, operational, plugin, accelerator graphs
+  - name: hub
+    description: GoalCert Hub integration surface
+  - name: feed
+    description: Deterministic simulated feed control
+  - name: threed
+    description: 3-D reconstruction platform (photo to GLB), mounted sub-application
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+
+  # ==========================================================================
+  # graph
+  # ==========================================================================
+  /api/v1/entities:
+    get:
+      tags: [graph]
+      summary: List entities for a tenant
+      operationId: listEntities
+      parameters:
+        - $ref: '#/components/parameters/TenantQuery'
+        - name: label
+          in: query
+          schema: { type: string }
+          description: Restrict to one taxonomy category (e.g. PhysicalAsset)
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100, maximum: 1000 }
+        - name: offset
+          in: query
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Entities in the caller's tenant scope
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Entity' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '503': { $ref: '#/components/responses/GraphUnavailable' }
+    post:
+      tags: [write]
+      summary: Create an entity (SHACL-validated before commit)
+      operationId: createEntity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EntityCreate' }
+      responses:
+        '201':
+          description: Created; a change-log event and a bus event were emitted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entity' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503': { $ref: '#/components/responses/GraphUnavailable' }
+
+  /api/v1/entities/{node_id}:
+    parameters:
+      - $ref: '#/components/parameters/NodeId'
+    get:
+      tags: [graph]
+      summary: Get one entity with its properties
+      operationId: getEntity
+      parameters: [ { $ref: '#/components/parameters/TenantQuery' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entity' }
+          description: The entity
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [write]
+      summary: Update entity properties
+      operationId: updateEntity
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, properties]
+              properties:
+                tenant: { type: string }
+                properties: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Updated; the change-log diff records old and new per field
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Entity' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      tags: [write]
+      summary: Delete an entity
+      operationId: deleteEntity
+      parameters: [ { $ref: '#/components/parameters/TenantQuery' } ]
+      responses:
+        '200':
+          description: Deleted; a delete event extends the tenant's chain
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ack' }
+
+  /api/v1/entities/{node_id}/rel:
+    post:
+      tags: [write]
+      summary: Relate two entities with an ontology object property
+      operationId: relateEntity
+      parameters: [ { $ref: '#/components/parameters/NodeId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, predicate, target_id]
+              properties:
+                tenant: { type: string }
+                predicate:
+                  type: string
+                  description: CURIE resolved from the registered prefix table
+                  example: hvac:servesSpace
+                target_id: { type: string }
+      responses:
+        '201':
+          description: Relationship created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ack' }
+        '400':
+          description: Unregistered CURIE prefix
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/v1/entities/{node_id}/telemetry:
+    get:
+      tags: [graph]
+      summary: Live signal values for an entity
+      operationId: entityTelemetry
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/TenantQuery'
+      responses:
+        '200':
+          description: Current signal values written onto the node by the runtime
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /api/v1/findings:
+    get:
+      tags: [graph]
+      summary: List findings emitted by the behaviour registry
+      operationId: listFindings
+      parameters:
+        - $ref: '#/components/parameters/TenantQuery'
+        - name: severity
+          in: query
+          schema: { type: string, enum: [info, warning, critical] }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+      responses:
+        '200':
+          description: Findings
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Finding' }
+
+  /api/v1/changelog:
+    get:
+      tags: [graph]
+      summary: The tenant's tamper-evident change-log chain
+      operationId: tenantChangelog
+      parameters:
+        - $ref: '#/components/parameters/TenantQuery'
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+      responses:
+        '200':
+          description: Events in chain order; prev_event_hash links each to the previous
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChangeEvent' }
+
+  /api/v1/changelog/{entity_id}:
+    get:
+      tags: [graph]
+      summary: Change history for one entity
+      operationId: entityChangelog
+      parameters:
+        - name: entity_id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/TenantQuery'
+      responses:
+        '200':
+          description: Events concerning this entity
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ChangeEvent' }
+
+  /api/v1/topology:
+    get:
+      tags: [graph]
+      summary: Nodes and edges for the 3-D and network views
+      operationId: topology
+      parameters: [ { $ref: '#/components/parameters/TenantQuery' } ]
+      responses:
+        '200':
+          description: Graph topology
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes: { type: array, items: { $ref: '#/components/schemas/Entity' } }
+                  edges:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        source: { type: string }
+                        predicate: { type: string }
+                        target: { type: string }
+
+  /api/v1/stats:
+    get:
+      tags: [graph]
+      summary: Graph and platform counters
+      operationId: stats
+      parameters:
+        - name: tenant
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Entity, finding and event counts, active twins, ontology version
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /api/v1/bus/stats:
+    get:
+      tags: [graph]
+      summary: Event-bus backend and throughput
+      operationId: busStats
+      responses:
+        '200':
+          description: |
+            Reports `backend` (redis / memory / null), `required` and
+            `scale_safe`. An in-memory bus reports healthy because as a process
+            it IS working — and is nonetheless wrong at two tasks, where each
+            would see only its own events.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusInfo' }
+
+  /api/v1/bus/events:
+    get:
+      tags: [graph]
+      summary: Recent event buffer (for late joiners)
+      operationId: busEvents
+      parameters:
+        - $ref: '#/components/parameters/TenantQuery'
+        - name: limit
+          in: query
+          schema: { type: integer, default: 50 }
+      responses:
+        '200':
+          description: Buffered events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BusEvent' }
+
+  /api/v1/bus/stream:
+    get:
+      tags: [graph]
+      summary: Server-Sent Events stream for a tenant
+      operationId: busStream
+      parameters: [ { $ref: '#/components/parameters/TenantQuery' } ]
+      responses:
+        '200':
+          description: |
+            `text/event-stream`. One Redis stream per tenant
+            (`nxr:events:<tenant_id>`), so a consumer reading one tenant's
+            stream cannot see another's.
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /api/v1/health:
+    get:
+      tags: [graph]
+      summary: Component health — always HTTP 200
+      operationId: health
+      security: []
+      responses:
+        '200':
+          description: |
+            `status` is `healthy` or `degraded`. Returning 503 here made the
+            whole UI look dead whenever Neo4j was down, even though the app
+            shell, twins registry, schema and event bus all work — so the status
+            lives in the payload and the ALB target-group check cannot see a
+            database outage on its own. Add a CloudWatch alarm on `degraded`.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+
+  # ==========================================================================
+  # schema
+  # ==========================================================================
+  /api/v1/schema/version:
+    get:
+      tags: [schema]
+      summary: Loaded ontology version and parsed files
+      operationId: schemaVersion
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/schema/types:
+    get:
+      tags: [schema]
+      summary: All entity classes
+      operationId: schemaTypes
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/schema/categories:
+    get:
+      tags: [schema]
+      summary: The ten closed taxonomy categories
+      description: |
+        Fixed at platform version v3. Every entity class declares exactly one via
+        `nxr:taxonomyCategory` and may never introduce an eleventh.
+      operationId: schemaCategories
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/schema/predicates:
+    get:
+      tags: [schema]
+      summary: Object-property (relationship) vocabulary
+      operationId: schemaPredicates
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/schema/class/{name}:
+    get:
+      tags: [schema]
+      summary: Class definition and metadata
+      operationId: schemaClass
+      parameters: [ { $ref: '#/components/parameters/ClassName' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/schema/class/{name}/properties:
+    get:
+      tags: [schema]
+      summary: Observable and object properties of a class
+      operationId: schemaClassProperties
+      parameters: [ { $ref: '#/components/parameters/ClassName' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/schema/class/{name}/behavior:
+    get:
+      tags: [schema]
+      summary: Behaviours bound to a class
+      operationId: schemaClassBehavior
+      parameters: [ { $ref: '#/components/parameters/ClassName' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/schema/archetypes:
+    get:
+      tags: [schema]
+      summary: Physics archetypes an asset can be assigned
+      operationId: schemaArchetypes
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/schema/asset-types:
+    get:
+      tags: [schema]
+      summary: Instantiable asset types with their required properties
+      operationId: schemaAssetTypes
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/schema/validate:
+    post:
+      tags: [schema]
+      summary: SHACL-validate a payload without writing it
+      operationId: schemaValidate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [canonical_type, properties]
+              properties:
+                canonical_type: { type: string }
+                properties: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          description: Conformance report
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationReport' }
+
+  /api/v1/schema/governance:
+    get:
+      tags: [schema]
+      summary: Taxonomy-closure validation over the ontology itself
+      description: |
+        Applies `nxr:TaxonomyClosureShape` to the T-Box. A class declaring an
+        eleventh category — or none at all without `nxr:isStructural` — is a
+        violation. Deliberately not part of the write-path shape bundle: it
+        validates the ontology as data, not tenant mutations.
+      operationId: schemaGovernance
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ValidationReport' }
+          description: Governance report
+
+  # ==========================================================================
+  # twins
+  # ==========================================================================
+  /api/v1/twins/templates:
+    get:
+      tags: [twins]
+      summary: Available seeding templates
+      operationId: listTemplates
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/twins:
+    get:
+      tags: [twins]
+      summary: List twins in the caller's scope
+      operationId: listTwins
+      responses:
+        '200':
+          description: Twin registry records
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Twin' }
+    post:
+      tags: [twins]
+      summary: Create and seed a twin
+      description: |
+        Entities are seeded through the Graph Writer, so validation, change log
+        and bus events all fire. Only a prefix-scoped or admin key may create a
+        twin — the new twin's id has to land inside the creator's own scope to
+        remain readable.
+      operationId: createTwin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_id, name, domain]
+              properties:
+                tenant_id: { type: string }
+                name: { type: string }
+                domain:
+                  type: string
+                  description: Seeding template or machine-twin domain key
+                  example: solar-pv-array
+                description: { type: string }
+      responses:
+        '201':
+          description: Created and seeded
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Twin' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/v1/twins/{tenant}:
+    parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+    get:
+      tags: [twins]
+      summary: Twin registry record
+      operationId: getTwin
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Twin' }
+          description: The twin
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [twins]
+      summary: Delete a twin and its entities
+      description: The change log is retained as an audit record of what existed.
+      operationId: deleteTwin
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ack' }
+          description: Deleted
+
+  # ==========================================================================
+  # twin-runtime
+  # ==========================================================================
+  /api/v1/twins/domains:
+    get:
+      tags: [twin-runtime]
+      summary: Machine-twin domains discovered from their SPECs
+      description: |
+        Eleven ship in the box: turbine-engine, edm-machine, railway-metro,
+        railway-trainset, tram-network, hospital-campus, ev-charging-network,
+        ev-battery-pack, defence-base, defence-warship, solar-pv-array.
+        A missing or broken pack is skipped rather than failing the request.
+      operationId: listMachineDomains
+      responses:
+        '200':
+          description: SPEC summaries
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DomainSpec' }
+
+  /api/v1/twins/{tenant}/state:
+    get:
+      tags: [twin-runtime]
+      summary: Live frame — signals, control, running flag, health, faults
+      operationId: twinState
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TwinState' }
+          description: The authoritative state published by the lease owner
+
+  /api/v1/twins/{tenant}/diagnostics:
+    get:
+      tags: [twin-runtime]
+      summary: Per-sensor status and per-subsystem health
+      operationId: twinDiagnostics
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diagnostics' }
+          description: Evaluated from the pack's checks table and component_health
+
+  /api/v1/twins/{tenant}/predict:
+    get:
+      tags: [twin-runtime]
+      summary: Remaining useful life and degradation forecast
+      operationId: twinPredict
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/twins/{tenant}/project:
+    post:
+      tags: [twin-runtime]
+      summary: What-if projection (does not mutate the live twin)
+      operationId: twinProject
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                control: { type: number }
+                horizon_hours: { type: number }
+                fault: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/twins/{tenant}/network:
+    get:
+      tags: [twin-runtime]
+      summary: Network state for network-shaped domains
+      description: Metro, tram, EV charging and defence-base twins. Others return 404.
+      operationId: twinNetwork
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/v1/twins/{tenant}/running:
+    post:
+      tags: [twin-runtime]
+      summary: Start or stop the simulation
+      description: A follower task forwards the command to the lease owner rather than acting locally.
+      operationId: twinRunning
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [running]
+              properties:
+                running: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/twins/{tenant}/simulate:
+    post:
+      tags: [twin-runtime]
+      summary: Inject a fault or set the control input
+      description: |
+        The fault persists in the stateful integrator until cleared — wear
+        accumulates and heat soaks, so this is a simulation, not a value override.
+      operationId: twinSimulate
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                fault:
+                  type: string
+                  description: A key from the pack's FAULTS table
+                control:
+                  type: number
+                  description: The pack's declared control input (throttle, curtailment, ...)
+                clear: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  # ==========================================================================
+  # ingest
+  # ==========================================================================
+  /api/v1/ingest/telemetry:
+    post:
+      tags: [ingest]
+      summary: Append one telemetry sample
+      operationId: ingestTelemetry
+      security:
+        - DeviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TelemetrySample' }
+      responses:
+        '202':
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/v1/ingest/telemetry/bulk:
+    post:
+      tags: [ingest]
+      summary: Append a batch of telemetry samples
+      description: |
+        Idempotent. The historian's `(tenant_id, asset_id, signal, ts)` primary
+        key means a replayed batch collides and is skipped, so an edge agent that
+        reconnects after a network blip and resends its buffer cannot
+        double-count.
+      operationId: ingestBulk
+      security:
+        - DeviceToken: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [samples]
+              properties:
+                samples:
+                  type: array
+                  items: { $ref: '#/components/schemas/TelemetrySample' }
+      responses:
+        '202':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/IngestResult' }
+          description: Accepted, with per-batch accepted/duplicate/rejected counts
+
+  /api/v1/ingest/status:
+    get:
+      tags: [ingest]
+      summary: Ingest counters and behaviour-evaluation mode
+      operationId: ingestStatus
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/ingest/devices:
+    get:
+      tags: [ingest]
+      summary: List devices (never returns the token)
+      operationId: listDevices
+      parameters: [ { $ref: '#/components/parameters/TenantQuery' } ]
+      responses:
+        '200':
+          description: Devices with liveness counters
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Device' }
+    post:
+      tags: [ingest]
+      summary: Register a device — the token is returned exactly once
+      operationId: createDevice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant, name]
+              properties:
+                tenant: { type: string }
+                name: { type: string }
+                asset_prefix: { type: string }
+                expires_at: { type: string, format: date-time }
+      responses:
+        '201':
+          description: |
+            `token` is present in this response and **never again** — only its
+            hash is stored.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Device'
+                  - type: object
+                    properties:
+                      token: { type: string }
+
+  /api/v1/ingest/devices/{device_id}/rotate:
+    post:
+      tags: [ingest]
+      summary: Issue a new token and invalidate the old one
+      operationId: rotateDevice
+      parameters: [ { $ref: '#/components/parameters/DeviceId' } ]
+      responses:
+        '200':
+          description: New token (returned once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  device_id: { type: string }
+                  token: { type: string }
+
+  /api/v1/ingest/devices/{device_id}/enabled:
+    post:
+      tags: [ingest]
+      summary: Enable or disable a device without deleting it
+      operationId: setDeviceEnabled
+      parameters: [ { $ref: '#/components/parameters/DeviceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/ingest/devices/{device_id}:
+    delete:
+      tags: [ingest]
+      summary: Revoke a device credential
+      description: Revocable on its own, without rotating anything a human uses.
+      operationId: deleteDevice
+      parameters: [ { $ref: '#/components/parameters/DeviceId' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ack' }
+          description: Revoked
+
+  # ==========================================================================
+  # historian
+  # ==========================================================================
+  /api/v1/entities/{node_id}/history:
+    get:
+      tags: [historian]
+      summary: Measurement history for an entity over a time range
+      description: |
+        Serves the smallest sufficient source (raw, then 1m, 1h, 1d). Means are
+        computed from `count` and `sum_value` rather than stored as `avg`,
+        because an average cannot be re-averaged.
+      operationId: entityHistory
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/TenantQuery'
+        - name: signal
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: resolution
+          in: query
+          schema: { type: string, enum: [raw, 1m, 1h, 1d] }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/HistoryPoint' }
+          description: Time series
+
+  /api/v1/entities/{node_id}/latest:
+    get:
+      tags: [historian]
+      summary: Latest value per signal for an entity
+      operationId: entityLatest
+      parameters:
+        - $ref: '#/components/parameters/NodeId'
+        - $ref: '#/components/parameters/TenantQuery'
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/twins/{tenant}/signals:
+    get:
+      tags: [historian]
+      summary: Signal catalogue with last-seen times
+      description: Backs the tag-mapping UI and the staleness check.
+      operationId: twinSignals
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/twins/{tenant}/trends:
+    get:
+      tags: [historian]
+      summary: Aligned multi-signal series for charting
+      operationId: twinTrends
+      parameters:
+        - $ref: '#/components/parameters/TenantPath'
+        - name: signals
+          in: query
+          schema: { type: string }
+          description: Comma-separated signal names
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: bucket
+          in: query
+          schema: { type: string, enum: [1m, 1h, 1d] }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/twins/{tenant}/history/stats:
+    get:
+      tags: [historian]
+      summary: Coverage, backend and data quality
+      operationId: twinHistoryStats
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200':
+          description: |
+            Includes `backend` (`timescale` / `postgres` / `sqlite`) and
+            `scale_safe` — the field to alarm on. A deployment that declared
+            Timescale mandatory and did not get it is not healthy.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HistorianInfo' }
+
+  # ==========================================================================
+  # connectors
+  # ==========================================================================
+  /api/v1/connectors/protocols:
+    get:
+      tags: [connectors]
+      summary: Supported protocols and driver availability
+      description: |
+        `modbus_tcp` and `modbus_rtu` (pymodbus), `opcua` (asyncua), `mqtt`
+        (paho-mqtt plus protobuf for Sparkplug B). Protocol modules are imported
+        lazily, so a missing optional driver disables one protocol rather than
+        the service.
+      operationId: connectorProtocols
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/connectors/profiles:
+    get:
+      tags: [connectors]
+      summary: Built-in point-map profiles
+      description: |
+        sunspec_inverter_3ph, string_combiner, revenue_meter, ct_clamp_panel,
+        weather_station, mqtt_gateway, opcua_inverter.
+      operationId: connectorProfiles
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/connectors/profiles/{key}/build:
+    post:
+      tags: [connectors]
+      summary: Preview the point map a profile would build
+      operationId: buildProfilePreview
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/connectors:
+    get:
+      tags: [connectors]
+      summary: List connectors (credentials redacted)
+      operationId: listConnectors
+      parameters:
+        - name: tenant
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Connector' }
+          description: Connectors
+    post:
+      tags: [connectors]
+      summary: Create a connector
+      operationId: createConnector
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConnectorCreate' }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connector' }
+          description: Created
+
+  /api/v1/connectors/{connector_id}:
+    parameters: [ { $ref: '#/components/parameters/ConnectorId' } ]
+    get:
+      tags: [connectors]
+      summary: Get one connector
+      operationId: getConnector
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connector' }
+          description: The connector, with credentials redacted by allow-list
+    patch:
+      tags: [connectors]
+      summary: Update connector configuration
+      operationId: updateConnector
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Connector' }
+          description: Updated
+    delete:
+      tags: [connectors]
+      summary: Delete a connector
+      operationId: deleteConnector
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Ack' }
+          description: Deleted
+
+  /api/v1/connectors/{connector_id}/start:
+    post:
+      tags: [connectors]
+      summary: Start the connector worker
+      description: Exactly one task owns a connector, via a Redis lease.
+      operationId: startConnector
+      parameters: [ { $ref: '#/components/parameters/ConnectorId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/connectors/{connector_id}/stop:
+    post:
+      tags: [connectors]
+      summary: Stop the connector worker
+      operationId: stopConnector
+      parameters: [ { $ref: '#/components/parameters/ConnectorId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/connectors/{connector_id}/health:
+    get:
+      tags: [connectors]
+      summary: Connection state, last poll, sample and error counters
+      operationId: connectorHealth
+      parameters: [ { $ref: '#/components/parameters/ConnectorId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/connectors/{connector_id}/test:
+    post:
+      tags: [connectors]
+      summary: One-shot read against the device
+      operationId: testConnector
+      parameters: [ { $ref: '#/components/parameters/ConnectorId' } ]
+      responses:
+        '200':
+          description: Decoded values, or the protocol error
+          content:
+            application/json:
+              schema: { type: object, additionalProperties: true }
+
+  /api/v1/connectors/discover/sunspec:
+    post:
+      tags: [connectors]
+      summary: Walk the SunSpec model chain on a Modbus endpoint
+      operationId: discoverSunspec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                host: { type: string }
+                port: { type: integer, default: 502 }
+                unit_id: { type: integer, default: 1 }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/connectors/{connector_id}/browse:
+    post:
+      tags: [connectors]
+      summary: Browse an OPC-UA address space
+      description: Map points without vendor documentation.
+      operationId: browseConnector
+      parameters: [ { $ref: '#/components/parameters/ConnectorId' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                start_node: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  # ==========================================================================
+  # solar  (Enterprise Solar Digital Twin specification)
+  # ==========================================================================
+  /api/v1/solar/model/evaluate:
+    post:
+      tags: [solar]
+      summary: "De Soto five-parameter single-diode evaluation (§4.1)"
+      description: |
+        A PV array's raw output carries almost no information about its
+        condition — 400 kW from a 500 kW array is excellent at 8 a.m. and
+        alarming at noon. This model supplies the missing half: what this array,
+        at this irradiance and this cell temperature, SHOULD be producing.
+      operationId: solarModelEvaluate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                irradiance: { type: number, description: "Plane-of-array irradiance, W/m²" }
+                cell_temp: { type: number, description: "Cell temperature, °C" }
+                module: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/triggers:
+    get:
+      tags: [solar]
+      summary: "Maintenance trigger catalogue (§4.2)"
+      description: |
+        Machine-readable, so the work-order and procurement agents can act on a
+        finding without re-deriving what it means. Each entry names a signature,
+        its behaviour id, the condition, the diagnosis, the action and a priority.
+      operationId: solarTriggerCatalogue
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MaintenanceTrigger' }
+          description: The three signatures
+
+  /api/v1/solar/{tenant}/model/iv-curve:
+    get:
+      tags: [solar]
+      summary: Modelled I-V curve at the current operating point
+      operationId: solarIvCurve
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/residual:
+    get:
+      tags: [solar]
+      summary: "ΔP vs model, performance ratio, fill factor, R_sh, imbalance"
+      operationId: solarResidual
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/diagnosis:
+    get:
+      tags: [solar]
+      summary: "Classify the residual signature and name the physical cause"
+      operationId: solarDiagnosis
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/triggers:
+    get:
+      tags: [solar]
+      summary: Active maintenance triggers for this array
+      operationId: solarTwinTriggers
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/MaintenanceTrigger' }
+          description: Triggers currently firing
+
+  /api/v1/solar/{tenant}/heatmap:
+    get:
+      tags: [solar]
+      summary: "Per-zone performance overlay for the 3-D scene (§5.1)"
+      operationId: solarHeatmap
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/strings:
+    get:
+      tags: [solar]
+      summary: Per-string voltage, current, imbalance and status
+      operationId: solarStrings
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+
+  /api/v1/solar/{tenant}/energy:
+    get:
+      tags: [solar]
+      summary: Generated, exported and curtailed energy
+      operationId: solarEnergy
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/measured/summary:
+    get:
+      tags: [solar]
+      summary: "Measured-signal summary (§2.2 weather + electrical)"
+      operationId: solarMeasuredSummary
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/forecast:
+    get:
+      tags: [solar]
+      summary: Degradation forecast
+      operationId: solarForecast
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/field-service/{asset_id}:
+    get:
+      tags: [solar]
+      summary: "Immersive field-service payload (§5.2 mobile AR / smart glasses)"
+      operationId: solarFieldService
+      parameters:
+        - $ref: '#/components/parameters/TenantPath'
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/training/scenario:
+    post:
+      tags: [solar]
+      summary: "Inject a training scenario (§5.3 multiplayer training lab)"
+      operationId: solarTrainingScenario
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                scenario: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/solar/{tenant}/training/reset:
+    post:
+      tags: [solar]
+      summary: Restore the pre-scenario state
+      operationId: solarTrainingReset
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  # ==========================================================================
+  # copilot
+  # ==========================================================================
+  /api/v1/copilot/health:
+    get:
+      tags: [copilot]
+      summary: Copilot backend mode, spend and cache hit rate
+      description: |
+        Reports whether agents are reaching Claude or returning deterministic
+        stubs, plus running cost, tokens, per-agent ranking, prompt-cache hit
+        rate and the share of requests answered without an API call at all.
+      operationId: copilotHealth
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/copilot/build-twin/message:
+    post:
+      tags: [copilot]
+      summary: Build-a-Twin conversation turn
+      operationId: copilotBuildTwinMessage
+      requestBody: { $ref: '#/components/requestBodies/CopilotChat' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/build-twin/spec:
+    post:
+      tags: [copilot]
+      summary: Photo or floor plan to a structured TwinSpec (vision)
+      operationId: copilotBuildTwinSpec
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                image_b64: { type: string }
+                filename: { type: string }
+                description: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/narrate/{tenant}:
+    get:
+      tags: [copilot]
+      summary: Narrate the live twin
+      operationId: copilotNarrateLive
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/narrate:
+    post:
+      tags: [copilot]
+      summary: Narrate a supplied sensor frame
+      operationId: copilotNarrate
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/asset:
+    post:
+      tags: [copilot]
+      summary: Explain one asset's condition
+      operationId: copilotAsset
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/predict-alert:
+    post:
+      tags: [copilot]
+      summary: Turn a prediction into an actionable alert
+      operationId: copilotPredictAlert
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/diagnosis:
+    post:
+      tags: [copilot]
+      summary: Root-cause diagnosis from live diagnostics and findings
+      operationId: copilotDiagnosis
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/analysis:
+    post:
+      tags: [copilot]
+      summary: Engineering analysis combining diagnostics and prediction
+      operationId: copilotAnalysis
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/cascade:
+    post:
+      tags: [copilot]
+      summary: Project how a fault propagates through coupled subsystems
+      operationId: copilotCascade
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/work-order:
+    post:
+      tags: [copilot]
+      summary: Generate a structured maintenance work order
+      operationId: copilotWorkOrder
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/procurement:
+    post:
+      tags: [copilot]
+      summary: Derive the parts list and lead times for a work order
+      operationId: copilotProcurement
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/incident-report:
+    post:
+      tags: [copilot]
+      summary: Formal incident narrative from findings and diagnostics
+      operationId: copilotIncidentReport
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/procedure:
+    post:
+      tags: [copilot]
+      summary: Step-by-step repair procedure for a named fault
+      operationId: copilotProcedure
+      requestBody: { $ref: '#/components/requestBodies/CopilotState' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/troubleshoot:
+    post:
+      tags: [copilot]
+      summary: Mechanic chat grounded in live diagnostics
+      operationId: copilotTroubleshoot
+      requestBody: { $ref: '#/components/requestBodies/CopilotChat' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  /api/v1/copilot/dashboard-chat:
+    post:
+      tags: [copilot]
+      summary: Operator chat grounded in a twin snapshot
+      operationId: copilotDashboardChat
+      requestBody: { $ref: '#/components/requestBodies/CopilotChat' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentReply' }
+
+  # ==========================================================================
+  # agents
+  # ==========================================================================
+  /api/v1/agents/info:
+    get:
+      tags: [agents]
+      summary: Agent layer capabilities and model policy
+      operationId: agentsInfo
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/start:
+    post:
+      tags: [agents]
+      summary: Open a twin-builder session
+      operationId: twinStart
+      requestBody: { $ref: '#/components/requestBodies/AgentStart' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/twin/message:
+    post:
+      tags: [agents]
+      summary: Advance the twin-builder conversation
+      operationId: twinMessage
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/twin/{session_id}:
+    get:
+      tags: [agents]
+      summary: Twin-builder session state
+      operationId: twinSessionState
+      parameters: [ { $ref: '#/components/parameters/SessionId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/twin/expand:
+    post:
+      tags: [agents]
+      summary: Expand an agreed specification into seeded entities
+      operationId: twinExpand
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/upload:
+    post:
+      tags: [agents]
+      summary: Upload a photo or plan and derive a TwinSpec
+      description: |
+        Object photos route to the 3-D reconstruction pipeline (TRELLIS on
+        RunPod) so the twin renders the real model; floor plans route to the
+        2d-to-3d parser and produce a BIM scene graph.
+      operationId: twinUpload
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+                tenant: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/scene:
+    post:
+      tags: [agents]
+      summary: Request a 3-D scene build
+      operationId: twinRequestScene
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/scene/{tenant}:
+    get:
+      tags: [agents]
+      summary: Fetch the cached BIM scene for a tenant
+      description: Served from the shared `scene_cache` table, so every task returns the same scene.
+      operationId: twinSceneByTenant
+      parameters: [ { $ref: '#/components/parameters/TenantPath' } ]
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/build-from-plan:
+    post:
+      tags: [agents]
+      summary: Synchronous 2-D plan to 3-D building
+      operationId: twinBuildFromPlan
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+                tenant: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/build-from-plan/start:
+    post:
+      tags: [agents]
+      summary: Start an asynchronous plan build
+      operationId: twinBuildFromPlanStart
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+                tenant: { type: string }
+      responses:
+        '202':
+          description: Accepted; poll the status endpoint
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  build_id: { type: string }
+
+  /api/v1/agents/twin/build-from-plan/status/{build_id}:
+    get:
+      tags: [agents]
+      summary: Plan-build progress
+      operationId: twinBuildFromPlanStatus
+      parameters:
+        - name: build_id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/twin/sample-scene/{facility}:
+    get:
+      tags: [agents]
+      summary: Sample scene for a facility type
+      operationId: twinSampleScene
+      parameters:
+        - name: facility
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/bundle/start:
+    post:
+      tags: [agents]
+      summary: Open a bundle-author session
+      operationId: bundleStart
+      requestBody: { $ref: '#/components/requestBodies/AgentStart' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/bundle/message:
+    post:
+      tags: [agents]
+      summary: Advance bundle authoring
+      operationId: bundleMessage
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/bundle/approve:
+    post:
+      tags: [agents]
+      summary: Approve and publish a capability bundle
+      description: |
+        Persisted to the shared relational store, so a bundle published by one
+        task is immediately loadable by every other task.
+      operationId: bundleApprove
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/agents/bundle/{session_id}:
+    get:
+      tags: [agents]
+      summary: Bundle-author session state
+      operationId: bundleSessionState
+      parameters: [ { $ref: '#/components/parameters/SessionId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/ops/diagnose:
+    post:
+      tags: [agents]
+      summary: Run the operational diagnosis graph
+      operationId: opsDiagnose
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/ops/analysis:
+    post:
+      tags: [agents]
+      summary: Run the operational analysis graph
+      operationId: opsAnalysis
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/ops/cascade:
+    post:
+      tags: [agents]
+      summary: Run the cascade-projection graph
+      operationId: opsCascade
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/ops/{session_id}:
+    get:
+      tags: [agents]
+      summary: Operational session state
+      operationId: opsSessionState
+      parameters: [ { $ref: '#/components/parameters/SessionId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/plugin/start:
+    post:
+      tags: [agents]
+      summary: Open a plugin session (extend a live twin with a pack or adapter)
+      operationId: pluginStart
+      requestBody: { $ref: '#/components/requestBodies/AgentStart' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/plugin/message:
+    post:
+      tags: [agents]
+      summary: Advance plugin authoring
+      operationId: pluginMessage
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/plugin/{session_id}:
+    get:
+      tags: [agents]
+      summary: Plugin session state
+      operationId: pluginSessionState
+      parameters: [ { $ref: '#/components/parameters/SessionId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/accelerator/start:
+    post:
+      tags: [agents]
+      summary: Open a vertical-accelerator session
+      operationId: acceleratorStart
+      requestBody: { $ref: '#/components/requestBodies/AgentStart' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/accelerator/message:
+    post:
+      tags: [agents]
+      summary: Advance the accelerator
+      operationId: acceleratorMessage
+      requestBody: { $ref: '#/components/requestBodies/AgentMessage' }
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  /api/v1/agents/accelerator/{session_id}:
+    get:
+      tags: [agents]
+      summary: Accelerator session state
+      operationId: acceleratorSessionState
+      parameters: [ { $ref: '#/components/parameters/SessionId' } ]
+      responses:
+        '200': { $ref: '#/components/responses/AgentSession' }
+
+  # ==========================================================================
+  # hub
+  # ==========================================================================
+  /api/v1/predict:
+    post:
+      tags: [hub]
+      summary: Hub-facing prediction surface
+      operationId: hubPredict
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/assets/{asset_id}/ar-overlay:
+    get:
+      tags: [hub]
+      summary: AR overlay payload for an asset
+      operationId: hubArOverlay
+      parameters:
+        - name: asset_id
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/TenantQuery'
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  # ==========================================================================
+  # feed
+  # ==========================================================================
+  /api/v1/feed/start:
+    post:
+      tags: [feed]
+      summary: Start the deterministic simulated feed
+      operationId: startFeed
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenant: { type: string }
+                domain: { type: string }
+                speed: { type: number, description: "Sim-time multiplier; 60 = one real second is one sim-minute" }
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/feed/status:
+    get:
+      tags: [feed]
+      summary: Feed counters and per-signal latest values
+      operationId: feedStatus
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/feed/stop:
+    post:
+      tags: [feed]
+      summary: Stop the simulated feed
+      operationId: stopFeed
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  # ==========================================================================
+  # threed  (mounted sub-application)
+  # ==========================================================================
+  /api/v1/threed/api/health:
+    get:
+      tags: [threed]
+      summary: 3-D platform health
+      operationId: threedHealth
+      security: []
+      responses:
+        '200': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/threed/api/priors:
+    get:
+      tags: [threed]
+      summary: List reconstruction priors
+      operationId: threedListPriors
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+    post:
+      tags: [threed]
+      summary: Add a reconstruction prior
+      operationId: threedAddPrior
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: true }
+      responses:
+        '201': { $ref: '#/components/responses/JsonObject' }
+
+  /api/v1/threed/api/jobs:
+    get:
+      tags: [threed]
+      summary: List reconstruction jobs
+      operationId: threedListJobs
+      responses:
+        '200': { $ref: '#/components/responses/JsonArray' }
+    post:
+      tags: [threed]
+      summary: Create a reconstruction job (photo to GLB)
+      description: |
+        The job record goes to the shared relational store, not task disk, so a
+        browser polling through the load balancer cannot get a 404 from a task
+        that did not run the job.
+      operationId: threedCreateJob
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ThreedJob' }
+          description: Job created
+
+  /api/v1/threed/api/jobs/{job_id}:
+    get:
+      tags: [threed]
+      summary: Job status and per-stage progress
+      operationId: threedGetJob
+      parameters: [ { $ref: '#/components/parameters/JobId' } ]
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ThreedJob' }
+          description: The job
+
+  /api/v1/threed/api/jobs/{job_id}/file/{path}:
+    get:
+      tags: [threed]
+      summary: Fetch one job artifact
+      operationId: threedGetFile
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: The artifact
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+
+  /api/v1/threed/api/jobs/{job_id}/result:
+    get:
+      tags: [threed]
+      summary: The finished GLB
+      description: |
+        Redirects (302) to a presigned S3 URL when the blob backend is S3, so a
+        20 MB GLB streams from S3 instead of occupying an API worker.
+      operationId: threedGetResult
+      parameters: [ { $ref: '#/components/parameters/JobId' } ]
+      responses:
+        '302':
+          description: Redirect to a presigned S3 URL
+          headers:
+            Location:
+              schema: { type: string, format: uri }
+        '200':
+          description: The GLB, served directly on the local-filesystem backend
+          content:
+            model/gltf-binary:
+              schema: { type: string, format: binary }
+
+components:
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: |
+        Carries a role (`admin` / `write` / `read`) and a tenant scope. Configured
+        via `NXR_API_KEYS`.
+    DeviceToken:
+      type: apiKey
+      in: header
+      name: X-Device-Token
+      description: |
+        A telemetry device credential: one verb (append), one tenant, optionally
+        one asset prefix. Returned once at registration; only the hash is stored.
+
+  parameters:
+    TenantQuery:
+      name: tenant
+      in: query
+      required: true
+      schema: { type: string }
+      description: Tenant id; must be inside the caller's key scope
+    TenantPath:
+      name: tenant
+      in: path
+      required: true
+      schema: { type: string }
+      description: Tenant id; checked against the caller's key scope after routing
+    NodeId:
+      name: node_id
+      in: path
+      required: true
+      schema: { type: string }
+    ClassName:
+      name: name
+      in: path
+      required: true
+      schema: { type: string }
+      description: Ontology class local name (e.g. AirHandler)
+    DeviceId:
+      name: device_id
+      in: path
+      required: true
+      schema: { type: string }
+    ConnectorId:
+      name: connector_id
+      in: path
+      required: true
+      schema: { type: string }
+    SessionId:
+      name: session_id
+      in: path
+      required: true
+      schema: { type: string }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string }
+
+  requestBodies:
+    CopilotState:
+      required: true
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/CopilotRequest' }
+    CopilotChat:
+      required: true
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/CopilotRequest'
+              - type: object
+                properties:
+                  message: { type: string }
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        role: { type: string, enum: [user, assistant] }
+                        content: { type: string }
+    AgentStart:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              tenant: { type: string }
+              message: { type: string }
+    AgentMessage:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              tenant: { type: string }
+              session_id: { type: string }
+              message: { type: string }
+
+  responses:
+    JsonObject:
+      description: Success
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+    JsonArray:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: array
+            items: { type: object, additionalProperties: true }
+    AgentReply:
+      description: |
+        The agent's answer. The `ai` block reports `backend` — `claude` when the
+        call reached the API, `stub` when it degraded to the deterministic
+        fallback (keyless, over budget, or on any network or parse failure). A
+        stub answer is never silently presented as real reasoning.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/AgentResponse' }
+    AgentSession:
+      description: Agent graph session state, checkpointed by thread_id
+      content:
+        application/json:
+          schema: { type: object, additionalProperties: true }
+    Unauthorized:
+      description: Missing or invalid credential
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Tenant outside the caller's key scope, or role insufficient
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationFailed:
+      description: SHACL validation failed; nothing was written
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationReport' }
+    GraphUnavailable:
+      description: |
+        Neo4j is unreachable. Converted once, globally, from the driver's
+        connection errors so every graph-backed route degrades the same way.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              detail: { type: string }
+              neo4j: { type: string, example: unreachable }
+
+  schemas:
+
+    Ack:
+      type: object
+      properties:
+        ok: { type: boolean }
+        detail: { type: string }
+
+    Error:
+      type: object
+      properties:
+        detail: { type: string }
+
+    Entity:
+      type: object
+      properties:
+        id: { type: string }
+        tenantId: { type: string }
+        label:
+          type: string
+          description: The taxonomy category used as the Neo4j label
+          enum: [PhysicalAsset, MobileAsset, Actor, Location, Process, Observation, Finding, Incident, Document, Capability]
+        canonicalType:
+          type: string
+          description: The OWL class IRI
+          example: https://ontology.nextxr.io/v3/solar#PVArray
+        displayName: { type: string }
+        status: { type: string }
+        updatedAt: { type: string, format: date-time }
+        properties:
+          type: object
+          additionalProperties: true
+          description: Class properties plus live signal values written by the runtime
+
+    EntityCreate:
+      type: object
+      required: [tenant, canonical_type, properties]
+      properties:
+        tenant: { type: string }
+        canonical_type: { type: string }
+        properties: { type: object, additionalProperties: true }
+
+    Finding:
+      type: object
+      properties:
+        id: { type: string }
+        behaviourId: { type: string, example: solar.soiling_symmetric_drop }
+        tier:
+          type: string
+          enum: [A, B, C]
+          description: A = physics residual, B = statistical baseline, C = deterministic rule
+        severity: { type: string, enum: [info, warning, critical] }
+        entityId: { type: string }
+        evidence: { type: object, additionalProperties: true }
+        createdAt: { type: string, format: date-time }
+
+    ChangeEvent:
+      type: object
+      properties:
+        seq: { type: integer, format: int64 }
+        event_id: { type: string, description: ULID }
+        tenant_id: { type: string }
+        entity_id: { type: string }
+        entity_type: { type: string }
+        actor: { type: string }
+        action: { type: string, enum: [create, update, delete] }
+        field_changes:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              old: {}
+              new: {}
+        ts: { type: string, format: date-time }
+        prev_event_hash: { type: string }
+        wm_hash: { type: string, description: sha256 over canonical content including prev_event_hash }
+
+    BusEvent:
+      type: object
+      properties:
+        event_id: { type: string }
+        tenant_id: { type: string }
+        entity_id: { type: string }
+        entity_type: { type: string }
+        label: { type: string }
+        action: { type: string, enum: [create, update, delete] }
+        actor: { type: string }
+        ts: { type: string, format: date-time }
+
+    BusInfo:
+      type: object
+      properties:
+        backend: { type: string, enum: [redis, memory, null] }
+        required: { type: boolean }
+        scale_safe:
+          type: boolean
+          description: False on the in-memory bus — correct in one process, wrong at two tasks
+        url: { type: string, description: Redacted Redis URL when the backend is redis }
+
+    HistorianInfo:
+      type: object
+      properties:
+        backend: { type: string, enum: [timescale, postgres, sqlite] }
+        timescale_version: { type: string }
+        required: { type: boolean }
+        scale_safe: { type: boolean }
+        samples: { type: integer }
+        earliest: { type: string, format: date-time }
+        latest: { type: string, format: date-time }
+        bad_quality_share: { type: number }
+
+    Health:
+      type: object
+      properties:
+        status: { type: string, enum: [healthy, degraded] }
+        neo4j: { type: string, enum: [connected, unreachable] }
+        database:
+          type: object
+          description: Backend, redacted endpoint, pool bounds and reachability
+          additionalProperties: true
+        blobs:
+          type: object
+          description: Backend, bucket/prefix and a real write + read + delete probe
+          additionalProperties: true
+        bus: { $ref: '#/components/schemas/BusInfo' }
+        historian: { $ref: '#/components/schemas/HistorianInfo' }
+        twin_runtime:
+          type: object
+          description: |
+            Which twins THIS task drives. Across the fleet every tenant should
+            appear exactly once; a tenant in two tasks' `owned` lists means
+            leases are not holding and findings are being written twice.
+          properties:
+            enabled: { type: boolean }
+            owned:
+              type: array
+              items: { type: string }
+        detail: { type: string }
+
+    Twin:
+      type: object
+      properties:
+        tenant_id: { type: string }
+        name: { type: string }
+        domain: { type: string }
+        description: { type: string }
+        created_at: { type: string, format: date-time }
+        seed_asset_id: { type: string }
+
+    DomainSpec:
+      type: object
+      properties:
+        key: { type: string, example: solar-pv-array }
+        label: { type: string, example: Enterprise Solar PV Array }
+        class_iri: { type: string }
+        control:
+          type: string
+          description: The controllable input (throttle, curtailment, service_level, ...)
+        signals: { type: object, additionalProperties: { type: string } }
+        units: { type: object, additionalProperties: { type: string } }
+        faults: { type: array, items: { type: string } }
+        sensors: { type: object, additionalProperties: true }
+        subsystems:
+          type: array
+          items:
+            type: array
+            items: { type: string }
+
+    TwinState:
+      type: object
+      properties:
+        tenant: { type: string }
+        domain: { type: string }
+        running: { type: boolean }
+        control: { type: number }
+        health_index: { type: number }
+        faults: { type: array, items: { type: string } }
+        signals:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              value: { type: number }
+              unit: { type: string }
+        ts: { type: string, format: date-time }
+
+    Diagnostics:
+      type: object
+      properties:
+        sensors:
+          type: array
+          items:
+            type: object
+            properties:
+              signal: { type: string }
+              value: { type: number }
+              limit: { type: number }
+              direction: { type: string, enum: [above, below] }
+              status: { type: string, enum: [ok, warning, alarm] }
+        subsystems:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              label: { type: string }
+              health: { type: number }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/Finding' }
+
+    TelemetrySample:
+      type: object
+      required: [asset_id, signal, value]
+      properties:
+        asset_id: { type: string }
+        signal: { type: string }
+        value: { type: number, nullable: true }
+        unit: { type: string }
+        quality:
+          type: integer
+          description: OPC quality byte — 0 BAD, 64 UNCERTAIN, 192 GOOD
+          default: 192
+          enum: [0, 64, 192]
+        ts: { type: string, format: date-time }
+
+    IngestResult:
+      type: object
+      properties:
+        accepted: { type: integer }
+        duplicates: { type: integer, description: Collided on the historian primary key and were skipped }
+        rejected: { type: integer }
+        behaviours_evaluated: { type: boolean }
+
+    HistoryPoint:
+      type: object
+      properties:
+        ts: { type: string, format: date-time }
+        value: { type: number, nullable: true }
+        count: { type: integer, description: Present on rollup resolutions }
+        min: { type: number }
+        max: { type: number }
+        bad_count: { type: integer }
+        unit: { type: string }
+
+    Device:
+      type: object
+      properties:
+        device_id: { type: string }
+        tenant_id: { type: string }
+        name: { type: string }
+        asset_prefix: { type: string }
+        enabled: { type: boolean }
+        created_at: { type: string, format: date-time }
+        created_by: { type: string }
+        expires_at: { type: string, format: date-time, nullable: true }
+        last_seen_at: { type: string, format: date-time, nullable: true }
+        last_seen_ip: { type: string, nullable: true }
+        samples_total: { type: number }
+        rejected_total: { type: number }
+
+    Connector:
+      type: object
+      properties:
+        connector_id: { type: string }
+        tenant_id: { type: string }
+        protocol: { type: string, enum: [modbus_tcp, modbus_rtu, opcua, mqtt] }
+        name: { type: string }
+        enabled: { type: boolean }
+        config:
+          type: object
+          additionalProperties: true
+          description: |
+            Endpoint, poll interval and point map. Credentials are removed by an
+            ALLOW-list, not a deny-list, so a field added later cannot leak a
+            customer's PLC password by omission.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ConnectorCreate:
+      type: object
+      required: [tenant, protocol, config]
+      properties:
+        tenant: { type: string }
+        protocol: { type: string, enum: [modbus_tcp, modbus_rtu, opcua, mqtt] }
+        name: { type: string }
+        config: { type: object, additionalProperties: true }
+
+    MaintenanceTrigger:
+      type: object
+      properties:
+        signature: { type: string, example: Symmetric Output Drop }
+        behavior_id: { type: string, example: solar.soiling_symmetric_drop }
+        condition: { type: string, example: "ΔP < -12% across zone; V_dc normal; I_dc uniformly suppressed" }
+        diagnosis: { type: string, example: Soiling / dust build-up }
+        action: { type: string, example: Low-priority cleaning ticket }
+        priority: { type: string, enum: [low, high, scheduled] }
+
+    CopilotRequest:
+      type: object
+      properties:
+        tenant:
+          type: string
+          description: Checked against the caller's key scope — request bodies are covered
+        machine: { type: string }
+        domain: { type: string }
+        diagnostics: { type: object, additionalProperties: true }
+        prediction: { type: object, additionalProperties: true }
+        latest: { type: object, additionalProperties: true }
+        findings:
+          type: array
+          items: { type: object, additionalProperties: true }
+
+    AgentResponse:
+      type: object
+      properties:
+        result: { type: object, additionalProperties: true }
+        text: { type: string }
+        ai:
+          type: object
+          properties:
+            backend: { type: string, enum: [claude, stub] }
+            model: { type: string, example: claude-sonnet-5 }
+            input_tokens: { type: integer }
+            output_tokens: { type: integer }
+            cache_read_tokens: { type: integer }
+            cost_usd: { type: number }
+            thinking: { type: string, enum: [off, adaptive] }
+
+    ThreedJob:
+      type: object
+      properties:
+        job_id: { type: string }
+        status: { type: string, enum: [queued, running, completed, failed] }
+        stage: { type: string }
+        filename: { type: string }
+        stages: { type: object, additionalProperties: true }
+        error: { type: string, nullable: true }
+        created: { type: number }
+        updated: { type: number }
+
+    ValidationReport:
+      type: object
+      properties:
+        conforms: { type: boolean }
+        violations:
+          type: array
+          items:
+            type: object
+            properties:
+              shape: { type: string }
+              focus_node: { type: string }
+              path: { type: string }
+              message: { type: string }
+              severity: { type: string }

@@ -1,8 +1,9 @@
 """selftest_drawing.py — run one drawing job through the sibling 2d-to-3d parser."""
 from pathlib import Path
-from PIL import Image, ImageDraw
-from app.store import store
+
 from app.orchestrator import _run
+from app.store import store
+from PIL import Image, ImageDraw
 
 img = Image.new("RGB", (900, 700), (255, 255, 255))
 d = ImageDraw.Draw(img)

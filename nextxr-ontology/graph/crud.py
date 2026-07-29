@@ -11,13 +11,13 @@ this with validate() + Change Log emit in a single transaction.
 import os
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from graph.connection import get_driver
 
 
 def _now_iso():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _uuid7():

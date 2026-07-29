@@ -35,13 +35,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
 import re
 import secrets
-import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 
 import db
 from db import schema as db_schema
@@ -57,7 +54,7 @@ _DEVICE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{2,63}$")
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _ensure_schema() -> None:
@@ -79,9 +76,9 @@ class Device:
     enabled: bool
     created_at: str
     created_by: str
-    expires_at: Optional[str] = None
-    last_seen_at: Optional[str] = None
-    last_seen_ip: Optional[str] = None
+    expires_at: str | None = None
+    last_seen_at: str | None = None
+    last_seen_ip: str | None = None
     samples_total: int = 0
     rejected_total: int = 0
 
@@ -91,7 +88,7 @@ class Device:
         d["active"] = self.enabled and not self.is_expired()
         return d
 
-    def is_expired(self, now: Optional[datetime] = None) -> bool:
+    def is_expired(self, now: datetime | None = None) -> bool:
         if not self.expires_at:
             return False
         try:
@@ -102,8 +99,8 @@ class Device:
             # alternative silently grants a credential someone tried to time-box.
             return True
         if exp.tzinfo is None:
-            exp = exp.replace(tzinfo=timezone.utc)
-        return exp <= (now or datetime.now(timezone.utc))
+            exp = exp.replace(tzinfo=UTC)
+        return exp <= (now or datetime.now(UTC))
 
     def allows_asset(self, asset_id: str) -> bool:
         return not self.asset_prefix or asset_id.startswith(self.asset_prefix)
@@ -126,8 +123,8 @@ def _row_to_device(row) -> Device:
 # ── Provisioning ────────────────────────────────────────────────────────────
 
 
-def create(*, tenant_id: str, name: str = "", device_id: Optional[str] = None,
-           asset_prefix: str = "", ttl_days: Optional[int] = None,
+def create(*, tenant_id: str, name: str = "", device_id: str | None = None,
+           asset_prefix: str = "", ttl_days: int | None = None,
            created_by: str = "api") -> tuple[Device, str]:
     """Register a device. Returns (device, PLAINTEXT_TOKEN).
 
@@ -149,7 +146,7 @@ def create(*, tenant_id: str, name: str = "", device_id: Optional[str] = None,
     token = TOKEN_PREFIX + secrets.token_urlsafe(32)
     expires_at = None
     if ttl_days:
-        expires_at = (datetime.now(timezone.utc)
+        expires_at = (datetime.now(UTC)
                       + timedelta(days=int(ttl_days))).isoformat()
 
     with db.connect(_STORE) as conn:
@@ -197,7 +194,7 @@ def delete(device_id: str) -> bool:
         return bool(getattr(cur, "rowcount", 0))
 
 
-def get(device_id: str) -> Optional[Device]:
+def get(device_id: str) -> Device | None:
     _ensure_schema()
     with db.connect(_STORE) as conn:
         row = conn.execute(
@@ -206,7 +203,7 @@ def get(device_id: str) -> Optional[Device]:
     return _row_to_device(row) if row else None
 
 
-def list_for_tenant(tenant_id: Optional[str] = None) -> list[Device]:
+def list_for_tenant(tenant_id: str | None = None) -> list[Device]:
     _ensure_schema()
     with db.connect(_STORE) as conn:
         if tenant_id:
@@ -317,7 +314,7 @@ def silent_devices(threshold_s: int = 900) -> list[dict]:
     stop moving, and the twin keeps serving its last known value as if it were
     current. This is the query that turns that into an alert.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     out = []
     for d in list_for_tenant():
         if not d.enabled:
@@ -329,7 +326,7 @@ def silent_devices(threshold_s: int = 900) -> list[dict]:
         try:
             seen = datetime.fromisoformat(d.last_seen_at.replace("Z", "+00:00"))
             if seen.tzinfo is None:
-                seen = seen.replace(tzinfo=timezone.utc)
+                seen = seen.replace(tzinfo=UTC)
         except ValueError:
             continue
         age = (now - seen).total_seconds()

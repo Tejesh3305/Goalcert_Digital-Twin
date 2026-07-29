@@ -11,14 +11,22 @@ Exposes two self-describing machine-twin SPECs the runtime can twin:
 Both are collected in SPECS so the runtime can register every railway domain
 from one module import.
 """
+from .behaviors import build_railway_registry
 from .physics import (
-    RailwayPhysics, SIGNALS, UNITS, redlines, FAULTS,
-    traction_power_flow, train_dynamics, station_hvac_load,
-    escalator_motor_model, rail_thermal_expansion, wheel_rail_contact,
+    FAULTS,
+    SIGNALS,
+    UNITS,
+    RailwayPhysics,
+    escalator_motor_model,
     passenger_los_model,
+    rail_thermal_expansion,
+    redlines,
+    station_hvac_load,
+    traction_power_flow,
+    train_dynamics,
+    wheel_rail_contact,
 )
 from .predict import component_health, predict
-from .behaviors import build_railway_registry
 from .trainset import SPEC as TRAINSET_SPEC
 
 SPEC = {

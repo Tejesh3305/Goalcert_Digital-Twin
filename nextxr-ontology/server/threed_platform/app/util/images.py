@@ -24,7 +24,7 @@ def _gray(img: Image.Image) -> np.ndarray:
 
 def laplacian_var(gray: np.ndarray) -> float:
     """Variance of the Laplacian — a standard sharpness proxy (low = blurry)."""
-    k = np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float32)
+    np.array([[0, 1, 0], [1, -4, 1], [0, 1, 0]], dtype=np.float32)
     g = gray
     # valid 2D convolution without scipy
     sub = (

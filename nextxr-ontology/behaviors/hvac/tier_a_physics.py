@@ -23,6 +23,7 @@ U-value from the graph. This simplified version uses a fixed tau.
 from __future__ import annotations
 
 import math
+
 from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 

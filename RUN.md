@@ -22,8 +22,48 @@ Manual equivalent:
 ```powershell
 docker compose up -d            # Neo4j + Postgres + Redis
 cd nextxr-ontology
+$env:NXR_DEV_MODE = "1"         # see below — the API is closed without this
 python -m server.main           # http://localhost:8080
 ```
+
+---
+
+## Authentication, and why `NXR_DEV_MODE` exists
+
+**The API defaults to closed.** With nothing configured it refuses every `/api`
+request. That is deliberate and it is the opposite of how it used to behave: the
+service was open whenever `NXR_API_KEYS` was unset, so any deployment that forgot
+one environment variable served customer data — and the LLM-billing `/copilot`
+endpoints — to anyone who found the URL.
+
+`start.ps1` sets `NXR_DEV_MODE=1`, which is the explicit local opt-out. So the
+open posture is something you run on purpose on a laptop, rather than a hole a
+deployment inherits by forgetting a variable.
+
+### Rehearsing the real thing
+
+```powershell
+./start.ps1 -Secure
+```
+
+Authentication enforced, exactly as it ships. Create an account at
+**http://localhost:8080/signup**, then sign in at `/login`. Worth doing before a
+release — it is the configuration that will actually run.
+
+| Posture | Command | `/api/v1/twins` without a credential |
+|---|---|---|
+| Local dev | `./start.ps1` | 200 |
+| Production | `./start.ps1 -Secure` | 401 |
+
+### What a signed-in session gets you
+
+A user belongs to an **organisation**, and the organisation owns twins. You reach
+a twin because your org owns it — not because of how its id is spelled. So a
+fresh account sees an empty twin list until it creates one or is given one, which
+is correct rather than broken.
+
+**Account → API keys** issues machine credentials for scripts and CI. The secret
+is shown once and stored only as a hash; there is no way to read it back.
 
 ---
 

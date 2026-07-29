@@ -20,9 +20,8 @@ Engineering bases:
 
 from __future__ import annotations
 
-import math
-from dynamics.model import DynamicsModel, EntityState, EntityContext
 from dynamics import flows
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 CP_AIR = 1005.0

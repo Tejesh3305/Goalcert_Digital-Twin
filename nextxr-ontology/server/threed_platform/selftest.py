@@ -8,9 +8,11 @@ the machine that ran it.
 import sys
 import time
 from pathlib import Path
-from PIL import Image, ImageDraw
+
+from app.orchestrator import _run  # run synchronously for the test
 from app.store import store
-from app.orchestrator import _run   # run synchronously for the test
+from PIL import Image, ImageDraw
+
 
 # Stage notes contain arrow characters. On a Windows console (cp1252) printing
 # one raises UnicodeEncodeError and loses the whole report AFTER a 10-minute
@@ -43,6 +45,7 @@ out(f"twin: {j['state'].get('twin_path')}")
 
 # Where the artifacts actually ended up — the point of the store split.
 import storage  # noqa: E402  (after the app package has fixed sys.path)
+
 glb = j["state"].get("result_glb")
 if glb:
     data = store.read_artifact(j["id"], glb)

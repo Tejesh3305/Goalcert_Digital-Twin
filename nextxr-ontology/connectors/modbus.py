@@ -44,7 +44,6 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Optional
 
 from historian import QUALITY_BAD, QUALITY_GOOD
 
@@ -153,7 +152,7 @@ class ModbusConnector(Connector):
             raise ConnectionError("not connected")
 
         attempts = max(1, int(self.config.request_retries) + 1)
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         for _ in range(attempts):
             try:
                 kwargs = {"address": start, "count": count,
@@ -164,21 +163,21 @@ class ModbusConnector(Connector):
                 else:
                     result = client.read_holding_registers(**kwargs)
                 if result is None:
-                    raise IOError("no response")
+                    raise OSError("no response")
                 if hasattr(result, "isError") and result.isError():
-                    raise IOError(f"Modbus exception: {result}")
+                    raise OSError(f"Modbus exception: {result}")
                 registers = list(getattr(result, "registers", []) or [])
                 if len(registers) != count:
-                    raise IOError(
+                    raise OSError(
                         f"short read at {start}: expected {count} registers, "
                         f"got {len(registers)}")
                 return registers
             except Exception as e:                      # noqa: BLE001
                 last_error = e
-        raise IOError(f"read fc={function_code} @{start}+{count} failed: "
+        raise OSError(f"read fc={function_code} @{start}+{count} failed: "
                       f"{last_error}") from last_error
 
-    def read_once(self) -> list[tuple[Point, Optional[float], int]]:
+    def read_once(self) -> list[tuple[Point, float | None, int]]:
         point_map = self.config.point_map
         if point_map is None:
             return []
@@ -207,7 +206,7 @@ class ModbusConnector(Connector):
             if len(failed_blocks) == len(self._blocks) and self._blocks:
                 # Everything failed: the device is gone, not merely partly
                 # unreadable. Raise so the run loop reconnects with backoff.
-                raise IOError(
+                raise OSError(
                     f"all {len(self._blocks)} register blocks failed — device "
                     f"unreachable")
             return self._decode(point_map, cache)
@@ -218,12 +217,12 @@ class ModbusConnector(Connector):
     def _decode(self, point_map, cache: dict[tuple[int, int], int]):
         """Registers → engineering values, resolving SunSpec scale factors."""
         base = point_map.base_address
-        out: list[tuple[Point, Optional[float], int]] = []
+        out: list[tuple[Point, float | None, int]] = []
 
         # Resolve every scale-factor register once. They are int16 exponents and
         # several points share one, so decoding per point would be wasteful and —
         # worse — could disagree if a retry returned a different value mid-cycle.
-        scale_factors: dict[int, Optional[int]] = {}
+        scale_factors: dict[int, int | None] = {}
         for register in point_map.scale_registers():
             raw = cache.get((3, base + register), cache.get((4, base + register)))
             if raw is None:
@@ -352,7 +351,7 @@ def discover_sunspec(host: str, *, port: int = 502, unit_id: int = 1,
     if not client.connect():
         return {"ok": False, "error": f"cannot reach {host}:{port}"}
 
-    def read(address: int, count: int) -> Optional[list[int]]:
+    def read(address: int, count: int) -> list[int] | None:
         try:
             result = client.read_holding_registers(
                 address=address, count=count, slave=unit_id)

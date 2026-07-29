@@ -45,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-from typing import Any, Optional
 
 from historian import QUALITY_BAD, QUALITY_GOOD, QUALITY_UNCERTAIN
 
@@ -60,7 +59,7 @@ _SEVERITY_GOOD = 0b00
 _SEVERITY_UNCERTAIN = 0b01
 
 
-def map_status_code(code: Optional[int]) -> int:
+def map_status_code(code: int | None) -> int:
     """OPC-UA StatusCode → the platform's quality byte.
 
     A None code means the server did not supply one, which is treated as GOOD: an
@@ -89,14 +88,14 @@ class OpcUaConnector(Connector):
                  **kwargs):
         super().__init__(config, **kwargs)
         self._client = None
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._loop_thread: Optional[threading.Thread] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread: threading.Thread | None = None
         self._use_subscription = use_subscription
         self._subscription = None
         self._subscribed = False
         # node_id -> (value, status_code). Written by subscription callbacks on the
         # loop thread, read by read_once on the poll thread — hence the lock.
-        self._values: dict[str, tuple[Optional[float], Optional[int]]] = {}
+        self._values: dict[str, tuple[float | None, int | None]] = {}
         self._values_lock = threading.Lock()
         self._by_node: dict[str, Point] = {}
         if config.point_map:
@@ -121,7 +120,7 @@ class OpcUaConnector(Connector):
         self._loop, self._loop_thread = loop, thread
         return loop
 
-    def _run(self, coroutine, timeout: Optional[float] = None):
+    def _run(self, coroutine, timeout: float | None = None):
         """Run a coroutine on the private loop and wait for it."""
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(coroutine, loop)
@@ -206,7 +205,7 @@ class OpcUaConnector(Connector):
                     status = getattr(status_code, "value", None)
                 except Exception:
                     pass
-                numeric: Optional[float]
+                numeric: float | None
                 try:
                     numeric = None if value is None else float(value)
                 except (TypeError, ValueError):
@@ -252,7 +251,7 @@ class OpcUaConnector(Connector):
 
     # ── Reading ─────────────────────────────────────────────────────────────
 
-    def read_once(self) -> list[tuple[Point, Optional[float], int]]:
+    def read_once(self) -> list[tuple[Point, float | None, int]]:
         if self._client is None:
             raise ConnectionError("not connected")
         return (self._read_from_subscription() if self._subscribed
@@ -294,12 +293,12 @@ class OpcUaConnector(Connector):
             nodes = [self._client.get_node(nid) for nid in node_ids]
             try:
                 values = await self._client.read_values(nodes)
-                return list(zip(node_ids, values, [None] * len(values)))
+                return list(zip(node_ids, values, [None] * len(values), strict=False))
             except Exception:
                 # Per-node fallback: one bad node id in the map should mark only
                 # itself BAD rather than losing the whole cycle.
                 results = []
-                for node_id, node in zip(node_ids, nodes):
+                for node_id, node in zip(node_ids, nodes, strict=False):
                     try:
                         results.append((node_id, await node.read_value(), None))
                     except Exception:
@@ -309,7 +308,7 @@ class OpcUaConnector(Connector):
         out = []
         for node_id, value, status in self._run(read_all()):
             point = self._by_node[node_id]
-            numeric: Optional[float]
+            numeric: float | None
             try:
                 if isinstance(value, bool):
                     numeric = 1.0 if value else 0.0
@@ -377,7 +376,7 @@ class OpcUaConnector(Connector):
                             entry["value"] = await child.read_value()
                             entry["value"] = (float(entry["value"])
                                               if isinstance(entry["value"],
-                                                            (int, float))
+                                                            int | float)
                                               else str(entry["value"])[:80])
                         except Exception:
                             entry["value"] = None

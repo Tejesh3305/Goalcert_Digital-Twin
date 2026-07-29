@@ -7,6 +7,7 @@ structural fatigue) live in packs/defence/warship.py.
 from __future__ import annotations
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+
 from .physics import SIGNALS, redlines
 
 

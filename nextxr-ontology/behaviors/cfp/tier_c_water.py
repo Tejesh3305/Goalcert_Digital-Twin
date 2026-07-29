@@ -2,7 +2,8 @@
 CFP Tier-C water rules: leak detect, tank low-level, continuous flow (pipe leak).
 """
 from datetime import timedelta
-from behaviors.registry import Behavior, Tier, TelemetrySample, Finding
+
+from behaviors.registry import Behavior, Finding, TelemetrySample, Tier
 
 
 class LeakDetectedRule(Behavior):

@@ -31,17 +31,15 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException, Query, Request
-
 import historian
+from fastapi import APIRouter, HTTPException, Query
 
 router = APIRouter(prefix="/api/v1", tags=["historian"])
 
@@ -52,17 +50,17 @@ _REL_UNITS = {"s": "seconds", "m": "minutes", "h": "hours",
 MAX_TREND_SIGNALS = 24
 
 
-def _parse_time(value: Optional[str], *, default: datetime) -> datetime:
+def _parse_time(value: str | None, *, default: datetime) -> datetime:
     """ISO-8601, a relative offset like '-24h', or 'now'."""
     if value is None or not str(value).strip():
         return default
     text = str(value).strip().lower()
     if text in ("now", "0"):
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     m = _REL_RE.match(text)
     if m:
         amount, unit = float(m.group(1)), m.group(2).lower()
-        return datetime.now(timezone.utc) - timedelta(
+        return datetime.now(UTC) - timedelta(
             **{_REL_UNITS[unit]: amount})
     try:
         parsed = datetime.fromisoformat(
@@ -73,12 +71,12 @@ def _parse_time(value: Optional[str], *, default: datetime) -> datetime:
             detail=f"Cannot parse time '{value}'. Use ISO-8601 "
                    f"(2026-07-26T10:00:00Z), a relative offset (-24h, -7d), "
                    f"or 'now'.")
-    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
-def _window(frm: Optional[str], to: Optional[str],
+def _window(frm: str | None, to: str | None,
             default_span: timedelta = timedelta(hours=1)):
-    end = _parse_time(to, default=datetime.now(timezone.utc))
+    end = _parse_time(to, default=datetime.now(UTC))
     start = _parse_time(frm, default=end - default_span)
     if start > end:
         start, end = end, start
@@ -105,9 +103,9 @@ def entity_history(
     node_id: str,
     tenant: str,
     signal: str = Query(..., description="Canonical signal, e.g. turbine:oilTemp"),
-    frm: Optional[str] = Query(None, alias="from",
+    frm: str | None = Query(None, alias="from",
                                description="ISO-8601, '-24h', or 'now'"),
-    to: Optional[str] = Query(None),
+    to: str | None = Query(None),
     agg: str = Query("auto", description="auto | raw | 1m | 1h | 1d"),
     limit: int = Query(historian.DEFAULT_MAX_POINTS, ge=1,
                        le=historian.HARD_MAX_POINTS),
@@ -156,7 +154,7 @@ def entity_latest(node_id: str, tenant: str,
 
 
 @router.get("/twins/{tenant}/signals")
-def twin_signals(tenant: str, asset_id: Optional[str] = None):
+def twin_signals(tenant: str, asset_id: str | None = None):
     """Signal inventory: every signal this twin has received, with sample counts
     and first/last timestamps.
 
@@ -176,8 +174,8 @@ def twin_signals(tenant: str, asset_id: Optional[str] = None):
 def twin_trends(
     tenant: str,
     signals: str = Query(..., description="Comma-separated asset_id:signal pairs"),
-    frm: Optional[str] = Query(None, alias="from"),
-    to: Optional[str] = Query(None),
+    frm: str | None = Query(None, alias="from"),
+    to: str | None = Query(None),
     agg: str = Query("auto"),
     limit: int = Query(historian.DEFAULT_MAX_POINTS, ge=1,
                        le=historian.HARD_MAX_POINTS),

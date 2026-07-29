@@ -16,6 +16,7 @@ Usage (standalone):
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -24,15 +25,15 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from fastapi import APIRouter, HTTPException, Query
-from graph.connection import get_driver
-from graph.query import GraphQuery, LEGAL_LABELS
-from changelog.service import ChangeLog
-from bus import get_event_bus
 import bus as bus_pkg
 import db
 import historian
 import storage
+from bus import get_event_bus
+from changelog.service import ChangeLog
+from fastapi import APIRouter, HTTPException, Response
+from graph.connection import get_driver
+from graph.query import LEGAL_LABELS, GraphQuery
 
 router = APIRouter(prefix="/api/v1", tags=["graph"])
 
@@ -62,8 +63,8 @@ def _get_changelog() -> ChangeLog:
 
 def _is_conn_error(exc: Exception) -> bool:
     """True if this looks like Neo4j being unreachable (vs. a query bug)."""
-    from neo4j.exceptions import ServiceUnavailable, SessionExpired, AuthError
-    return isinstance(exc, (ServiceUnavailable, SessionExpired, AuthError, OSError))
+    from neo4j.exceptions import AuthError, ServiceUnavailable, SessionExpired
+    return isinstance(exc, ServiceUnavailable | SessionExpired | AuthError | OSError)
 
 
 # ── Entities ────────────────────────────────────────────────────────
@@ -111,7 +112,7 @@ _TELE_MAX = 8                      # cap cached engines (evict least-recently-us
 
 def _tele_engine(tenant: str):
     """Get/create the tenant's telemetry engine and advance it to 'now'."""
-    from dynamics import build_dynamics_registry, DynamicsEngine
+    from dynamics import DynamicsEngine, build_dynamics_registry
     now = _time.time()
     entry = _tele_engines.get(tenant)
     if entry is None:
@@ -400,6 +401,7 @@ async def bus_stream(tenant: str, last_id: str = "$"):
     sent periodically so proxies don't close an idle connection."""
     import asyncio
     import json as _json
+
     from starlette.responses import StreamingResponse
 
     bus = get_event_bus()
@@ -515,3 +517,87 @@ def health():
     if detail:
         out["detail"] = detail
     return out
+
+
+# ── Liveness and readiness, split ───────────────────────────────────────
+#
+# `/health` above is a DIAGNOSTIC: it probes every dependency, always answers
+# 200, and is the right thing for a dashboard and a CloudWatch alarm. It is the
+# wrong thing for an orchestrator, in two different directions:
+#
+#   * As a LIVENESS check it is far too expensive and too slow. It opens a Neo4j
+#     connection, pings RDS, and does a write+read+delete against S3 — on every
+#     probe, every 30 seconds, from every task. A slow dependency then makes the
+#     probe time out and ECS kills a process that was perfectly alive.
+#   * As a READINESS check it is useless, because it never fails. A task with no
+#     database still reports 200, so the load balancer keeps sending it traffic
+#     it cannot serve, and a rolling deploy shifts 100% of requests onto new
+#     tasks before they can answer.
+#
+# So there are now three endpoints with three jobs. `/health` is unchanged —
+# nothing that consumed it has to change.
+
+
+@router.get("/health/live")
+def liveness():
+    """Is this PROCESS alive? Nothing else.
+
+    Touches no dependency on purpose: the only question an orchestrator should
+    answer by RESTARTING is "has the process wedged", and a database outage is
+    not fixed by restarting every task at once — that turns a degraded service
+    into a crash loop plus a thundering herd against the recovering database.
+
+    This is what the ECS/Kubernetes liveness probe and the Dockerfile HEALTHCHECK
+    should point at.
+    """
+    return {"status": "alive"}
+
+
+@router.get("/health/ready")
+def readiness(response: Response):
+    """Can this task SERVE? 200 when it can, 503 when it cannot.
+
+    Unlike `/health`, this one is allowed to fail — that is the entire point. A
+    503 takes the task out of the load balancer's rotation without killing it, so
+    it stops receiving traffic, keeps its logs, and returns on its own when the
+    dependency recovers.
+
+    What counts as "ready" is deliberately narrower than "healthy": only the
+    stores this task cannot serve a single useful request without. Neo4j being
+    down is NOT unready — the twins registry, schema API, auth and the SPA all
+    still work, and the product's documented behaviour is to degrade rather than
+    disappear (RUN.md §10). Draining every task for that would be a self-inflicted
+    outage larger than the fault.
+    """
+    checks: dict[str, object] = {}
+    ready = True
+
+    db_ok, db_detail = db.ping()
+    checks["database"] = {"ready": db_ok, "detail": db_detail}
+    # Only a CONFIGURED database is required. On the SQLite dev fallback there is
+    # nothing to be unready about.
+    if db.is_postgres() and not db_ok:
+        ready = False
+
+    if bus_pkg.redis_required():
+        bus_obj = get_event_bus()
+        bus_ok = bus_obj.backend == "redis"
+        checks["bus"] = {"ready": bus_ok, "backend": bus_obj.backend}
+        if not bus_ok:
+            ready = False
+
+    # Blobs, only when the deployment declared them mandatory. The check is the
+    # same NXR_REQUIRE_S3 flag `server/main.py` validates at startup, read here
+    # rather than imported so readiness has no dependency on boot ordering.
+    if str(os.environ.get("NXR_REQUIRE_S3", "")).strip().lower() in ("1", "true", "yes", "on"):
+        try:
+            blob_ok = storage.info().get("status") == "connected"
+        except Exception as e:
+            blob_ok, checks["blobs_detail"] = False, str(e)
+        checks["blobs"] = {"ready": blob_ok}
+        if not blob_ok:
+            ready = False
+
+    if not ready:
+        response.status_code = 503
+    return {"status": "ready" if ready else "not_ready", "checks": checks}

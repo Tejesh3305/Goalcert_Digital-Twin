@@ -14,8 +14,9 @@ the activePower of everything downstream (ctx.outputs) and integrates energy:
 from __future__ import annotations
 
 import math
-from dynamics.model import DynamicsModel, EntityState, EntityContext
+
 from dynamics import flows
+from dynamics.model import DynamicsModel, EntityState
 
 CFP = "https://ontology.nextxr.io/v3/cfp#"
 SIG_PWR = CFP + "activePower"

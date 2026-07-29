@@ -168,7 +168,7 @@ def _place_in_room(bb: dict, n: int) -> list[tuple[float, float]]:
 def _build_floor(level: int, template: list, eq_counter: list) -> tuple[list, list, list]:
     """Return (rooms, walls, equipment) for one floor from its band template."""
     rooms, walls, equipment = [], [], []
-    elev = round(level * (_FH + 0.4), 3)
+    round(level * (_FH + 0.4), 3)
 
     # perimeter walls
     walls.extend(bs._perimeter_walls(level, _W, _L, _FH, _WALL_T))
@@ -212,7 +212,7 @@ def _build_floor(level: int, template: list, eq_counter: list) -> tuple[list, li
             recipe_key, bays = (recipe if isinstance(recipe, tuple) else (recipe, 1))
             items = _expand_recipe(recipe_key, bays)
             pts = _place_in_room(bb, len(items))
-            for (key, label), (ex, ey) in zip(items, pts):
+            for (key, label), (ex, ey) in zip(items, pts, strict=False):
                 equipment.append({
                     "id": f"eq{eq_counter[0]}", "label": label, "assetType": key,
                     "room": rid, "level": level, "x": ex, "y": ey, "rotationDeg": 0,

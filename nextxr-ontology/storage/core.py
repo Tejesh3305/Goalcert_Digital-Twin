@@ -43,8 +43,8 @@ import os
 import posixpath
 import shutil
 import threading
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Optional
 
 from paths import DATA_DIR
 
@@ -123,7 +123,7 @@ class ObjectStore:
         dest.write_bytes(self.get(key))
         return dest
 
-    def url(self, key: str, *, expires: int = 3600) -> Optional[str]:
+    def url(self, key: str, *, expires: int = 3600) -> str | None:
         """A directly-fetchable URL, or None if the backend has none (local),
         in which case the caller should stream the bytes itself."""
         return None
@@ -138,7 +138,7 @@ class LocalObjectStore(ObjectStore):
 
     name = LOCAL
 
-    def __init__(self, root: Optional[Path] = None):
+    def __init__(self, root: Path | None = None):
         self.root = Path(root) if root else local_root()
 
     def _path(self, key: str) -> Path:
@@ -180,7 +180,7 @@ class LocalObjectStore(ObjectStore):
             if p.is_file():
                 yield str(p.relative_to(self.root)).replace("\\", "/")
 
-    def local_path(self, key: str) -> Optional[Path]:
+    def local_path(self, key: str) -> Path | None:
         p = self._path(key)
         return p if p.is_file() else None
 
@@ -270,7 +270,7 @@ class S3ObjectStore(ObjectStore):
                 return
             token = resp.get("NextContinuationToken")
 
-    def url(self, key: str, *, expires: int = 3600) -> Optional[str]:
+    def url(self, key: str, *, expires: int = 3600) -> str | None:
         """A presigned GET. Lets a browser pull a 20 MB GLB straight from S3
         instead of streaming it through the API task."""
         try:
@@ -294,7 +294,7 @@ def _is_missing(exc: Exception) -> bool:
 
 
 # ── Singleton ───────────────────────────────────────────────────────────
-_store: Optional[ObjectStore] = None
+_store: ObjectStore | None = None
 _store_backend: str = ""
 _store_lock = threading.Lock()
 
@@ -314,7 +314,7 @@ def get_store() -> ObjectStore:
         return _store
 
 
-def reset_store(new: Optional[ObjectStore] = None) -> None:
+def reset_store(new: ObjectStore | None = None) -> None:
     """Replace or clear the singleton (tests, or after changing config)."""
     global _store, _store_backend
     with _store_lock:

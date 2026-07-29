@@ -1,9 +1,13 @@
 """turbine — gas-turbine digital-twin domain (physics, prediction, behaviours)."""
+from .behaviors import build_turbine_registry
 from .physics import (
-    TurbinePhysics, SIGNALS, UNITS, redlines, FAULTS,
+    FAULTS,
+    SIGNALS,
+    UNITS,
+    TurbinePhysics,
+    redlines,
 )
 from .predict import component_health, predict
-from .behaviors import build_turbine_registry
 
 # The self-describing domain spec the machine-twin runtime consumes. Every
 # machine domain exposes one of these; the runtime is otherwise domain-agnostic.

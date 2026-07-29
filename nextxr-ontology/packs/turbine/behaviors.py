@@ -15,8 +15,11 @@ from __future__ import annotations
 from collections import defaultdict, deque
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
-from packs._core.physics import Latch as _Latch, HardLimit as _HardLimit
-from .physics import SIGNALS, redlines, _EGT_AMBIENT, _EGT_SPAN, _EPR_100
+
+from packs._core.physics import HardLimit as _HardLimit
+from packs._core.physics import Latch as _Latch
+
+from .physics import _EGT_AMBIENT, _EGT_SPAN, _EPR_100, SIGNALS, redlines
 
 
 class TurbineEGTDivergence(Behavior):

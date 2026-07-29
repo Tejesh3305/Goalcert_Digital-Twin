@@ -11,20 +11,26 @@ As you write a model for a new class, import and register it here — one line.
 from __future__ import annotations
 
 from dynamics.model import DynamicsRegistry
-from dynamics.models.spaces import ZoneThermalModel
-from dynamics.models.electrical import UtilityFeedModel, TransformerModel, UPSModel
-from dynamics.models.hvac import ChillerModel, AirHandlerModel
-from dynamics.models.it import ServerModel
-from dynamics.models.default import DefaultEquipmentModel
-from dynamics.models.fluid import FluidMoverModel
-from dynamics.models.power_extra import PrimeMoverModel, AggregatorModel
-from dynamics.models.water import StorageVesselModel
-from dynamics.models.sensing import BinaryEventSourceModel, DerivedObserverModel
-from dynamics.models.transport import DiscreteTransportModel
-from dynamics.models.hospital import (RefrigeratedUnitModel, GasManifoldModel,
-                                      ImagingDeviceModel, VentilatorModel,
-                                      InfusionPumpModel, AutoclaveModel, BedModel)
 from dynamics.models.datacenter import ComputeRackModel
+from dynamics.models.default import DefaultEquipmentModel
+from dynamics.models.electrical import TransformerModel, UPSModel, UtilityFeedModel
+from dynamics.models.fluid import FluidMoverModel
+from dynamics.models.hospital import (
+    AutoclaveModel,
+    BedModel,
+    GasManifoldModel,
+    ImagingDeviceModel,
+    InfusionPumpModel,
+    RefrigeratedUnitModel,
+    VentilatorModel,
+)
+from dynamics.models.hvac import AirHandlerModel, ChillerModel
+from dynamics.models.it import ServerModel
+from dynamics.models.power_extra import AggregatorModel, PrimeMoverModel
+from dynamics.models.sensing import BinaryEventSourceModel, DerivedObserverModel
+from dynamics.models.spaces import ZoneThermalModel
+from dynamics.models.transport import DiscreteTransportModel
+from dynamics.models.water import StorageVesselModel
 
 
 def build_dynamics_registry() -> DynamicsRegistry:

@@ -49,13 +49,10 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Install ruff
         run: pip install ruff
-      # Non-blocking for now. The codebase predates linting, so failing the build
-      # on the existing backlog would mean disabling the job within a day — which
-      # is worse than a report nobody is forced to act on yet. Flip to blocking
-      # once the backlog is cleared; the ruff config already lives in
-      # pyproject.toml so the rules are agreed even while enforcement is not.
+      # BLOCKING. This was `continue-on-error: true` while the pre-linting
+      # backlog was cleared; a report nobody is forced to act on is a report
+      # nobody reads. The rules live in pyproject.toml.
       - name: Ruff
-        continue-on-error: true
         run: ruff check nextxr-ontology tests --output-format=github
 
   unit:
@@ -70,8 +67,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov httpx
+          pip install -r requirements.txt -r requirements-dev.txt
       - name: Run tests
         run: python -m pytest -m "not integration" --cov --cov-report=term-missing --cov-report=xml
       - name: Upload coverage
@@ -103,6 +99,111 @@ jobs:
           pip install pytest httpx
       - name: Cross-tenant authorization must hold
         run: python -m pytest tests/test_tenant_isolation.py -v
+
+      # Authentication, on its own, for the same reason: a regression here is not
+      # "a test failed", it is "the API is open" or "logins are broken", and both
+      # deserve their own unmistakable red check.
+      - name: Authentication must hold
+        run: python -m pytest tests/test_auth_enforcement.py tests/test_identity.py -v
+
+  # ── Security ────────────────────────────────────────────────────────────
+  #
+  # Two scanners with different jobs: pip-audit reads the dependency tree for
+  # known CVEs (someone else's code), bandit reads ours for insecure patterns.
+  # Neither replaces review; both catch the class of thing review reliably misses.
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Known vulnerabilities in dependencies
+        # Advisory for now. A CVE in a transitive dependency with no fix released
+        # would otherwise block every unrelated pull request, and a gate people
+        # routinely bypass is not a gate. The finding still appears in the log and
+        # in the summary, which is what makes it actionable.
+        continue-on-error: true
+        run: pip-audit --desc --strict
+
+      - name: Insecure patterns in our own code
+        # BLOCKING at HIGH severity. These are our bugs, not upstream's: hardcoded
+        # credentials, shell injection, weak crypto, disabled certificate
+        # verification. Every one is something we can fix in the pull request that
+        # introduced it.
+        run: |
+          bandit -r nextxr-ontology \
+            --severity-level high --confidence-level medium \
+            --exclude nextxr-ontology/server/threed_platform \
+            -f screen
+
+      - name: No credentials committed
+        # A cheap, targeted sweep for the specific patterns this repository could
+        # plausibly leak. Not a replacement for GitHub secret scanning (which sees
+        # the full history) — this catches the mistake in the pull request that
+        # makes it, which is when it is still cheap to fix.
+        run: |
+          set +e
+          FOUND=0
+          # A real Anthropic key, an AWS access key id, or a private key block.
+          for pattern in \
+            'sk-ant-api[0-9]{2}-[A-Za-z0-9_-]{20,}' \
+            'AKIA[0-9A-Z]{16}' \
+            '-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----' ; do
+            if git grep -nIE "$pattern" -- ':!*.md' ':!.github/workflows/*' ':!tests/*' ; then
+              echo "::error::A credential pattern is committed (see above)."
+              FOUND=1
+            fi
+          done
+          exit $FOUND
+
+  # ── Infrastructure ──────────────────────────────────────────────────────
+  #
+  # The Terraform is a deploy artifact like any other, so a syntax error or a bad
+  # module reference must fail a pull request rather than a `terraform apply` at
+  # 6pm. `validate` needs no credentials and touches no AWS account.
+  terraform:
+    name: Terraform validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Formatting
+        run: terraform fmt -check -recursive infra/terraform
+
+      - name: Validate the root module
+        run: |
+          terraform -chdir=infra/terraform init -backend=false
+          terraform -chdir=infra/terraform validate
+
+      - name: Validate each environment
+        run: |
+          for env in infra/terraform/environments/*/; do
+            echo "--- $env"
+            terraform -chdir="$env" init -backend=false
+            terraform -chdir="$env" validate
+          done
+
+      - name: Static analysis
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          working_directory: infra/terraform
+          # Advisory: tfsec flags things this topology accepts deliberately (an
+          # ALB open to 0.0.0.0/0 is the point of a public API). The findings are
+          # worth reading, not worth blocking on without a suppression pass.
+          soft_fail: true
 
   integration:
     name: Integration (Neo4j + TimescaleDB + Redis + MinIO)

@@ -1,69 +1,108 @@
-# Ontology (Day 0)
-rdflib>=7.0
-owlrl>=6.0
-pyshacl>=0.25
-
-# Graph (Day 1)
-neo4j>=5.0
-
-# Server + Dashboard (Day 4-5)
-fastapi>=0.100
-uvicorn>=0.20
-pydantic>=2.0
-
-# LLM (optional, keyless-safe). ONE provider for the whole platform: Claude.
-# Both the agent graphs (agents/gateway.py — Build-a-Twin, bundle authoring,
-# plan-image parsing) and the embedded agent layer (copilot/ — diagnosis, work
-# orders, procedures, narration) run on this single key.
+# requirements.txt — the runtime dependencies, PINNED.
 #
-# >=0.111 is required: copilot/ uses messages.parse(output_format=...) for
+# WHY EVERY LINE IS `==` AND NOT `>=`
+# -----------------------------------
+# This file used to be entirely `>=`. That means the image built on Tuesday and
+# the image built on Wednesday can contain different code, from a release nobody
+# on this team reviewed, with no change in this repository. Three consequences,
+# all of which have bitten real projects:
+#
+#   * A build that passed CI cannot be reproduced later, so "it worked last
+#     week" is unfalsifiable and a bisect is impossible.
+#   * A broken or yanked upstream release breaks the DEPLOY, not the PR — it is
+#     discovered by a failing rollout rather than by a red check.
+#   * Supply-chain compromise of any transitive dependency lands in production
+#     automatically. Pinning does not prevent that; it means the version that
+#     arrives is one someone chose.
+#
+# Upgrades are now a pull request that changes a number and runs the suite,
+# which is the point. Dependabot (.github/dependabot.yml) opens them weekly.
+#
+# TRANSITIVE dependencies are deliberately NOT pinned here — this file lists what
+# the application imports, which is the readable, reviewable surface. For a fully
+# reproducible install (every transitive version, with hashes), generate a lock:
+#
+#     pip install pip-tools
+#     pip-compile --generate-hashes requirements.txt -o requirements.lock
+#     pip install --require-hashes -r requirements.lock
+#
+# The Dockerfile installs this file; switch it to the lock when you want
+# byte-identical images across rebuilds.
+
+# ── Ontology ────────────────────────────────────────────────────────────
+rdflib==7.6.0
+owlrl==7.1.4
+pyshacl==0.31.0
+
+# ── Graph ───────────────────────────────────────────────────────────────
+neo4j==6.2.0
+
+# ── Server ──────────────────────────────────────────────────────────────
+fastapi==0.135.2
+uvicorn==0.34.3
+pydantic==2.10.4
+
+# ── Identity (accounts, sessions, API keys) ─────────────────────────────
+#
+# PyJWT signs and verifies the access token (identity/tokens.py). Pinned tightly
+# because a JWT library is security-critical: `decode()` gained and changed
+# validation defaults across 1.x/2.x, and an unpinned upgrade that relaxes one is
+# not a bug we would notice from a passing test suite.
+PyJWT==2.10.1
+#
+# Argon2id password hashing. OPTIONAL AT RUNTIME BY DESIGN — `identity/passwords.py`
+# falls back to `hashlib.scrypt` (memory-hard, standard library) when this is
+# absent, and upgrades each password to Argon2 on the owner's next successful
+# login. Listed here so a real deployment gets the stronger default; the fallback
+# exists so a build without a wheel for this platform degrades to strong rather
+# than to weak.
+argon2-cffi==23.1.0
+
+# ── LLM (optional, keyless-safe) ────────────────────────────────────────
+# ONE provider for the whole platform: Claude. Both the agent graphs
+# (agents/gateway.py) and the embedded agent layer (copilot/) run on this single
+# key. >=0.111 is required: copilot/ uses messages.parse(output_format=...) for
 # structured agent output and adaptive thinking.
 #
 # `openai` was removed — no code path imports it. Do not reintroduce a second
 # provider; the platform deliberately has one LLM, one key, one model policy.
-anthropic>=0.111
-python-dotenv>=1.0
+anthropic==0.111.0
+python-dotenv==1.2.2
 
-# Relational store (db/) — the twin registry, change log, agent bundles,
-# checkpoints and BIM scene cache. RDS PostgreSQL 16 in production; SQLite
-# (stdlib) when NXR_DATABASE_URL is unset, so local dev needs no server.
-#
-# psycopg2 is therefore only needed for a Postgres deploy — the app imports it
-# lazily and runs fine without it. It stays in this file because the container
-# image IS the deploy artifact and must not have to install it at boot.
-psycopg2-binary>=2.9.9
+# ── Relational store ────────────────────────────────────────────────────
+# RDS PostgreSQL 16 in production; SQLite (stdlib) when NXR_DATABASE_URL is
+# unset, so local dev needs no server. psycopg2 is therefore only needed for a
+# Postgres deploy — the app imports it lazily and runs fine without it. It stays
+# in this file because the container image IS the deploy artifact and must not
+# have to install it at boot.
+psycopg2-binary==2.9.12
 
-# Behavior Registry + findings loop (Track 3): stdlib only (hashlib, json,
-# math) — no new dependencies. Optional Tier-B upgrade: scikit-learn
-# (IsolationForest) slots behind the same Behavior interface; the shipped
-# z-score baseline is dependency-free.
+# ── Event bus (Redis Streams) ───────────────────────────────────────────
+# Best-effort with an automatic in-memory fallback, so this is OPTIONAL for a
+# single-process run. It is NOT optional for a deploy: the fallback is
+# per-process, so at 2+ tasks each task would see only its own events. Set
+# NXR_REQUIRE_REDIS=1 there and the app refuses to start rather than degrade
+# silently. Also backs the shared rate-limit buckets (server/ratelimit.py).
+redis==5.2.1
 
-# Event bus (Redis Streams). The bus is best-effort with an automatic in-memory
-# fallback, so this is OPTIONAL for a single-process run. It is NOT optional for
-# a deploy: the fallback is per-process, so at 2+ tasks each task would see only
-# its own events. Set NXR_REQUIRE_REDIS=1 there and the app refuses to start
-# rather than degrade silently. See AWS_DEPLOYMENT.md §9.
-redis>=5.0
+# ── Blob store ──────────────────────────────────────────────────────────
+# Generated GLBs and 3-D job artifacts on S3. Without NXR_S3_BUCKET the local
+# filesystem backend is used and boto3 is never imported. Required for a
+# multi-task deploy, where a model written to one task's disk 404s on the others.
+boto3==1.43.56
 
-# Blob store (storage/) — generated GLBs and 3-D job artifacts on S3. Same
-# optional-at-runtime story: without NXR_S3_BUCKET the local filesystem backend
-# is used and boto3 is never imported. Required for a multi-task deploy, where a
-# model written to one task's disk 404s on the others (NXR_REQUIRE_S3=1).
-boto3>=1.34
-
-# 3-D generation platform (server/threed_platform — photo of an object →
-# TRELLIS/RunPod → GLB; used by Build a Twin's object-photo path).
-python-multipart>=0.0.9   # multipart file uploads (FastAPI UploadFile)
-pillow>=10.0
-numpy>=1.24
-requests>=2.31
-trimesh>=4.0               # mesh repair/LOD/export — required to produce the final GLB
+# ── 3-D generation platform ─────────────────────────────────────────────
+python-multipart==0.0.32   # multipart file uploads (FastAPI UploadFile)
+pillow==12.1.0
+numpy==2.4.0
+requests==2.32.5
+trimesh==4.12.2            # mesh repair/LOD/export — required to produce the final GLB
 # Background removal — WITHOUT this the segment stage falls back to a crude
 # centre-oval crop and TRELLIS reconstruction quality drops sharply. Downloads a
-# ~170MB u2net model on first run. Installs onnxruntime (CPU).
-rembg>=2.0
-onnxruntime>=1.17
+# ~170MB u2net model on first run.
+rembg==2.0.76
+onnxruntime==1.27.0
 
 # Recommended (each stage degrades gracefully if missing):
-# fast-simplification>=0.1       # quadric-decimation LODs
-# replicate>=0.25                # alternative TRELLIS provider (RunPod is preferred)
+# fast-simplification==0.1.7     # quadric-decimation LODs
+# replicate==0.25.2              # alternative TRELLIS provider (RunPod is preferred)

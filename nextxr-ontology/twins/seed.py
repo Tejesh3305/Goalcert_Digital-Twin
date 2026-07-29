@@ -40,9 +40,10 @@ def seed_demo_twins() -> None:
         return
 
     try:
-        from twins import TwinRegistry
-        from graph.writer import GraphWriter
         from changelog.service import ChangeLog
+        from graph.writer import GraphWriter
+
+        from twins import TwinRegistry
 
         reg = TwinRegistry()  # __init__ rehydrates user twins from the graph
         have = {t.domain for t in reg.list()}
