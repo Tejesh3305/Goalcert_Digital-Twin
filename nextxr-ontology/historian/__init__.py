@@ -10,16 +10,11 @@ join between them is the Neo4j `node_id`, carried here as `asset_id`.
 
 Backends, selected automatically and reported by `info()`:
 
-    timescale   TimescaleDB extension on the configured Postgres — hypertable,
-                continuous aggregates, compression, retention. Production.
-    postgres    plain Postgres — correct, no compression/retention, rollups
-                computed per request.
-    sqlite      local dev, via db/core.py.
-
-`NXR_REQUIRE_TIMESCALE=1` makes the extension mandatory so a deploy cannot
-silently land on a backend with no retention policy and fill its disk. This is
-the same guard shape as NXR_REQUIRE_DB / _S3 / _REDIS, and for the same reason:
-the fallbacks all WORK, which is exactly why nothing tells you about them.
+    mysql     production: one plain table on the configured RDS MySQL instance.
+              Rollups are computed on the fly from raw. No columnar compression
+              and no automatic retention, so raw grows without bound — fine for
+              an MVP/moderate ingest; add an app-level purge for high volume.
+    sqlite    local dev, via db/core.py.
 """
 
 from __future__ import annotations
@@ -40,7 +35,6 @@ from .core import (
     purge_tenant,
     signals,
     tenant_stats,
-    timescale_required,
     write,
 )
 from .schema import (
@@ -52,34 +46,32 @@ from .schema import (
     drop_all,
     ensure,
     reset_cache,
-    timescale_available,
-    timescale_version,
+    retention_days,
 )
 
 
 class HistorianUnavailable(RuntimeError):
-    """Raised by `require()` when TimescaleDB is mandatory and absent."""
+    """Raised by `require()` when the historian is mandatory but unusable."""
 
 
 def require() -> None:
-    """Fail fast when the deployment declared Timescale mandatory but it is not
-    there. Called from `server.main._preflight()`, so a misconfigured task
-    crash-loops with a one-line reason in CloudWatch instead of quietly running
-    a historian that never compresses and never expires anything."""
-    if not timescale_required():
+    """Fail fast when the deployment declared the historian mandatory but it is
+    not usable. Called from `server.main._preflight()`, so a misconfigured task
+    crash-loops with a one-line reason in CloudWatch instead of quietly serving a
+    twin with no telemetry history.
+
+    Opt in with `NXR_REQUIRE_HISTORIAN=1` (parallel to NXR_REQUIRE_DB/_S3/_REDIS).
+    Off by default: the SQLite/plain-table fallbacks WORK, so most deployments do
+    not need to make this fatal.
+    """
+    import os
+    if str(os.environ.get("NXR_REQUIRE_HISTORIAN") or "").strip().lower() \
+            not in ("1", "true", "yes", "on"):
         return
-    if backend() != "timescale":
-        raise HistorianUnavailable(
-            f"NXR_REQUIRE_TIMESCALE is set but the historian backend resolved to "
-            f"'{backend()}'. Without the timescaledb extension there are no "
-            f"continuous aggregates, no compression and no retention policy, so "
-            f"telemetry would grow without bound and trend queries would scan raw "
-            f"rows. Run `CREATE EXTENSION IF NOT EXISTS timescaledb;` on the "
-            f"database, then `python -m tools.historian_provision`.")
     ok, detail = ping()
     if not ok:
         raise HistorianUnavailable(
-            f"NXR_REQUIRE_TIMESCALE is set but the historian is not usable: "
+            f"NXR_REQUIRE_HISTORIAN is set but the historian is not usable: "
             f"{detail}")
 
 
@@ -88,6 +80,6 @@ __all__ = [
     "Measurement", "QUALITY_BAD", "QUALITY_GOOD", "QUALITY_UNCERTAIN", "Series",
     "WriteResult", "backend", "choose_agg", "coerce", "drop_all", "ensure",
     "history", "info", "latest", "log_posture", "ping", "purge_tenant",
-    "require", "reset_cache", "signals", "tenant_stats", "timescale_available",
-    "timescale_required", "timescale_version", "write",
+    "require", "reset_cache", "retention_days", "signals", "tenant_stats",
+    "write",
 ]

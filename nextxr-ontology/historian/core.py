@@ -7,17 +7,17 @@ WRITE PATH DESIGN
 the ingest side rather than conveniences:
 
   * Batching, because a per-sample INSERT means a network round trip per sample.
-    psycopg2's `executemany` does exactly that, so a 1,000-sample batch would be
-    1,000 round trips — at ~1 ms RTT to RDS that is a second of wall clock for a
-    batch that should take a few milliseconds. This module uses
-    `psycopg2.extras.execute_values`, which sends one multi-row INSERT.
+    A naive per-row loop would make a 1,000-sample batch 1,000 round trips — at
+    ~1 ms RTT to RDS that is a second of wall clock for a batch that should take a
+    few milliseconds. PyMySQL collapses `executemany` into one multi-row INSERT,
+    which is the single round trip this path wants.
 
   * Idempotency, because every real ingest path replays. An edge agent buffering
     through a network outage resends its buffer on reconnect; a Sparkplug client
     re-publishes on rebirth; a backfill gets run twice by a human. The guarantee
-    lives in the primary key with `ON CONFLICT DO NOTHING`, so it applies to every
-    writer automatically — including connectors nobody has written yet. Making it
-    the caller's job is how double-counted history happens.
+    lives in the primary key with `INSERT IGNORE`, so it applies to every writer
+    automatically — including connectors nobody has written yet. Making it the
+    caller's job is how double-counted history happens.
 
 `write()` also VALIDATES, and returns per-sample rejections rather than raising.
 A batch of 500 samples with one bad timestamp must not lose the other 499, and
@@ -52,8 +52,6 @@ from .schema import (
     QUALITY_UNCERTAIN,
     RAW_TABLE,
     backend,
-    retention_days,
-    timescale_version,
 )
 
 # SQLite stores timestamps as TEXT, so range comparisons are lexicographic. That
@@ -143,9 +141,12 @@ def _as_utc(value) -> datetime:
 
 
 def _ts_param(dt: datetime):
-    """Bind a timestamp for the live backend: a datetime for Postgres TIMESTAMPTZ,
-    a fixed-width ISO string for SQLite TEXT."""
-    return dt if db.is_postgres() else dt.strftime(_TS_FMT)
+    """Bind a timestamp for the live backend: a naive-UTC datetime for MySQL
+    DATETIME(6) (which is timezone-naive and stores UTC by convention), a
+    fixed-width ISO string for SQLite TEXT."""
+    if db.is_mysql():
+        return dt.astimezone(UTC).replace(tzinfo=None)
+    return dt.strftime(_TS_FMT)
 
 
 def _ts_read(value) -> str:
@@ -275,36 +276,20 @@ def write(measurements: Iterable[Measurement]) -> WriteResult:
 def _insert_rows(rows: Sequence[tuple]) -> int:
     """Insert, skipping duplicates. Returns the number actually stored."""
     cols = ", ".join(_COLUMNS)
-
-    if db.is_postgres():
-        from psycopg2.extras import execute_values
-        conn = db.connect("historian")
-        try:
-            cur = conn._raw.cursor()          # noqa: SLF001 - execute_values needs it
-            try:
-                # RETURNING + fetch=True is how the count stays exact: without
-                # it, cur.rowcount reflects only execute_values' LAST page, so a
-                # batch bigger than page_size would under-report inserts and
-                # over-report duplicates.
-                returned = execute_values(
-                    cur,
-                    f"INSERT INTO {RAW_TABLE} ({cols}) VALUES %s "
-                    f"ON CONFLICT DO NOTHING RETURNING 1",
-                    rows, page_size=500, fetch=True)
-                conn.commit()
-                return len(returned or ())
-            finally:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
-
     placeholders = ", ".join("?" for _ in _COLUMNS)
+
+    if db.is_mysql():
+        # INSERT IGNORE skips rows that collide on the primary key (the
+        # idempotency contract). PyMySQL collapses executemany into one multi-row
+        # INSERT, and cur.rowcount is then the exact number of rows ACTUALLY
+        # inserted (ignored duplicates do not count) — so no RETURNING trick is
+        # needed the way Postgres required one.
+        with db.connect("historian") as conn:
+            cur = conn.executemany(
+                f"INSERT IGNORE INTO {RAW_TABLE} ({cols}) "
+                f"VALUES ({placeholders})", rows)
+            return int(getattr(cur, "rowcount", 0) or 0)
+
     with db.connect("historian") as conn:
         before = conn._raw.total_changes       # noqa: SLF001
         conn.executemany(
@@ -355,9 +340,9 @@ def _resolve_agg(agg: str, start: datetime, end: datetime,
     if tier not in ("raw", *BUCKETS):
         raise ValueError(f"unknown agg '{agg}'. "
                          f"Use auto, raw, {', '.join(BUCKETS)}")
-    if tier != "raw" and backend() != "timescale":
-        notes.append(f"'{tier}' computed on the fly — no continuous aggregate on "
-                     f"the {backend()} backend")
+    if tier != "raw":
+        notes.append(f"'{tier}' computed on the fly from raw on the "
+                     f"{backend()} backend")
     return tier, notes
 
 
@@ -430,33 +415,23 @@ def history(tenant_id: str, asset_id: str, signal: str, *,
 
 
 def _bucket_rows(tenant_id, asset_id, signal, start, end, tier, fetch):
-    """Rollup rows, from the continuous aggregate when there is one."""
-    if backend() == "timescale":
-        sql = (f"SELECT bucket, count, sum_value, min_value, max_value, "
-               f"       first_value, last_value, bad_count, unit "
-               f"FROM {RAW_TABLE}_{tier} "
-               f"WHERE tenant_id = ? AND asset_id = ? AND signal = ? "
-               f"  AND bucket >= ? AND bucket <= ? "
-               f"ORDER BY bucket ASC LIMIT ?")
-        return _rows(sql, (tenant_id, asset_id, signal, _ts_param(start),
-                           _ts_param(end), fetch))
-
-    # No Timescale: aggregate on the fly. Same columns, same semantics, so the
-    # caller cannot tell the difference except in latency (and the note we add).
-    if db.is_postgres():
+    """Rollup rows, aggregated on the fly from raw. Same columns and semantics on
+    every backend, so a caller cannot tell the difference except in latency (and
+    the note we add)."""
+    if db.is_mysql():
         bucket_expr = {
-            "1m": "date_trunc('minute', ts)",
-            "1h": "date_trunc('hour', ts)",
-            "1d": "date_trunc('day', ts)",
+            "1m": "DATE_FORMAT(ts, '%Y-%m-%d %H:%i:00')",
+            "1h": "DATE_FORMAT(ts, '%Y-%m-%d %H:00:00')",
+            "1d": "DATE_FORMAT(ts, '%Y-%m-%d 00:00:00')",
         }[tier]
-        first_last = ("min(value) AS first_value, max(value) AS last_value")
+        first_last = ("min(value) AS `first_value`, max(value) AS `last_value`")
     else:
         bucket_expr = {
             "1m": "substr(ts, 1, 17) || '00.000000+00:00'",
             "1h": "substr(ts, 1, 14) || '00:00.000000+00:00'",
             "1d": "substr(ts, 1, 11) || '00:00:00.000000+00:00'",
         }[tier]
-        first_last = ("min(value) AS first_value, max(value) AS last_value")
+        first_last = ("min(value) AS `first_value`, max(value) AS `last_value`")
 
     # NOTE on first/last: without Timescale's `first(value, ts)` there is no
     # cheap ordered aggregate here, so these columns carry min/max instead. The
@@ -499,13 +474,17 @@ def latest(tenant_id: str, asset_id: str | None = None,
         params.extend(signals)
     clause = " AND ".join(where)
 
-    if db.is_postgres():
-        # DISTINCT ON is the cheap ordered-first in Postgres; it walks the index
-        # backwards and stops at the first row per group.
-        sql = (f"SELECT DISTINCT ON (asset_id, signal) "
-               f"       asset_id, signal, ts, value, unit, quality, source "
-               f"FROM {RAW_TABLE} WHERE {clause} "
-               f"ORDER BY asset_id, signal, ts DESC")
+    if db.is_mysql():
+        # A window function ranks each (asset, signal) group by time and keeps the
+        # newest. SQLite's `GROUP BY … HAVING ts = max(ts)` relies on SQLite's
+        # bare-column selection and would be rejected under MySQL's
+        # ONLY_FULL_GROUP_BY, so MySQL needs its own query.
+        sql = (f"SELECT asset_id, signal, ts, value, unit, quality, source "
+               f"FROM (SELECT asset_id, signal, ts, value, unit, quality, source, "
+               f"      ROW_NUMBER() OVER (PARTITION BY asset_id, signal "
+               f"                         ORDER BY ts DESC) AS rn "
+               f"      FROM {RAW_TABLE} WHERE {clause}) t "
+               f"WHERE t.rn = 1")
     else:
         sql = (f"SELECT asset_id, signal, ts, value, unit, quality, source "
                f"FROM {RAW_TABLE} WHERE {clause} "
@@ -585,9 +564,9 @@ def purge_tenant(tenant_id: str) -> int:
 def _rows(sql: str, params: Sequence) -> list[dict]:
     """Run a read and return plain dicts.
 
-    psycopg2's RealDictCursor already yields mappings; sqlite3.Row does not, so
-    it is converted. Returning one row type keeps every caller above this line
-    free of backend conditionals.
+    PyMySQL's DictCursor already yields mappings; sqlite3.Row does not, so it is
+    converted. Returning one row type keeps every caller above this line free of
+    backend conditionals.
     """
     with db.connect("historian") as conn:
         cur = conn.execute(sql, tuple(params))
@@ -615,10 +594,6 @@ def _truthy(value) -> bool:
     return str(value or "").strip().lower() in ("1", "true", "yes", "on")
 
 
-def timescale_required() -> bool:
-    return _truthy(os.environ.get("NXR_REQUIRE_TIMESCALE"))
-
-
 def ping() -> tuple[bool, str]:
     """(usable, detail). Never raises — /health must not 503."""
     try:
@@ -636,23 +611,16 @@ def ping() -> tuple[bool, str]:
 
 def info() -> dict:
     """Historian summary for /api/v1/health."""
-    out: dict = {"backend": backend(), "required": timescale_required()}
-    if backend() == "timescale":
-        out["timescale_version"] = timescale_version()
-        out["compression"] = True
-        out["rollups"] = list(BUCKETS)
-        out["retention_days"] = {t: retention_days(t)
-                                 for t in ("raw", *BUCKETS)}
-    else:
-        out["compression"] = False
-        out["rollups"] = []
-        # The same shape of warning db/storage/bus already carry: it WORKS, it is
-        # just not sized for production, and nothing errors to tell you.
-        out["scale_safe"] = False
-        out["detail"] = (
-            "no continuous aggregates, no compression and no retention policy — "
-            "rollups are computed per request and raw data is never dropped. "
-            "Install the timescaledb extension and set NXR_REQUIRE_TIMESCALE=1.")
+    out: dict = {"backend": backend()}
+    out["compression"] = False
+    out["rollups"] = list(BUCKETS)          # computed on the fly from raw
+    # The same shape of warning db/storage/bus already carry: it WORKS, it is just
+    # not sized for unbounded production ingest, and nothing errors to tell you.
+    out["scale_safe"] = False
+    out["detail"] = (
+        "rollups are computed per request from raw, with no columnar compression "
+        "and no automatic retention — raw telemetry grows without bound. Add an "
+        "app-level purge for high-volume ingest.")
     ok, detail = ping()
     out["status"] = "ready" if ok else "unavailable"
     if not ok:
@@ -662,18 +630,11 @@ def info() -> dict:
 
 def log_posture() -> None:
     """One boot line, alongside [auth]/[db]/[storage]/[bus]/[tenancy]."""
-    kind = backend()
-    if kind == "timescale":
-        keep = retention_days("raw")
-        print(f"[historian] TimescaleDB {timescale_version()} - hypertable + "
-              f"{len(BUCKETS)} rollups, compress after {os.environ.get('NXR_HISTORIAN_COMPRESS_AFTER', '7 days')}, "
-              f"raw retention {keep or 'unlimited'} days.", flush=True)
-    elif kind == "postgres":
-        print("[historian] PostgreSQL WITHOUT timescaledb - rollups computed per "
-              "request, no compression, no retention. Telemetry history will grow "
-              "without bound. Install the extension before taking real ingest.",
-              flush=True)
+    if backend() == "mysql":
+        print("[historian] MySQL - plain table, rollups computed per request, no "
+              "compression, no automatic retention. Fine for MVP/moderate ingest; "
+              "add an app-level purge before high-volume telemetry.", flush=True)
     else:
         print("[historian] SQLite - local-dev telemetry history only. Set "
-              "NXR_DATABASE_URL (and install timescaledb) before ingesting "
+              "NXR_DATABASE_URL to the RDS MySQL endpoint before ingesting "
               "anything real.", flush=True)

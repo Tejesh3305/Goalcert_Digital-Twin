@@ -933,10 +933,8 @@ def _preflight() -> None:
 
         NXR_REQUIRE_REDIS=1   the bus must be real Redis, not per-process memory
         NXR_REQUIRE_S3=1      blobs must be in the object store, not local disk
-        NXR_REQUIRE_DB=1      the relational store must be Postgres, not SQLite
-        NXR_REQUIRE_TIMESCALE=1  telemetry history must be a TimescaleDB
-                              hypertable, not a plain table that never
-                              compresses and has no retention policy
+        NXR_REQUIRE_DB=1      the relational store must be MySQL, not SQLite
+        NXR_REQUIRE_HISTORIAN=1  the telemetry historian must be reachable
 
     A crash-looping task with a clear reason in CloudWatch is a far better
     outcome than a fleet that serves half the twins and half the models.
@@ -949,7 +947,7 @@ def _preflight() -> None:
     def _truthy(v):
         return str(v or "").strip().lower() in ("1", "true", "yes", "on")
 
-    if _truthy(os.environ.get("NXR_REQUIRE_DB")) and not db.is_postgres():
+    if _truthy(os.environ.get("NXR_REQUIRE_DB")) and not db.is_mysql():
         raise RuntimeError(
             "NXR_REQUIRE_DB is set but NXR_DATABASE_URL is not — the service "
             "would fall back to per-task SQLite files, so each task would serve "
@@ -963,10 +961,10 @@ def _preflight() -> None:
     # Raises BusUnavailable when Redis is required and unreachable.
     bus_pkg.get_event_bus()
 
-    if db.is_postgres():
+    if db.is_mysql():
         ok, detail = db.ping()
         if not ok and _truthy(os.environ.get("NXR_REQUIRE_DB")):
-            raise RuntimeError(f"NXR_REQUIRE_DB is set but Postgres is "
+            raise RuntimeError(f"NXR_REQUIRE_DB is set but MySQL is "
                                f"unreachable: {detail}")
     if storage.is_s3():
         ok, detail = storage.ping()
@@ -974,10 +972,9 @@ def _preflight() -> None:
             raise RuntimeError(f"NXR_REQUIRE_S3 is set but the bucket is not "
                                f"usable (needs read AND write): {detail}")
 
-    # Raises HistorianUnavailable when Timescale is required and absent. Same
-    # argument as the three above: the plain-Postgres fallback WORKS, which is
-    # exactly why nothing would tell you that telemetry has no retention policy
-    # until the disk filled.
+    # Raises HistorianUnavailable when NXR_REQUIRE_HISTORIAN is set and the
+    # historian is unreachable. Off by default: the plain MySQL/SQLite table WORKS,
+    # it just has no compression or automatic retention.
     historian.require()
 
 

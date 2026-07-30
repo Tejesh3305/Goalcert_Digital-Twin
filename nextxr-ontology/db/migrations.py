@@ -99,16 +99,16 @@ def _dialect_sql(sql: str) -> str:
 # ── The ledger ──────────────────────────────────────────────────────────
 
 _LEDGER_DDL = """CREATE TABLE IF NOT EXISTS schema_migrations (
-    migration_id TEXT PRIMARY KEY,
+    migration_id {id} PRIMARY KEY,
     applied_at   TEXT NOT NULL,
     duration_ms  INTEGER NOT NULL DEFAULT 0,
-    description  TEXT NOT NULL DEFAULT ''
+    description  {str} NOT NULL DEFAULT ''
 )"""
 
 
 def _ensure_ledger() -> None:
     with core.connect(_STORE) as conn:
-        conn.execute(_LEDGER_DDL)
+        conn.execute(_dialect_sql(_LEDGER_DDL))
 
 
 def applied_ids() -> set[str]:
@@ -189,14 +189,16 @@ def _is_tolerated(exc: Exception, migration: Migration) -> bool:
 
 
 def apply_one(migration: Migration, *, dry_run: bool = False) -> None:
-    """Apply one migration and record it, in ONE transaction where the backend
-    allows it.
+    """Apply one migration and record it, serialised across tasks by an advisory
+    lock.
 
-    Postgres has transactional DDL, so a migration that fails halfway leaves
-    nothing behind and the ledger row is not written — re-running is clean.
-    SQLite is per-statement, which is why every statement should be idempotent;
-    the local backend is dev-only, so the weaker guarantee is acceptable there
-    and stated rather than glossed over.
+    MySQL auto-commits DDL, so a migration is NOT one atomic transaction the way
+    Postgres gave us — a run that fails halfway leaves the statements it already
+    executed in place. Every statement is therefore written idempotent
+    (`IF NOT EXISTS`, tolerated "duplicate column"), which is what makes a re-run
+    clean. The GET_LOCK advisory lock still prevents two tasks from executing the
+    same migration at once. SQLite is per-statement for the same reason and is the
+    dev backend.
     """
     import time
 
@@ -229,16 +231,17 @@ def apply_one(migration: Migration, *, dry_run: bool = False) -> None:
         if row:
             return                          # another task won the race
 
-        # On Postgres every store is the SAME database, so reuse the connection
-        # that holds the lock and keep the whole migration — statements, callable
-        # and ledger row — in one transaction. A failure then leaves nothing
-        # behind and re-running is clean.
+        # On MySQL every store is the SAME database, so reuse the connection that
+        # holds the lock: the statements run WHILE the GET_LOCK is held (it is
+        # released when this `with` block closes), which serialises tasks. It is
+        # not one transaction — MySQL auto-commits DDL — so idempotency, not
+        # rollback, is what makes a re-run clean.
         #
         # On SQLite the stores are separate FILES, so the target store needs its
-        # own connection. That means the statements and the ledger row are not
-        # atomic there; the migrations are written idempotent for exactly this
-        # reason, and SQLite is the dev backend.
-        if core.is_postgres():
+        # own connection. The statements and the ledger row are not atomic there
+        # either; the migrations are written idempotent for exactly this reason,
+        # and SQLite is the dev backend.
+        if core.is_mysql():
             _execute(migration, ledger)
             ledger.execute(
                 "INSERT INTO schema_migrations (migration_id, applied_at, "
@@ -257,7 +260,10 @@ def apply_one(migration: Migration, *, dry_run: bool = False) -> None:
 def _execute(migration: Migration, conn) -> None:
     for statement in migration.statements:
         try:
-            conn.execute(_dialect_sql(statement))
+            # Route through schema._exec_stmt so `CREATE INDEX IF NOT EXISTS`
+            # (which MySQL rejects) is stripped and its "duplicate index" error is
+            # swallowed — the same handling schema.ensure() uses on boot.
+            schema._exec_stmt(conn, _dialect_sql(statement))
         except Exception as e:
             if _is_tolerated(e, migration):
                 print(f"    (tolerated) {type(e).__name__}: {e}")
@@ -329,10 +335,13 @@ def log_posture() -> None:
 
 
 def _table_columns(conn, table: str) -> set[str]:
-    if core.is_postgres():
+    if core.is_mysql():
+        # Scope to the connected schema — otherwise a table of the same name in
+        # another database on the instance would pollute the column set.
         rows = conn.execute(
             "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = ?", (table,)).fetchall()
+            "WHERE table_schema = DATABASE() AND table_name = ?",
+            (table,)).fetchall()
         return {dict(r)["column_name"] for r in rows}
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {dict(r)["name"] for r in rows}
@@ -406,7 +415,7 @@ def verify() -> list[str]:
 
 def main(argv: list[str]) -> int:
     print(f"backend : {core.dialect()}")
-    if core.is_postgres():
+    if core.is_mysql():
         print(f"database: {core.redacted_url()}")
 
     if "--verify" in argv:

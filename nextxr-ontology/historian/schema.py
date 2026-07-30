@@ -12,48 +12,27 @@ process. The consequence was that the platform could not draw a trend line, coul
 not replay an incident, could not backfill from a customer's historian, and had
 no training data for anything statistical.
 
-WHY TIMESCALEDB
----------------
-It is a Postgres EXTENSION, so it runs on the RDS instance §7 of AWS_DEPLOYMENT.md
-already provisions. `db/core.py`'s pool, `translate()` and advisory locks keep
-working unchanged, and the deployment gains no new backup story, no new security
-group, and no second database to keep alive. That property matters more than raw
-benchmark numbers: a dedicated TSDB is faster in isolation and strictly worse to
-operate, and an architecture review will ask about operations.
+TWO BACKENDS, ONE API
+---------------------
+    mysql     production: one plain table on the same RDS MySQL instance as the
+              other stores. `db/core.py`'s pool and `translate()` keep working,
+              so the deployment gains no second database. Rollups are computed on
+              the fly from raw (date-bucketed GROUP BY) — correct, and cheaper to
+              operate than a dedicated TSDB.
+    sqlite    local dev, same SQL surface via db/core.py's translation.
 
-Four capabilities are the reason to want it, and all four are configured here:
+TRADE-OFF, STATED PLAINLY (the same trap `db`/`storage`/`bus` document): a plain
+table has no columnar compression and no automatic retention, so raw telemetry
+grows without bound. That is acceptable for an MVP and for moderate ingest; a
+high-volume deployment should add an app-level purge (see `retention_days`) or a
+partitioned/columnar store later.
 
-  hypertable            transparent time partitioning, so a "last hour" query
-                        touches one chunk instead of scanning every row
-  continuous aggregates incrementally-maintained rollups, so a 90-day chart reads
-                        ~2k pre-computed rows rather than aggregating millions
-  compression           10-20x on telemetry (columnar + delta-encoded timestamps,
-                        which are highly regular). At 5k signals @1Hz that is the
-                        difference between ~4GB/day and ~50GB/day of RDS storage.
-  retention policies    drop raw after N days, keep rollups for years, declared
-                        once instead of maintained as cron jobs
-
-THREE BACKENDS, ONE API
------------------------
-    timescale   full behaviour (production)
-    postgres    correct, slower: real table + indexes, rollups computed on the
-                fly with date_trunc, no compression or retention
-    sqlite      local dev, same SQL surface via db/core.py's translation
-
-The fallbacks are deliberate and they are also a trap, the same one `db`,
-`storage` and `bus` already document: everything WORKS, it is just quietly
-unsuitable — no compression means the disk fills, no retention means it never
-stops. So `NXR_REQUIRE_TIMESCALE=1` makes the extension mandatory and the boot
-fail loudly if it is absent, exactly like NXR_REQUIRE_DB/S3/REDIS.
-
-WHY THE ROLLUPS STORE count/sum AND NOT avg
--------------------------------------------
+WHY THE ROLLUPS COMPUTE count/sum AND NOT avg
+---------------------------------------------
 An average cannot be re-averaged: `avg(avg(x))` weights each bucket equally
 regardless of how many samples it held, which silently skews every chart drawn
-from a coarser rollup. Storing `count` and `sum_value` lets the API compute a
-correct mean at any resolution and lets a client safely re-aggregate. It also
-keeps the door open to hierarchical aggregates (1h built from 1m rather than from
-raw) without having to re-derive history.
+from a coarser rollup. Reporting `count` and `sum` lets the API compute a correct
+mean at any resolution and lets a client safely re-aggregate.
 """
 
 from __future__ import annotations
@@ -75,37 +54,22 @@ QUALITY_GOOD = 192
 
 RAW_TABLE = "measurements"
 
-# Rollup resolutions. Each is built directly from raw rather than from the tier
-# below it: non-hierarchical costs more storage and is unambiguously correct,
-# and correctness wins until storage is measured rather than guessed.
+# Rollup resolutions, computed on the fly from raw (see core.py `_bucket_rows`).
 BUCKETS: dict[str, str] = {
     "1m": "1 minute",
     "1h": "1 hour",
     "1d": "1 day",
 }
 
-# How long each tier is kept. Raw is the expensive one and the least useful after
-# an incident is closed; the daily rollup is cheap enough to keep indefinitely
-# (None = never drop), which is what makes year-over-year comparison possible.
+# How long each tier is worth keeping. Informational on MySQL — there is no
+# database-enforced retention here — but kept so an app-level purge cron can read
+# a single, overridable policy rather than hard-coding one.
 RETENTION_DAYS: dict[str, int | None] = {
     "raw": 30,
     "1m": 400,
     "1h": 1095,
     "1d": None,
 }
-
-# Chunks older than this are compressed. It must be comfortably longer than the
-# window that still receives writes: compressed chunks accept inserts on modern
-# TimescaleDB but pay for it, and edge store-and-forward legitimately replays
-# data hours late.
-COMPRESS_AFTER = "7 days"
-
-
-def _env_int(name: str, default: int) -> int:
-    try:
-        return int(os.environ.get(name, str(default)))
-    except ValueError:
-        return default
 
 
 def retention_days(tier: str) -> int | None:
@@ -125,41 +89,35 @@ def retention_days(tier: str) -> int | None:
 
 
 # ── Raw table ───────────────────────────────────────────────────────────────
-
-_CREATE_RAW = f"""
+#
+# The primary key IS the idempotency contract: a replayed batch collides and is
+# skipped with INSERT IGNORE, so an edge agent that reconnects after a network
+# blip and resends its buffer cannot double-count. Doing it in the key rather than
+# in application code means every writer gets it, including a bulk backfill and a
+# connector nobody has written yet.
+#
+# Key columns are `CHARACTER SET ascii`: tag/asset/tenant identifiers are ASCII,
+# and utf8mb4 (4 bytes/char) on a VARCHAR(512) signal would push the composite PK
+# past InnoDB's 3072-byte index limit. `unit` stays utf8mb4 (it can hold '°C').
+_MYSQL_CREATE_RAW = f"""
 CREATE TABLE IF NOT EXISTS {RAW_TABLE} (
-    tenant_id   TEXT             NOT NULL,
-    asset_id    TEXT             NOT NULL,
-    signal      TEXT             NOT NULL,
-    ts          TIMESTAMPTZ      NOT NULL,
-    value       DOUBLE PRECISION,
-    unit        TEXT             NOT NULL DEFAULT '',
-    quality     SMALLINT         NOT NULL DEFAULT {QUALITY_GOOD},
-    source      TEXT             NOT NULL DEFAULT 'api',
-    received_at TIMESTAMPTZ      NOT NULL DEFAULT now()
+    tenant_id   VARCHAR(191) CHARACTER SET ascii NOT NULL,
+    asset_id    VARCHAR(256) CHARACTER SET ascii NOT NULL,
+    signal      VARCHAR(512) CHARACTER SET ascii NOT NULL,
+    ts          DATETIME(6)  NOT NULL,
+    value       DOUBLE,
+    unit        VARCHAR(64)  NOT NULL DEFAULT '',
+    quality     SMALLINT     NOT NULL DEFAULT {QUALITY_GOOD},
+    source      VARCHAR(64)  CHARACTER SET ascii NOT NULL DEFAULT 'api',
+    received_at DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (tenant_id, asset_id, signal, ts)
 )
 """
 
-# The primary key IS the idempotency contract: a replayed batch collides and is
-# skipped with ON CONFLICT DO NOTHING, so an edge agent that reconnects after a
-# network blip and resends its buffer cannot double-count. Doing it in the key
-# rather than in application code means every writer gets it, including a bulk
-# backfill and a connector nobody has written yet.
-#
-# On a hypertable the time column must be part of any unique index, hence ts
-# last. Order matters for read performance too: tenant → asset → signal → time
-# matches how every query filters, so a range scan walks one contiguous run.
-_RAW_PK = f"""
-CREATE UNIQUE INDEX IF NOT EXISTS {RAW_TABLE}_pk
-    ON {RAW_TABLE} (tenant_id, asset_id, signal, ts DESC)
-"""
-
-# Serves "what signals does this tenant have, and when was each last seen" —
-# the discovery query behind the tag-mapping UI and the staleness check.
-_RAW_IDX_SIGNAL = f"""
-CREATE INDEX IF NOT EXISTS {RAW_TABLE}_tenant_signal_ts
-    ON {RAW_TABLE} (tenant_id, signal, ts DESC)
-"""
+# Serves "what signals does this tenant have, and when was each last seen" — the
+# discovery query behind the tag-mapping UI and the staleness check.
+_MYSQL_IDX_SIGNAL = (f"CREATE INDEX {RAW_TABLE}_tenant_signal_ts "
+                     f"ON {RAW_TABLE} (tenant_id, signal, ts DESC)")
 
 _SQLITE_CREATE_RAW = f"""
 CREATE TABLE IF NOT EXISTS {RAW_TABLE} (
@@ -177,153 +135,28 @@ CREATE TABLE IF NOT EXISTS {RAW_TABLE} (
 """
 
 
-def _cagg_sql(name: str, bucket: str) -> str:
-    """A continuous aggregate over raw.
-
-    `count`/`sum_value` rather than `avg` — see the module docstring. BAD-quality
-    samples are excluded from the statistics but counted separately, so a chart
-    drawn from a rollup shows the real measured signal while the data-quality
-    view can still see how much of it was untrustworthy. Collapsing those two
-    into one number is how a dashboard ends up quietly averaging in a dead
-    sensor's zeros.
-    """
-    return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {RAW_TABLE}_{name}
-WITH (timescaledb.continuous) AS
-SELECT
-    tenant_id,
-    asset_id,
-    signal,
-    time_bucket(INTERVAL '{bucket}', ts)                    AS bucket,
-    count(*) FILTER (WHERE quality >= {QUALITY_UNCERTAIN}
-                       AND value IS NOT NULL)               AS count,
-    sum(value) FILTER (WHERE quality >= {QUALITY_UNCERTAIN}) AS sum_value,
-    min(value) FILTER (WHERE quality >= {QUALITY_UNCERTAIN}) AS min_value,
-    max(value) FILTER (WHERE quality >= {QUALITY_UNCERTAIN}) AS max_value,
-    first(value, ts) FILTER (WHERE quality >= {QUALITY_UNCERTAIN}) AS first_value,
-    last(value, ts)  FILTER (WHERE quality >= {QUALITY_UNCERTAIN}) AS last_value,
-    count(*) FILTER (WHERE quality < {QUALITY_UNCERTAIN})    AS bad_count,
-    max(unit)                                               AS unit
-FROM {RAW_TABLE}
-GROUP BY tenant_id, asset_id, signal, bucket
-WITH NO DATA
-"""
-
-
-def _refresh_policy_sql(name: str, bucket: str) -> str:
-    """Keep a rollup fresh.
-
-    `start_offset` bounds how far back a refresh looks: without it every run
-    rescans all history, which turns into the historian's dominant cost as the
-    table grows. It must still be wide enough to absorb late-arriving data — an
-    edge agent replaying a buffer — or those samples land in a bucket that is
-    never recomputed and silently never appear in a chart. `end_offset` keeps the
-    refresh off the newest bucket, which is still being written.
-    """
-    start = {"1m": "3 hours", "1h": "3 days", "1d": "30 days"}[name]
-    end = {"1m": "1 minute", "1h": "1 hour", "1d": "1 hour"}[name]
-    every = {"1m": "1 minute", "1h": "10 minutes", "1d": "1 hour"}[name]
-    return f"""
-SELECT add_continuous_aggregate_policy('{RAW_TABLE}_{name}',
-    start_offset => INTERVAL '{start}',
-    end_offset   => INTERVAL '{end}',
-    schedule_interval => INTERVAL '{every}',
-    if_not_exists => TRUE)
-"""
-
-
-# ── Capability detection ────────────────────────────────────────────────────
-
-_TIMESCALE_CACHE: bool | None = None
-
-
-def timescale_available(force: bool = False) -> bool:
-    """Is the timescaledb extension installed and usable?
-
-    Cached: this is consulted on every query to pick a rollup source, and a
-    catalogue round-trip per request would be a silly cost. `force=True`
-    re-probes, which the provisioning tool needs after CREATE EXTENSION.
-    """
-    global _TIMESCALE_CACHE
-    if _TIMESCALE_CACHE is not None and not force:
-        return _TIMESCALE_CACHE
-    if not db.is_postgres():
-        _TIMESCALE_CACHE = False
-        return False
-    try:
-        with db.connect("historian") as conn:
-            row = conn.execute(
-                "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'"
-            ).fetchone()
-        _TIMESCALE_CACHE = row is not None
-    except Exception:
-        _TIMESCALE_CACHE = False
-    return _TIMESCALE_CACHE
-
-
-def timescale_version() -> str:
-    if not db.is_postgres():
-        return ""
-    try:
-        with db.connect("historian") as conn:
-            row = conn.execute(
-                "SELECT extversion FROM pg_extension WHERE extname = 'timescaledb'"
-            ).fetchone()
-        return (row["extversion"] if row else "") or ""
-    except Exception:
-        return ""
-
-
 def reset_cache() -> None:
-    global _TIMESCALE_CACHE
-    _TIMESCALE_CACHE = None
+    """No-op retained for API compatibility (was the timescaledb probe cache)."""
+    return None
 
 
 def backend() -> str:
-    """'timescale' | 'postgres' | 'sqlite'."""
-    if not db.is_postgres():
-        return "sqlite"
-    return "timescale" if timescale_available() else "postgres"
+    """'mysql' | 'sqlite'."""
+    return "mysql" if db.is_mysql() else "sqlite"
 
 
 # ── Provisioning ────────────────────────────────────────────────────────────
 
 
-def _autocommit_exec(statements: list[str]) -> list[tuple[str, str]]:
-    """Run DDL that CANNOT be inside a transaction block.
-
-    TimescaleDB refuses `CREATE MATERIALIZED VIEW ... WITH (timescaledb.continuous)`
-    and the policy helpers inside a transaction, and `db.Conn` always opens one.
-    So this reaches past the wrapper for the connection's autocommit flag —
-    narrowly, only for these statements, and it returns per-statement failures
-    instead of raising so one unsupported policy on an older Timescale cannot
-    abort the whole provisioning run.
-    """
-    failures: list[tuple[str, str]] = []
-    conn = db.connect("historian")
-    raw = conn._raw                       # noqa: SLF001 - see docstring
-    previous = getattr(raw, "autocommit", None)
+def _create_index_mysql(conn, stmt: str) -> None:
+    """MySQL has no `CREATE INDEX IF NOT EXISTS`; run it and ignore the
+    "duplicate key name" error so provisioning stays idempotent."""
     try:
-        raw.autocommit = True
-        for sql in statements:
-            cur = raw.cursor()
-            try:
-                cur.execute(sql)
-            except Exception as e:
-                failures.append((sql.strip().splitlines()[0][:80], str(e)[:200]))
-            finally:
-                try:
-                    cur.close()
-                except Exception:
-                    pass
-    finally:
-        try:
-            if previous is not None:
-                raw.autocommit = previous
-        except Exception:
-            pass
-        conn.close()
-    return failures
+        conn.execute(stmt)
+    except Exception as e:
+        msg = str(e).lower()
+        if "1061" not in msg and "duplicate key name" not in msg:
+            raise
 
 
 def ensure(*, strict: bool = False) -> dict:
@@ -337,14 +170,15 @@ def ensure(*, strict: bool = False) -> dict:
     """
     report: dict = {"backend": backend(), "created": [], "skipped": [],
                     "failures": []}
-
     try:
-        if db.is_postgres():
+        if db.is_mysql():
             with db.connect("historian") as conn:
-                conn.execute(_CREATE_RAW)
-                conn.execute(_RAW_PK)
-                conn.execute(_RAW_IDX_SIGNAL)
-            report["created"].append(RAW_TABLE)
+                conn.execute(_MYSQL_CREATE_RAW)
+                _create_index_mysql(conn, _MYSQL_IDX_SIGNAL)
+            report["created"].append(f"{RAW_TABLE} (mysql)")
+            report["skipped"].append(
+                "compression / automatic retention — not available on a plain "
+                "MySQL table; rollups are computed per request from raw.")
         else:
             with db.connect("historian") as conn:
                 conn.execute(_SQLITE_CREATE_RAW)
@@ -353,88 +187,17 @@ def ensure(*, strict: bool = False) -> dict:
                     f"ON {RAW_TABLE} (tenant_id, signal, ts DESC)")
             report["created"].append(f"{RAW_TABLE} (sqlite)")
             report["skipped"].append(
-                "hypertable/rollups/compression/retention — SQLite backend")
-            return report
+                "rollups computed per request — SQLite backend")
     except Exception as e:
         report["failures"].append(("create raw table", str(e)[:300]))
         if strict:
             raise
-        return report
-
-    if not timescale_available(force=True):
-        # Plain Postgres: the table and indexes above are the whole story.
-        # Rollups are computed on the fly (see core.py), which is correct and
-        # slower. Naming that here keeps it from looking like it worked fully.
-        report["skipped"].append(
-            "hypertable/rollups/compression/retention — timescaledb extension "
-            "not installed. Run CREATE EXTENSION timescaledb, then re-run.")
-        return report
-
-    # Hypertable. `migrate_data` converts an existing plain table in place, which
-    # is what makes this safe to run on a deployment that already collected data
-    # on plain Postgres.
-    ddl: list[str] = [
-        f"""SELECT create_hypertable('{RAW_TABLE}', 'ts',
-                chunk_time_interval => INTERVAL '1 day',
-                migrate_data => TRUE,
-                if_not_exists => TRUE)""",
-    ]
-    for name, bucket in BUCKETS.items():
-        ddl.append(_cagg_sql(name, bucket))
-        ddl.append(_refresh_policy_sql(name, bucket))
-
-    # Compression. segmentby groups the columns a query filters on so the
-    # compressed chunk can skip whole segments; orderby matches the natural write
-    # order, which is what makes timestamp delta-encoding effective.
-    ddl.append(f"""
-        ALTER TABLE {RAW_TABLE} SET (
-            timescaledb.compress,
-            timescaledb.compress_segmentby = 'tenant_id, asset_id, signal',
-            timescaledb.compress_orderby   = 'ts DESC')
-    """)
-    ddl.append(f"""SELECT add_compression_policy('{RAW_TABLE}',
-                    INTERVAL '{COMPRESS_AFTER}', if_not_exists => TRUE)""")
-
-    raw_keep = retention_days("raw")
-    if raw_keep:
-        ddl.append(f"""SELECT add_retention_policy('{RAW_TABLE}',
-                        INTERVAL '{raw_keep} days', if_not_exists => TRUE)""")
-    for name in BUCKETS:
-        keep = retention_days(name)
-        if keep:
-            ddl.append(f"""SELECT add_retention_policy('{RAW_TABLE}_{name}',
-                            INTERVAL '{keep} days', if_not_exists => TRUE)""")
-
-    failures = _autocommit_exec(ddl)
-
-    # `if_not_exists => TRUE` still errors on a policy that exists with different
-    # parameters, and re-running ensure() must not look broken because of it.
-    benign = ("already exists", "already has", "duplicate")
-    for stmt, err in failures:
-        if any(b in err.lower() for b in benign):
-            report["skipped"].append(f"{stmt} — {err[:80]}")
-        else:
-            report["failures"].append((stmt, err))
-
-    report["created"].extend(
-        ["hypertable"] + [f"{RAW_TABLE}_{n}" for n in BUCKETS]
-        + ["compression", "retention"])
-    report["timescale_version"] = timescale_version()
-
-    if strict and report["failures"]:
-        raise RuntimeError(f"historian provisioning failed: {report['failures']}")
     return report
 
 
 def drop_all() -> None:
     """Tear the historian down. Test-suite and local-reset only — it destroys
     every measurement, so it is never called from application code."""
-    if db.is_postgres():
-        stmts = [f"DROP MATERIALIZED VIEW IF EXISTS {RAW_TABLE}_{n} CASCADE"
-                 for n in BUCKETS]
-        stmts.append(f"DROP TABLE IF EXISTS {RAW_TABLE} CASCADE")
-        _autocommit_exec(stmts)
-    else:
-        with db.connect("historian") as conn:
-            conn.execute(f"DROP TABLE IF EXISTS {RAW_TABLE}")
+    with db.connect("historian") as conn:
+        conn.execute(f"DROP TABLE IF EXISTS {RAW_TABLE}")
     reset_cache()

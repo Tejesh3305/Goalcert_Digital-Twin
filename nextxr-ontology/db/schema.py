@@ -1,24 +1,33 @@
 """schema.py — every relational table the twin owns, in ONE place.
 
 The five SQLite files this replaces each created their own tables inline, which
-meant five places to keep in step with the Postgres deploy. Here each store
-declares its DDL once and `ensure(store)` renders it for whichever backend is
-live. Stores still call `ensure()` from their constructor, so a fresh database
-self-provisions on first use — but the result is cached per process, because
-`ChangeLog()` is constructed inside request handlers and a DDL round-trip per
-construction would be a real cost against RDS.
+meant five places to keep in step with the MySQL deploy. Here each store declares
+its DDL once and `ensure(store)` renders it for whichever backend is live. Stores
+still call `ensure()` from their constructor, so a fresh database self-provisions
+on first use — but the result is cached per process, because `ChangeLog()` is
+constructed inside request handlers and a DDL round-trip per construction would be
+a real cost against RDS.
 
 Provision explicitly before a deploy (idempotent, safe to re-run):
 
     python -m db.schema                 # create every table
-    python -m db.schema --extensions    # + pgvector / PostGIS (needs rds_superuser)
     python -m db.schema --check         # report what exists, create nothing
 
 Dialect differences live only in `_T`. Everything else is SQL that means the
-same thing in SQLite ≥3.24 and Postgres 16.
+same thing in SQLite ≥3.24 and MySQL 8, with one exception handled in `ensure()`:
+MySQL has no `CREATE INDEX IF NOT EXISTS`, so index creation strips the clause and
+ignores the "duplicate index" error.
+
+WHY `{id}` INSTEAD OF `TEXT` ON KEY COLUMNS
+-------------------------------------------
+MySQL cannot use a `TEXT`/`BLOB` column as a PRIMARY KEY, in a UNIQUE constraint,
+or in an ordinary index without a prefix length. Every column that is a key or is
+named in a `CREATE INDEX` therefore uses the `{id}` token (`VARCHAR(255)` on MySQL,
+`TEXT` on SQLite). Plain, non-indexed text stays `TEXT`.
 """
 from __future__ import annotations
 
+import re
 import sys
 import threading
 
@@ -26,12 +35,17 @@ from . import core
 
 # Type/DDL fragments that genuinely differ between the two backends.
 _T = {
-    core.POSTGRES: {
-        "serial_pk": "BIGSERIAL PRIMARY KEY",
-        "json":      "JSONB",
-        "ts":        "TIMESTAMPTZ",
-        "ts_now":    "TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP",
-        "float":     "DOUBLE PRECISION",
+    core.MYSQL: {
+        "serial_pk": "BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY",
+        "json":      "JSON",
+        "ts":        "DATETIME",
+        "ts_now":    "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP",
+        "float":     "DOUBLE",
+        # Key/indexed identifier columns — MySQL cannot index bare TEXT.
+        "id":        "VARCHAR(255)",
+        # Short string columns that carry a DEFAULT — MySQL forbids a DEFAULT on
+        # TEXT/BLOB, so these are VARCHAR. Not indexed, so length is generous.
+        "str":       "VARCHAR(1024)",
     },
     core.SQLITE: {
         "serial_pk": "INTEGER PRIMARY KEY AUTOINCREMENT",
@@ -39,6 +53,8 @@ _T = {
         "ts":        "TEXT",
         "ts_now":    "TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP",
         "float":     "REAL",
+        "id":        "TEXT",
+        "str":       "TEXT",
     },
 }
 
@@ -52,26 +68,26 @@ DDL: dict[str, list[str]] = {
         # filter by organisation in one query instead of one lookup per row.
         # See migration 0003_twin_org_owner for the upgrade path.
         """CREATE TABLE IF NOT EXISTS twins (
-               tenant_id     TEXT PRIMARY KEY,
+               tenant_id     {id} PRIMARY KEY,
                name          TEXT NOT NULL,
                domain        TEXT NOT NULL,
-               description   TEXT NOT NULL DEFAULT '',
-               created_at    TEXT NOT NULL,
+               description   {str} NOT NULL DEFAULT '',
+               created_at    {id} NOT NULL,
                seed_asset_id TEXT,
-               org_id        TEXT
+               org_id        {id}
            )""",
         "CREATE INDEX IF NOT EXISTS idx_twins_created ON twins (created_at DESC)",
         "CREATE INDEX IF NOT EXISTS idx_twins_org ON twins (org_id)",
     ],
     "changelog": [
-        # `seq` orders a tenant's hash chain. Postgres gets a real sequence;
+        # `seq` orders a tenant's hash chain. MySQL gets a real AUTO_INCREMENT;
         # gaps from rolled-back transactions are fine — verification walks the
         # prev_event_hash linkage, not the numbers.
         """CREATE TABLE IF NOT EXISTS events (
                seq             {serial_pk},
-               event_id        TEXT NOT NULL UNIQUE,
-               tenant_id       TEXT NOT NULL,
-               entity_id       TEXT NOT NULL,
+               event_id        {id} NOT NULL UNIQUE,
+               tenant_id       {id} NOT NULL,
+               entity_id       {id} NOT NULL,
                entity_type     TEXT NOT NULL,
                actor           TEXT NOT NULL,
                action          TEXT NOT NULL,
@@ -86,7 +102,7 @@ DDL: dict[str, list[str]] = {
     ],
     "bundles": [
         """CREATE TABLE IF NOT EXISTS published_bundles (
-               bundle_id   TEXT PRIMARY KEY,
+               bundle_id   {id} PRIMARY KEY,
                name        TEXT NOT NULL,
                domains     {json} NOT NULL,
                payload     {json} NOT NULL,
@@ -96,7 +112,7 @@ DDL: dict[str, list[str]] = {
     ],
     "checkpoints": [
         """CREATE TABLE IF NOT EXISTS checkpoints (
-               thread_id   TEXT PRIMARY KEY,
+               thread_id   {id} PRIMARY KEY,
                graph_name  TEXT NOT NULL,
                state       {json} NOT NULL,
                resume_at   TEXT,
@@ -109,7 +125,7 @@ DDL: dict[str, list[str]] = {
     # the 3-D viewer stay correct at desired count > 1.
     "scenes": [
         """CREATE TABLE IF NOT EXISTS scene_cache (
-               tenant_id   TEXT PRIMARY KEY,
+               tenant_id   {id} PRIMARY KEY,
                scene       {json} NOT NULL,
                updated_at  {ts_now}
            )""",
@@ -120,7 +136,7 @@ DDL: dict[str, list[str]] = {
     # heavy outputs live in the blob store (storage/); this is only the record.
     "threed": [
         """CREATE TABLE IF NOT EXISTS threed_jobs (
-               job_id    TEXT PRIMARY KEY,
+               job_id    {id} PRIMARY KEY,
                status    TEXT NOT NULL,
                stage     TEXT,
                filename  TEXT,
@@ -150,14 +166,14 @@ DDL: dict[str, list[str]] = {
     # authorized_keys file or a GitHub PAT.
     "devices": [
         """CREATE TABLE IF NOT EXISTS ingest_devices (
-               device_id     TEXT PRIMARY KEY,
-               tenant_id     TEXT NOT NULL,
-               name          TEXT NOT NULL DEFAULT '',
-               token_hash    TEXT NOT NULL,
-               asset_prefix  TEXT NOT NULL DEFAULT '',
+               device_id     {id} PRIMARY KEY,
+               tenant_id     {id} NOT NULL,
+               name          {str} NOT NULL DEFAULT '',
+               token_hash    {id} NOT NULL,
+               asset_prefix  {str} NOT NULL DEFAULT '',
                enabled       INTEGER NOT NULL DEFAULT 1,
                created_at    TEXT NOT NULL,
-               created_by    TEXT NOT NULL DEFAULT '',
+               created_by    {str} NOT NULL DEFAULT '',
                expires_at    TEXT,
                last_seen_at  TEXT,
                last_seen_ip  TEXT,
@@ -188,10 +204,10 @@ DDL: dict[str, list[str]] = {
     # instead of an environment variable.
     "identity": [
         """CREATE TABLE IF NOT EXISTS organizations (
-               org_id        TEXT PRIMARY KEY,
+               org_id        {id} PRIMARY KEY,
                name          TEXT NOT NULL,
-               plan          TEXT NOT NULL DEFAULT 'trial',
-               status        TEXT NOT NULL DEFAULT 'active',
+               plan          {str} NOT NULL DEFAULT 'trial',
+               status        {str} NOT NULL DEFAULT 'active',
                tenant_prefix TEXT NOT NULL,
                settings      {json},
                created_at    TEXT NOT NULL,
@@ -201,11 +217,11 @@ DDL: dict[str, list[str]] = {
         # UNIQUE index rather than a UNIQUE column: the index is what makes
         # "is this address taken" a lookup instead of a scan, and both are needed.
         """CREATE TABLE IF NOT EXISTS users (
-               user_id           TEXT PRIMARY KEY,
-               email             TEXT NOT NULL,
+               user_id           {id} PRIMARY KEY,
+               email             {id} NOT NULL,
                password_hash     TEXT NOT NULL,
-               name              TEXT NOT NULL DEFAULT '',
-               status            TEXT NOT NULL DEFAULT 'active',
+               name              {str} NOT NULL DEFAULT '',
+               status            {str} NOT NULL DEFAULT 'active',
                is_platform_admin INTEGER NOT NULL DEFAULT 0,
                email_verified_at TEXT,
                created_at        TEXT NOT NULL,
@@ -220,9 +236,9 @@ DDL: dict[str, list[str]] = {
         # company and a read-only guest at a partner's, and one column on `users`
         # could not express that.
         """CREATE TABLE IF NOT EXISTS memberships (
-               org_id     TEXT NOT NULL,
-               user_id    TEXT NOT NULL,
-               role       TEXT NOT NULL DEFAULT 'read',
+               org_id     {id} NOT NULL,
+               user_id    {id} NOT NULL,
+               role       {str} NOT NULL DEFAULT 'read',
                created_at TEXT NOT NULL,
                PRIMARY KEY (org_id, user_id)
            )""",
@@ -233,10 +249,10 @@ DDL: dict[str, list[str]] = {
         # presenting a refresh token that has already been rotated means the token
         # was stolen, and the whole family is revoked rather than just that one.
         """CREATE TABLE IF NOT EXISTS sessions (
-               session_id   TEXT PRIMARY KEY,
-               user_id      TEXT NOT NULL,
+               session_id   {id} PRIMARY KEY,
+               user_id      {id} NOT NULL,
                org_id       TEXT,
-               refresh_hash TEXT NOT NULL,
+               refresh_hash {id} NOT NULL,
                issued_at    TEXT NOT NULL,
                expires_at   TEXT NOT NULL,
                revoked_at   TEXT,
@@ -252,14 +268,14 @@ DDL: dict[str, list[str]] = {
         # the UI can say WHICH key without being able to reconstruct it — the
         # same shape as a GitHub PAT listing.
         """CREATE TABLE IF NOT EXISTS api_keys (
-               key_id       TEXT PRIMARY KEY,
-               org_id       TEXT NOT NULL,
-               key_hash     TEXT NOT NULL,
+               key_id       {id} PRIMARY KEY,
+               org_id       {id} NOT NULL,
+               key_hash     {id} NOT NULL,
                prefix       TEXT NOT NULL,
-               name         TEXT NOT NULL DEFAULT '',
-               role         TEXT NOT NULL DEFAULT 'read',
+               name         {str} NOT NULL DEFAULT '',
+               role         {str} NOT NULL DEFAULT 'read',
                tenants      {json},
-               created_by   TEXT NOT NULL DEFAULT '',
+               created_by   {str} NOT NULL DEFAULT '',
                created_at   TEXT NOT NULL,
                expires_at   TEXT,
                revoked_at   TEXT,
@@ -274,8 +290,8 @@ DDL: dict[str, list[str]] = {
         # cannot express a twin transferred between orgs, and silently grants
         # access to any tenant someone names with the right leading characters.
         """CREATE TABLE IF NOT EXISTS org_tenants (
-               tenant_id  TEXT PRIMARY KEY,
-               org_id     TEXT NOT NULL,
+               tenant_id  {id} PRIMARY KEY,
+               org_id     {id} NOT NULL,
                created_at TEXT NOT NULL
            )""",
         "CREATE INDEX IF NOT EXISTS idx_org_tenants_org ON org_tenants (org_id)",
@@ -283,9 +299,9 @@ DDL: dict[str, list[str]] = {
         # reset. Hashed like everything else, and `used_at` makes them one-shot
         # so a reset link in a mailbox is not a standing credential.
         """CREATE TABLE IF NOT EXISTS auth_tokens (
-               token_hash TEXT PRIMARY KEY,
-               user_id    TEXT NOT NULL,
-               purpose    TEXT NOT NULL,
+               token_hash {id} PRIMARY KEY,
+               user_id    {id} NOT NULL,
+               purpose    {id} NOT NULL,
                created_at TEXT NOT NULL,
                expires_at TEXT NOT NULL,
                used_at    TEXT
@@ -299,14 +315,14 @@ DDL: dict[str, list[str]] = {
         # session or a machine key.
         """CREATE TABLE IF NOT EXISTS audit_log (
                audit_id     {serial_pk},
-               ts           TEXT NOT NULL,
-               org_id       TEXT,
-               actor_user   TEXT,
+               ts           {id} NOT NULL,
+               org_id       {id},
+               actor_user   {id},
                actor_key    TEXT,
                action       TEXT NOT NULL,
-               target_type  TEXT NOT NULL DEFAULT '',
-               target_id    TEXT NOT NULL DEFAULT '',
-               outcome      TEXT NOT NULL DEFAULT 'ok',
+               target_type  {str} NOT NULL DEFAULT '',
+               target_id    {str} NOT NULL DEFAULT '',
+               outcome      {str} NOT NULL DEFAULT 'ok',
                ip           TEXT,
                user_agent   TEXT,
                detail       {json}
@@ -328,10 +344,10 @@ DDL: dict[str, list[str]] = {
     # reach an API response because someone added a field and forgot to hide it.
     "connectors": [
         """CREATE TABLE IF NOT EXISTS connectors (
-               connector_id TEXT PRIMARY KEY,
-               tenant_id    TEXT NOT NULL,
+               connector_id {id} PRIMARY KEY,
+               tenant_id    {id} NOT NULL,
                protocol     TEXT NOT NULL,
-               name         TEXT NOT NULL DEFAULT '',
+               name         {str} NOT NULL DEFAULT '',
                enabled      INTEGER NOT NULL DEFAULT 1,
                config       {json} NOT NULL,
                created_at   TEXT NOT NULL,
@@ -342,20 +358,34 @@ DDL: dict[str, list[str]] = {
     ],
 }
 
-# Optional Postgres extensions. Not used by any query today; they are the
-# reason the architecture specifies Postgres over a plain KV store (geospatial
-# station/charger positions, embedding search over the ontology). Creating them
-# needs rds_superuser, so this is opt-in and non-fatal.
-EXTENSIONS = ["vector", "postgis"]
-
 _done: set[tuple[str, str]] = set()
 _warned: set[tuple[str, str]] = set()
 _lock = threading.Lock()
+
+# MySQL has no `CREATE INDEX IF NOT EXISTS`; strip the clause and ignore the
+# "duplicate key name" error (errno 1061) so ensure() stays idempotent on boot.
+_CREATE_INDEX_INE = re.compile(
+    r"^(\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+)IF\s+NOT\s+EXISTS\s+", re.IGNORECASE)
 
 
 def render(store: str, backend: str | None = None) -> list[str]:
     """`store`'s DDL statements for a backend (default: the live one)."""
     return [stmt.format(**_T[backend or core.dialect()]) for stmt in DDL[store]]
+
+
+def _exec_stmt(conn, stmt: str) -> None:
+    """Execute one DDL statement, adapting the one construct MySQL lacks."""
+    if core.is_mysql() and _CREATE_INDEX_INE.match(stmt):
+        stmt = _CREATE_INDEX_INE.sub(r"\1", stmt, count=1)
+        try:
+            conn.execute(stmt)
+        except Exception as e:
+            msg = str(e).lower()
+            if "1061" in msg or "duplicate key name" in msg:
+                return                             # index already exists — fine
+            raise
+    else:
+        conn.execute(stmt)
 
 
 def ensure(store: str, *, strict: bool = False) -> None:
@@ -379,7 +409,7 @@ def ensure(store: str, *, strict: bool = False) -> None:
         try:
             with core.connect(store) as conn:
                 for stmt in render(store):
-                    conn.execute(stmt)
+                    _exec_stmt(conn, stmt)
         except Exception as e:
             if strict:
                 raise
@@ -404,18 +434,9 @@ def reset_cache() -> None:
 
 
 def create_extensions() -> list[tuple[str, str]]:
-    """Enable pgvector / PostGIS. Returns [(name, "created"|error)]."""
-    if not core.is_postgres():
-        return [(e, "skipped (sqlite)") for e in EXTENSIONS]
-    out = []
-    for ext in EXTENSIONS:
-        try:
-            with core.connect("changelog") as conn:
-                conn.execute(f'CREATE EXTENSION IF NOT EXISTS "{ext}"')
-            out.append((ext, "created"))
-        except Exception as e:
-            out.append((ext, f"skipped: {e}"))
-    return out
+    """No database extensions are required on MySQL. Kept as a stable CLI entry
+    point (was pgvector / PostGIS on Postgres); returns a skip notice."""
+    return [("none", "skipped (mysql needs no extensions)")]
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────
@@ -439,7 +460,7 @@ def _row_count(store: str, table: str):
 def main(argv: list[str]) -> int:
     check_only = "--check" in argv
     print(f"backend : {core.dialect()}")
-    if core.is_postgres():
+    if core.is_mysql():
         print(f"database: {core.redacted_url()}")
     else:
         from paths import DATA_DIR
@@ -452,9 +473,6 @@ def main(argv: list[str]) -> int:
         return 1
 
     if not check_only:
-        if "--extensions" in argv:
-            for name, status in create_extensions():
-                print(f"  extension {name:10s} {status}")
         ensure_all(strict=True)   # provisioning explicitly: surface DDL errors
 
     print("\n  table                rows")

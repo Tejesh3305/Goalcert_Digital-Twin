@@ -70,12 +70,12 @@ anthropic==0.111.0
 python-dotenv==1.2.2
 
 # ── Relational store ────────────────────────────────────────────────────
-# RDS PostgreSQL 16 in production; SQLite (stdlib) when NXR_DATABASE_URL is
-# unset, so local dev needs no server. psycopg2 is therefore only needed for a
-# Postgres deploy — the app imports it lazily and runs fine without it. It stays
-# in this file because the container image IS the deploy artifact and must not
-# have to install it at boot.
-psycopg2-binary==2.9.12
+# RDS MySQL 8 in production; SQLite (stdlib) when NXR_DATABASE_URL is unset, so
+# local dev needs no server. PyMySQL (pure-python, no build step) is therefore
+# only needed for a MySQL deploy — the app imports it lazily and runs fine
+# without it. It stays in this file because the container image IS the deploy
+# artifact and must not have to install it at boot.
+PyMySQL==1.1.1
 
 # ── Event bus (Redis Streams) ───────────────────────────────────────────
 # Best-effort with an automatic in-memory fallback, so this is OPTIONAL for a

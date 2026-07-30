@@ -500,16 +500,18 @@ def health():
     # the field to alarm on, exactly like the bus's.
     hist_info = historian.info()
 
+    hist_required = str(os.environ.get("NXR_REQUIRE_HISTORIAN") or "").strip() \
+        .lower() in ("1", "true", "yes", "on")
     healthy = (neo4j == "connected"
                and db_info.get("status") == "connected"
                and blob_info.get("status") == "connected"
                # Only a *configured* requirement can make the bus fail health;
                # local dev on the in-memory bus stays "healthy".
                and (not bus_pkg.redis_required() or bus_obj.backend == "redis")
-               # Same rule for the historian: a dev box on SQLite is healthy, a
-               # deploy that declared Timescale mandatory and did not get it is not.
-               and (not historian.timescale_required()
-                    or hist_info.get("backend") == "timescale"))
+               # Same rule for the historian: a dev box is healthy, a deploy that
+               # declared the historian mandatory and cannot reach it is not.
+               and (not hist_required
+                    or hist_info.get("status") == "ready"))
     out = {"status": "healthy" if healthy else "degraded",
            "neo4j": neo4j, "database": db_info, "blobs": blob_info,
            "bus": bus_info, "historian": hist_info,
@@ -576,7 +578,7 @@ def readiness(response: Response):
     checks["database"] = {"ready": db_ok, "detail": db_detail}
     # Only a CONFIGURED database is required. On the SQLite dev fallback there is
     # nothing to be unready about.
-    if db.is_postgres() and not db_ok:
+    if db.is_mysql() and not db_ok:
         ready = False
 
     if bus_pkg.redis_required():
