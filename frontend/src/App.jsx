@@ -5,6 +5,7 @@ import Sidebar from './components/layout/Sidebar'
 import TwinRoutes from './TwinRoutes'
 import CommandPalette from './components/CommandPalette'
 import RequireAuth from './components/RequireAuth'
+import { TwinProvider } from './context/TwinContext'
 import AccountSettings from './pages/AccountSettings'
 import ForgotPassword from './pages/ForgotPassword'
 import Login from './pages/Login'
@@ -24,6 +25,15 @@ import Signup from './pages/Signup'
  * refresh cookie has been exchanged for a token — so a reload does not flash the
  * login page at someone who is already signed in.
  *
+ * <TwinProvider> IS INSIDE THAT GUARD, and that placement is the point rather
+ * than a detail. It was mounted at the root (main.jsx) under the reasoning that
+ * AuthProvider wrapping it made the session land first — but provider nesting
+ * orders construction, not effects. It mounted on /login too and loaded the
+ * tenant list straight away, so an unauthenticated visitor's first paint sent
+ * `GET /twins` and collected 401s behind the login form: precisely the burst the
+ * route split above exists to prevent. Inside the guard it cannot mount until
+ * there is a session for its scope to mean something.
+ *
  * The hub federates only <TwinRoutes/> and supplies its own chrome AND its own
  * identity, so none of this applies there — which is why the guard lives here
  * rather than inside TwinRoutes.
@@ -40,19 +50,21 @@ export default function App() {
         path="*"
         element={
           <RequireAuth>
-            <div className="app-root">
-              <Topbar />
-              <div className="body">
-                <Sidebar />
-                <div className="content">
-                  <Routes>
-                    <Route path="/account" element={<AccountSettings />} />
-                    <Route path="*" element={<TwinRoutes />} />
-                  </Routes>
+            <TwinProvider>
+              <div className="app-root">
+                <Topbar />
+                <div className="body">
+                  <Sidebar />
+                  <div className="content">
+                    <Routes>
+                      <Route path="/account" element={<AccountSettings />} />
+                      <Route path="*" element={<TwinRoutes />} />
+                    </Routes>
+                  </div>
                 </div>
+                <CommandPalette />
               </div>
-              <CommandPalette />
-            </div>
+            </TwinProvider>
           </RequireAuth>
         }
       />

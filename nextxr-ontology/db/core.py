@@ -52,7 +52,8 @@ import json
 import os
 import sqlite3
 import threading
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -300,6 +301,37 @@ class Conn:
         if self.kind == POSTGRES:
             self.execute("SELECT pg_advisory_xact_lock(?)",
                          (advisory_key(name),))
+
+    @contextmanager
+    def nested(self, name: str = "nxr_sp") -> Iterator[None]:
+        """A nested transaction for a statement that is ALLOWED to fail.
+
+        THE POSTGRES RULE THIS EXISTS FOR: any error aborts the WHOLE
+        transaction, and every subsequent statement then fails with "current
+        transaction is aborted". So `try: conn.execute(...) except: pass` — which
+        reads as harmless and works perfectly on SQLite — silently poisons the
+        rest of the transaction on RDS. A schema reconcile that probes one
+        ALTER, or a migration with a `tolerate` list, would take out the
+        statements after it and the ledger row with them.
+
+        A SAVEPOINT scopes the failure: rolling back to it leaves the outer
+        transaction usable. SQLite fails per statement rather than per
+        transaction, so there this is a no-op and the caller's `except` is
+        already sufficient.
+
+        The exception is re-raised either way — this makes failure RECOVERABLE,
+        it does not swallow it.
+        """
+        if self.kind != POSTGRES:
+            yield
+            return
+        self.execute(f"SAVEPOINT {name}")
+        try:
+            yield
+        except Exception:
+            self.execute(f"ROLLBACK TO SAVEPOINT {name}")
+            raise
+        self.execute(f"RELEASE SAVEPOINT {name}")
 
     def _note(self, exc: Exception) -> None:
         """Flag driver-level failures so this connection is closed rather than

@@ -722,3 +722,140 @@ def test_every_role_at_or_above_write_may_mutate():
     assert not role_at_least("read", "write")
     # An unknown role must rank BELOW read — a typo must lose privileges.
     assert not role_at_least("wrIte-typo", "read")
+
+
+# ── Twins every account lands on ────────────────────────────────────────
+#
+# A signed-in user reaches a twin because `org_tenants` says their organisation
+# owns it. That is the correct rule and it made the platform's OWN demo twins
+# invisible: they are seeded on boot, owned by nobody, so a brand-new account
+# signed in and found an empty library. The reserved `nxr:shared` organisation is
+# how a twin becomes common to every account — and the tests below are what keep
+# "shared with everyone" from quietly becoming "shared with everyone, including
+# things that should not be".
+
+
+@pytest.fixture
+def shared_twin():
+    """A tenant owned by the reserved shared organisation."""
+    import uuid
+
+    from identity import clear_shared_cache, store
+
+    tenant = f"shared-{uuid.uuid4().hex[:8]}"
+    store.share_tenant(tenant)
+    clear_shared_cache()
+    yield tenant
+    store.release_tenant(tenant)
+    clear_shared_cache()
+
+
+def _principal(org_id: str, *, tenants=None, role: str = "owner",
+               platform_admin: bool = False):
+    from identity.models import Principal
+
+    return Principal(kind="user", user_id="usr_test", org_id=org_id, role=role,
+                     tenants=tenants, is_platform_admin=platform_admin,
+                     label="test")
+
+
+def test_a_shared_twin_is_reachable_by_any_account(account, shared_twin):
+    """THE REQUIREMENT: the demo set is what every account lands on, without an
+    administrator assigning anything per user."""
+    from identity import tenants_for
+
+    reachable = tenants_for(_principal(account["org_id"]))
+
+    assert shared_twin in reachable
+
+
+def test_a_user_who_belongs_to_no_organisation_still_sees_shared(shared_twin):
+    """A user mid-invitation, or one whose last membership was removed, owns
+    nothing. That must mean "nothing of their own", not "a blank application"."""
+    from identity import tenants_for
+
+    assert tenants_for(_principal("")) == frozenset({shared_twin})
+
+
+def test_sharing_does_not_leak_another_organisations_twin(account, shared_twin):
+    """The whole risk of a shared set: that it becomes a way to reach data nobody
+    shared. Only the tenants explicitly given to `nxr:shared` are common."""
+    from identity import store, tenants_for
+
+    private = "someone-elses-private-twin"
+    other = store.create_org("Some Other Customer")
+    store.claim_tenant(private, other.org_id)
+
+    reachable = tenants_for(_principal(account["org_id"]))
+
+    assert shared_twin in reachable
+    assert private not in reachable
+
+
+def test_a_narrowed_api_key_is_not_widened_by_the_shared_set(shared_twin):
+    """An API key issued with an explicit tenant list was deliberately scoped by
+    whoever issued it. Handing it the shared twins as well would be the platform
+    granting more than the issuer asked for — the exact over-grant `identity/`
+    exists to prevent."""
+    from identity import tenants_for
+
+    narrowed = _principal("some-org", tenants=("only-this-one",), role="write")
+
+    assert tenants_for(narrowed) == frozenset()
+
+
+def test_a_key_that_names_a_shared_tenant_still_reaches_it(shared_twin):
+    """The other side of the rule above: narrowing must not REVOKE something the
+    issuer explicitly listed."""
+    from identity import tenants_for
+
+    keyed = _principal("some-org", tenants=(shared_twin,), role="read")
+
+    assert tenants_for(keyed) == frozenset({shared_twin})
+
+
+def test_unsharing_takes_the_twin_back_out_of_reach(account):
+    from identity import clear_shared_cache, store, tenants_for
+
+    tenant = "temporarily-shared-twin"
+    store.share_tenant(tenant)
+    clear_shared_cache()
+    assert tenant in tenants_for(_principal(account["org_id"]))
+
+    store.release_tenant(tenant)
+    clear_shared_cache()
+
+    assert tenant not in tenants_for(_principal(account["org_id"]))
+
+
+def test_the_shared_org_id_cannot_be_produced_by_a_signup():
+    """`nxr:shared` must stay reserved. `slugify()` emits only [a-z0-9-], so no
+    company name can mint it — asserted here because the guarantee that keeps a
+    customer from owning the shared set lives in that function."""
+    from identity.store import SHARED_ORG_ID, slugify
+
+    for attempt in ("nxr:shared", "NXR:Shared", "nxr shared", "nxr_shared",
+                    "nxr-shared", "  nxr:shared  "):
+        assert slugify(attempt) != SHARED_ORG_ID, (
+            f"{attempt!r} slugified onto the reserved shared organisation")
+
+
+def test_a_shared_twin_is_visible_over_http_to_a_fresh_account(client, shared_twin):
+    """End to end through the listing endpoint, which is the first call the UI
+    makes and the one that decides whether the library looks empty."""
+    import uuid
+
+    resp = client.post("/api/v1/auth/signup", json={
+        "email": f"fresh-{uuid.uuid4().hex[:8]}@example.com",
+        "password": PASSWORD, "org_name": "Fresh Co",
+    })
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["access_token"]
+
+    listing = client.get("/api/v1/twins", headers=auth(token))
+
+    assert listing.status_code == 200, listing.text
+    # The tenant is shared but has no registry row in this suite (no Neo4j), so
+    # what is asserted is the SCOPE: it is not counted as hidden.
+    from identity import tenants_for
+    assert shared_twin in tenants_for(_principal(resp.json()["org_id"]))

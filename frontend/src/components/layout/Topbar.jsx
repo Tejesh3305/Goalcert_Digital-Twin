@@ -1,6 +1,7 @@
 import { usePolling } from '../../hooks/useApi'
 import api from '../../api/client'
 import { useTwin } from '../../context/TwinContext'
+import { hasBackendState, isSimTenant, simLabel } from '../../lib/simTwins'
 import TwinSwitcher from './TwinSwitcher'
 import UserMenu from './UserMenu'
 import Logo from '../ui/Logo'
@@ -10,8 +11,11 @@ export default function Topbar() {
   const { activeTenant, activeTwin } = useTwin()
 
   const { data: health, error: healthError } = usePolling(() => api.health(), 6000, [])
+  // Skipped for a simulated twin: it has no server-side state, so this would be a
+  // 403 every 4s. See lib/simTwins hasBackendState().
   const { data: stats } = usePolling(
-    () => api.stats(activeTenant), 4000, [activeTenant], { skip: !activeTenant },
+    () => api.stats(activeTenant), 4000, [activeTenant],
+    { skip: !hasBackendState(activeTenant) },
   )
 
   // Three states: server unreachable (healthError) > degraded (DB down) > healthy.
@@ -37,7 +41,12 @@ export default function Topbar() {
       <div className="topbar-breadcrumb">
         {activeTwin
           ? <><b>{activeTwin.name}</b> · {activeTwin.domain} twin</>
-          : <span className="muted">No twin selected</span>}
+          // A simulated twin has no registry record, so `activeTwin` is null and
+          // this said "No twin selected" while the switcher right next to it named
+          // the twin that WAS selected.
+          : isSimTenant(activeTenant)
+            ? <><b>{simLabel(activeTenant)}</b> · simulated twin</>
+            : <span className="muted">No twin selected</span>}
       </div>
       {status === 'degraded' && (
         <div className="topbar-stat" style={{ color: 'var(--accent-amber)', borderColor: 'rgba(224,150,47,.35)' }}

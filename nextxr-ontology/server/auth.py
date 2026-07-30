@@ -276,6 +276,11 @@ _PUBLIC_API_PATHS = {
 # unauthenticated: /login is a password-guessing surface, /signup an
 # account-creation one, and /password/forgot an email-enumeration one.
 _PUBLIC_AUTH_PATHS = {
+    # Whether a credential is required, and whether signup is open. The sign-in
+    # page needs both BEFORE it can hold a credential, and it previously inferred
+    # the first by calling a protected endpoint and reading the 401 — a
+    # deliberate auth failure on every page load of every deployment.
+    "/api/v1/auth/posture",
     "/api/v1/auth/signup",
     "/api/v1/auth/login",
     "/api/v1/auth/refresh",
@@ -400,12 +405,23 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # otherwise queue on the advisory lock and time out their health checks.
         # The recommended shape is a one-off migrate task before the service rolls
         # — this line is how an operator confirms it ran.
+        # The posture line is printed EVEN WHEN APPLYING FAILED, and that is the
+        # point of the `finally`. Previously a failure raised out of
+        # run_at_startup(), skipped log_posture() and printed only
+        # "[migrations] posture unavailable: <the same error again>" — so the boot
+        # log said what went wrong twice and never said WHICH migrations were
+        # still pending, which is the one fact needed to act on it.
         try:
             from db import migrations as _migrations
-            _migrations.run_at_startup()
-            _migrations.log_posture()
+            try:
+                _migrations.run_at_startup()
+            finally:
+                _migrations.log_posture()
         except Exception as e:
-            print(f"[migrations] posture unavailable: {e}", flush=True)
+            print(f"[migrations] !! the schema is NOT up to date ({e}). Requests "
+                  f"touching a table this build expects to have changed will "
+                  f"fail. Run `python -m db.migrations` against this database.",
+                  flush=True)
 
         # Refuse to boot on a configuration that would fail intermittently and
         # unexplainably in a fleet — an ephemeral JWT key while auth is enforced.

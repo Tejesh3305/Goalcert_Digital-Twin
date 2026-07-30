@@ -1,15 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none" role="img" aria-label="Goalcert">
+  <!-- The Goalcert phi mark, traced from the master artwork: a ring of outer
+       radius 51.8 with a stroke of 16.3, crossed by a serifed vertical bar that
+       overshoots it at both ends. The geometry and the three gradient stops are
+       measured from `logo Goalcert .png`, so this stays in step with
+       goalcert-mark.png (which Logo.jsx prefers) instead of being an
+       approximation of it — and it is what renders at favicon size, where the
+       raster loses the ring's counter. -->
   <defs>
-    <linearGradient id="gc" x1="14" y1="14" x2="106" y2="106" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#7c3aed"/>
-      <stop offset="1" stop-color="#2563eb"/>
+    <linearGradient id="gc" x1="8" y1="100" x2="112" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8d41c9"/>
+      <stop offset=".5" stop-color="#2d4893"/>
+      <stop offset="1" stop-color="#1162b1"/>
     </linearGradient>
   </defs>
-  <!-- ring -->
-  <circle cx="60" cy="62" r="33" stroke="url(#gc)" stroke-width="13"/>
-  <!-- vertical bar -->
-  <rect x="53" y="11" width="14" height="100" rx="3" fill="url(#gc)"/>
-  <!-- serif caps -->
-  <rect x="44" y="11" width="32" height="9" rx="3" fill="url(#gc)"/>
-  <rect x="44" y="102" width="32" height="9" rx="3" fill="url(#gc)"/>
+
+  <circle cx="60" cy="60.5" r="43.7" stroke="url(#gc)" stroke-width="16.3"/>
+
+  <!-- The bar, with the concave serif flare at each end (78 -> 93 units wide in
+       the master, i.e. a subtle I-beam rather than a plain rectangle). -->
+  <path fill="url(#gc)"
+        d="M50.4 4h18.9c0 8-1.5 8-1.5 16v80c0 8 1.5 8 1.5 16H50.4c0-8 1.5-8 1.5-16V20c0-8-1.5-8-1.5-16z"/>
 </svg>

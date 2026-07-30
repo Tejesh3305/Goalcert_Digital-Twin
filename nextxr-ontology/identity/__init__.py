@@ -51,10 +51,12 @@ from .models import (  # noqa: F401
 from .resolve import (  # noqa: F401
     anonymous_principal,
     clear_cache,
+    clear_shared_cache,
     platform_admin_principal,
     principal_for_device,
     principal_from_access_token,
     principal_from_api_key,
+    shared_tenants,
     tenants_for,
 )
 from .service import (  # noqa: F401
@@ -71,10 +73,10 @@ __all__ = [
     "ROLE_WRITE", "ApiKeyRecord", "AuthFailed", "Conflict", "Forbidden",
     "Membership", "Organization", "Principal", "Session", "User",
     "anonymous_principal", "bootstrap_admin", "clear_cache",
-    "normalize_role", "platform_admin_principal", "posture",
-    "principal_for_device", "principal_from_access_token",
-    "principal_from_api_key", "role_at_least", "role_rank", "signup_allowed",
-    "tenants_for",
+    "clear_shared_cache", "normalize_role", "platform_admin_principal",
+    "posture", "principal_for_device", "principal_from_access_token",
+    "principal_from_api_key", "role_at_least", "role_rank", "shared_tenants",
+    "signup_allowed", "tenants_for",
 ]
 
 

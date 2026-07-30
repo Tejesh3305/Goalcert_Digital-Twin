@@ -16,7 +16,9 @@ import { useMemo, useState } from 'react'
 import { PanelHeader, Card } from '../components/ui/Card'
 import { Empty, ErrorBox, Loading } from '../components/ui/States'
 import NoTwin from '../components/NoTwin'
+import SimTwinNotice from '../components/SimTwinNotice'
 import { useTwin } from '../context/TwinContext'
+import { isSimTenant } from '../lib/simTwins'
 import { useApi } from '../hooks/useApi'
 import AgentCard from '../components/copilot/AgentCard'
 import useAgent from '../components/copilot/useAgent'
@@ -52,6 +54,13 @@ export default function Copilot() {
   }), [activeTenant, activeTwin, horizon])
 
   if (!activeTenant) return <NoTwin />
+  // The agents read the live physics runtime for a tenant. A simulated twin has
+  // none — its state lives in the browser — so every agent call would be a 403
+  // against a tenant no organisation owns.
+  if (isSimTenant(activeTenant)) {
+    return <SimTwinNotice tenant={activeTenant} title="Twin Copilot"
+                          what="The agents" icon="ti-sparkles" />
+  }
 
   const stubMode = health?.copilot?.mode === 'stub'
 

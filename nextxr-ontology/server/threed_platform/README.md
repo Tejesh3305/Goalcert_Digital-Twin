@@ -84,13 +84,58 @@ main server (e.g. `POST /api/v1/threed/api/jobs`).
 
 In `.env`:
 ```
+RUNPOD_API_KEY=...
+RUNPOD_ENDPOINT_ID=...
+TRELLIS_TEXTURE_SIZE=1024     # optional, default 1024
+TRELLIS_WAIT_SECONDS=900      # optional, how long ONE attempt waits
+```
+Or Replicate as an alternative:
+```
 REPLICATE_API_TOKEN=r8_xxx
 TRELLIS_REPLICATE_MODEL=owner/trellis:<version-hash>
 ```
 Pin the exact Replicate model:version you intend to use. The reconstruct stage
-saves the raw provider response to `artifacts/reconstruct/replicate_output.json`
-and downloads the returned GLB — if a deployment names its output field
-differently, that file shows you what came back.
+saves the provider response to `artifacts/reconstruct/<provider>_output.json`
+(with the base64 mesh elided — it is already written as `model.glb`) and downloads
+the returned GLB, so if a deployment names its output field differently, that file
+shows you what came back.
+
+## The RunPod endpoint — the settings that decide whether this works
+
+**Measured on the live endpoint (2026-07-30):** a warm worker turns one photo into
+a 1.34 MB GLB in **126 s** at `texture_size: 1024`, after ~7 s of queueing. It
+works. What fails is getting a warm worker.
+
+The endpoint was configured `workersMin: 0`, `idleTimeout: 30 s`, so a worker is
+torn down 30 seconds after finishing and the next upload waits for a full cold
+start of a multi-gigabyte TRELLIS image. Jobs then sit `IN_QUEUE` past any
+reasonable client timeout — which is how 8 of 54 jobs ended up failed and how the
+pipeline hit "RunPod job timed out" on a job that was fine.
+
+| Setting | Was | Use | Why |
+|---|---|---|---|
+| **Active workers** (`workersMin`) | `0` | `1` while demoing | The single change that removes cold start. Bills continuously — set it back to 0 afterwards. |
+| **Idle timeout** | `30 s` | `300 s`+ | Keeps a warm worker between uploads, so the second photo of a demo is not another cold start. |
+| **Container disk** | `30 GB` | check | TRELLIS-image-large plus CUDA and deps is tight in 30 GB. A worker that cannot unpack loops in `initializing`. |
+| **Network volume** | none | consider | Weights on a volume make start-up a mount instead of a download. Baking them into the image works too. |
+| **Max workers** | `3` | fine | Only matters once several people upload at once. |
+
+Check the endpoint any time with:
+```powershell
+cd nextxr-ontology/server/threed_platform
+python check_runpod.py        # balance, queue depth, worker states
+```
+`workers: {idle: 0, initializing: N, ready: 0}` with jobs `inQueue` is the
+cold-start problem, not a broken pipeline.
+
+### A slow job is no longer a lost job
+
+`app/stages/reconstruct.py` submits asynchronously (`POST /run`), writes the RunPod
+job id to the job store **before** it starts waiting, and resumes from that id on
+the next run. Running out of patience now costs a retry, not the GPU minutes:
+RunPod finishes the job, and the next attempt collects the result instead of
+paying to generate it again. A dropped connection mid-poll is retried rather than
+treated as a failed job.
 
 ## Extend
 - **New pipeline stage:** add a `Stage` subclass in `app/stages/`, drop it into

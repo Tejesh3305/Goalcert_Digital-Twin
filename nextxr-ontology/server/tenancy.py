@@ -747,6 +747,7 @@ def log_posture() -> None:
         print(f"[tenancy] identity-backed: {len(orgs)} organisation(s) owning "
               f"{owned} tenant(s). Enforcement covers path, query and body "
               f"carriers on every /api route.", flush=True)
+        _log_unowned_tenants(owned)
     except Exception as e:
         print(f"[tenancy] identity tables not readable ({e}); scoping falls back "
               f"to NXR_API_KEYS only.", flush=True)
@@ -772,3 +773,36 @@ def log_posture() -> None:
     scoped = len(keys) - admin
     print(f"[tenancy] {len(keys)} legacy env key(s): {admin} admin (all tenants), "
           f"{scoped} tenant-scoped.", flush=True)
+
+
+def _log_unowned_tenants(owned: int) -> None:
+    """Warn about twins that NO organisation owns.
+
+    `org_tenants` is the authorization relation, so a twin missing from it is
+    unreachable by every signed-in user — including our own staff unless they are
+    a platform admin. That is the correct rule and a confusing symptom: the twin
+    is in the registry, the API returns 200, and the app looks empty. It is the
+    normal state of any registry that predates `identity/` — every twin there was
+    created when a tenant PREFIX, not a row, conferred access — and nothing in the
+    boot log said so.
+
+    Reported, never fixed automatically. Which customer owns an existing twin is
+    not a default the platform gets to pick, and the plausible-looking guess —
+    hand them to whichever organisation exists — is a cross-tenant disclosure the
+    first time there are two.
+    """
+    try:
+        from db import connect
+        with connect("twins") as conn:
+            total = dict(conn.execute(
+                "SELECT COUNT(*) AS n FROM twins").fetchone())["n"]
+    except Exception:
+        return                             # registry not provisioned yet
+
+    unowned = max(0, total - owned)
+    if not unowned:
+        return
+    print(f"[tenancy] !! {unowned} of {total} twin(s) are owned by no "
+          f"organisation, so no signed-in user can see them (a platform admin "
+          f"can). Assign them with `python -m identity.tenants --org <ORG_ID> "
+          f"--adopt-unowned`.", flush=True)

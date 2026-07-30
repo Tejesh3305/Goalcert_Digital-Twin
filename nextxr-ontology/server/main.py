@@ -60,7 +60,7 @@ from behaviors.registry import Behavior, BehaviorRegistry, Tier
 from changelog.service import ChangeLog
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from feed.simulate import FindingsLoop, simulate_temperature
 from graph.connection import get_driver
@@ -906,6 +906,36 @@ def index():
     return HTMLResponse(content=_PLACEHOLDER)
 
 
+def _public_file(full_path: str) -> Path | None:
+    """A real file sitting at the ROOT of frontend/dist, or None.
+
+    WHY THIS IS NEEDED AND WAS MISSING. Vite copies everything in `public/` to the
+    root of `dist/`, and index.html references those files by absolute path —
+    `/goalcert-mark.svg` for the favicon, `/goalcert-mark.png` for the brand
+    lockup. Only `/assets` and `/models` were mounted, so every OTHER root file
+    fell through to the SPA fallback below and was answered with index.html at
+    status 200. An `<img>` pointed at HTML does not error usefully; it just fails
+    to decode, so the Goalcert logo rendered as a broken-image glyph in the
+    sidebar, the topbar and the sign-in page, and the favicon never appeared.
+
+    Invisible in development, because `npm run dev` serves `public/` itself — so
+    this only ever broke the built image, which is the one users see.
+
+    Traversal is not possible: the resolved path must stay inside dist, and only a
+    FILE directly in it is served (no recursion into subdirectories, which are
+    mounted explicitly when they should be reachable).
+    """
+    if not full_path or "/" in full_path or "\\" in full_path:
+        return None
+    candidate = (FRONTEND_DIST / full_path).resolve()
+    try:
+        if candidate.parent != FRONTEND_DIST.resolve():
+            return None
+    except OSError:
+        return None
+    return candidate if candidate.is_file() else None
+
+
 @app.get("/{full_path:path}", response_class=HTMLResponse)
 def spa_fallback(full_path: str):
     """SPA fallback: any non-API, non-asset path returns index.html so the
@@ -913,6 +943,11 @@ def spa_fallback(full_path: str):
     # Never swallow API or docs paths.
     if full_path.startswith(("api/", "docs", "openapi.json", "redoc")):
         raise HTTPException(status_code=404, detail="Not found")
+    # A real file at the root of dist (favicon, brand images, robots.txt) is
+    # itself, not the app shell.
+    asset = _public_file(full_path)
+    if asset is not None:
+        return FileResponse(asset)
     idx = FRONTEND_DIST / "index.html"
     if idx.exists():
         return HTMLResponse(content=idx.read_text(encoding="utf-8"))

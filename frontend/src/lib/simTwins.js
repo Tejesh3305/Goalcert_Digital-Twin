@@ -32,8 +32,28 @@ export const SIM_TWINS = [
 
 export const isSimTenant = (tenant) => typeof tenant === 'string' && tenant.startsWith(SIM_PREFIX)
 
+/**
+ * Whether this tenant has SERVER-SIDE state, i.e. whether polling the API for it
+ * means anything. Use it for the `skip` of every tenant-scoped poll.
+ *
+ * A sim tenant has none by definition: `sim:datacenter` is a synthetic id for a
+ * client-side simulation and no such twin exists in the registry — so tenancy
+ * correctly refuses it, and the poll becomes a permanent 403 every few seconds
+ * from the sidebar, the topbar and whichever panel is open. Those filled the
+ * server log with authorization warnings that look like a real access-control
+ * problem and are simply the frontend asking for something it invented.
+ */
+export const hasBackendState = (tenant) => Boolean(tenant) && !isSimTenant(tenant)
+
 /** The Collins domain of a sim tenant, or null if this isn't a sim tenant. */
 export const simDomainOf = (tenant) => (isSimTenant(tenant) ? tenant.slice(SIM_PREFIX.length) : null)
 
 /** The synthetic tenant id for a sim domain. */
 export const simTenantFor = (domain) => `${SIM_PREFIX}${domain}`
+
+/** The display name of a sim tenant ("Helix Data Center"), falling back to the id
+ *  so an unknown sim domain still renders something truthful. */
+export const simLabel = (tenant) => {
+  const domain = simDomainOf(tenant)
+  return SIM_TWINS.find((t) => t.domain === domain)?.label || tenant
+}

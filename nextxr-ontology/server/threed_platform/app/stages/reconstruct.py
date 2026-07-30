@@ -1,10 +1,19 @@
 """Stage 9 — TRELLIS Reconstruction (core), provider-abstracted.
 
 Providers (auto-selected by config.provider()):
-  • runpod    — RunPod serverless endpoint (preferred). POST /runsync, poll if async.
+  • runpod    — RunPod serverless endpoint (preferred). POST /run, then poll.
   • http      — a generic TRELLIS HTTP server (e.g. a RunPod pod) honouring our contract.
   • replicate — Replicate model:version (alternative).
   • stub      — placeholder mesh so the pipeline runs with no GPU configured.
+
+THE GPU WORK OUTLIVES THE REQUEST, SO THE JOB ID IS STATE
+---------------------------------------------------------
+This is the only stage whose work happens somewhere else, on a clock we do not
+control. A serverless endpoint with no always-on worker cold-starts the TRELLIS
+image before it can run anything, and a job can sit IN_QUEUE for longer than any
+sensible client will wait. So the RunPod job id is written to the job store the
+moment it exists, before waiting — and giving up on the wait no longer destroys
+the work, because the next run of this stage asks about that id first.
 
 Geometry-prior integration:
   • prior.mode == "retrieve" (high-confidence catalogue match) → reuse the
@@ -14,7 +23,7 @@ Geometry-prior integration:
 ── Worker contract (the deployed RunPod TRELLIS handler) ─────────────────────
   request  input: {
     "image" / "image_base64" / "images": "<png/jpg base64, no data: prefix>",
-    "texture_size": 1024,
+    "texture_size": 1024,          # settings.trellis_texture_size
     "output_format": "glb",
     "prior": {"asset_type": str, "similarity": float} | null
   }
@@ -35,7 +44,10 @@ from ..config import settings
 from .base import Ctx, Stage, StageSkipped
 
 POLL_SECONDS = 5
-POLL_TIMEOUT = 900
+# How many consecutive FAILED STATUS READS end the wait. A job that is running
+# fine must survive a network blip — one dropped TLS connection used to abandon
+# it — but a permanently unreachable API should not be polled forever.
+MAX_POLL_ERRORS = 12
 
 
 def _b64_image(path) -> str:
@@ -157,7 +169,7 @@ class ReconstructStage(Stage):
             "ss_sampling_steps": 25, "ss_guidance_strength": 7.5,
             "slat_sampling_steps": 25, "slat_guidance_strength": 3.0,
             "mesh_simplify": 0.90,
-            "texture_size": 2048,
+            "texture_size": settings.trellis_texture_size,
             "preprocess": True,
             "output_format": "glb",
             "prior": ({"asset_type": hint["asset_type"], "similarity": hint["similarity"]}
@@ -166,35 +178,130 @@ class ReconstructStage(Stage):
 
     # ── RunPod serverless ────────────────────────────────────────────────────
     def _runpod(self, ctx, img_path, glb_out, hint) -> str:
+        """Generate on the RunPod TRELLIS endpoint.
+
+        SUBMIT ASYNC, RECORD THE ID, THEN WAIT — in that order, because the order
+        is what makes a slow job recoverable.
+
+        What this replaced held a `/runsync` connection open for up to ten
+        minutes, then polled, and on running out of patience raised "RunPod job
+        timed out" and threw the job id away. The job itself kept running: RunPod
+        finished it, billed for it, and the GLB sat in a result nothing could ever
+        fetch again. Retrying paid for the same work twice.
+
+        Measured against the live endpoint, that is not a rare edge: with
+        `workersMin: 0` and a 30-second idle timeout, every upload after a quiet
+        spell waits for a cold start, and a queued job routinely outlives the
+        client's patience. Writing the id to the job store first (`ctx.set` goes
+        straight through to Postgres/SQLite) means the NEXT run of this stage
+        collects the finished result instead of starting over.
+        """
         base = f"https://api.runpod.ai/v2/{settings.runpod_endpoint_id}"
         headers = {"Authorization": f"Bearer {settings.runpod_api_key}",
                    "Content-Type": "application/json"}
-        payload = self._payload(img_path, hint)
-        r = requests.post(f"{base}/runsync", json=payload, headers=headers, timeout=600)
-        r.raise_for_status()
-        data = r.json()
-        status = data.get("status")
-        # If runsync didn't finish, poll the async status endpoint.
-        if status in ("IN_QUEUE", "IN_PROGRESS"):
-            job_id = data.get("id")
-            t0 = time.time()
-            while time.time() - t0 < POLL_TIMEOUT:
-                time.sleep(POLL_SECONDS)
-                s = requests.get(f"{base}/status/{job_id}", headers=headers, timeout=60).json()
-                status = s.get("status")
-                if status == "COMPLETED":
-                    data = s
-                    break
-                if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
-                    raise RuntimeError(f"RunPod job {status}: {s.get('error')}")
+
+        job_id = ctx.get("runpod_job_id") or ""
+        state = None
+        resumed = False
+        if job_id:
+            # A previous attempt submitted this and did not see it finish. Ask
+            # about THAT job before spending another GPU-minute on a new one.
+            state = self._runpod_status(base, headers, job_id)
+            if state and state.get("status") not in ("FAILED", "CANCELLED",
+                                                     "TIMED_OUT", None):
+                resumed = True
             else:
-                raise RuntimeError("RunPod job timed out")
+                job_id, state = "", None         # dead or unknown — submit again
+
+        if not job_id:
+            r = requests.post(f"{base}/run", json=self._payload(img_path, hint),
+                              headers=headers, timeout=120)
+            r.raise_for_status()
+            job_id = (r.json() or {}).get("id") or ""
+            if not job_id:
+                raise RuntimeError("RunPod accepted the request but returned no "
+                                   "job id — nothing can be polled or recovered.")
+            # BEFORE waiting, so a crash or a timeout still leaves the id behind.
+            ctx.set("runpod_job_id", job_id)
+            ctx.set("runpod_submitted_at", time.time())
+
+        # The resume read above may ALREADY be the finished job — which is the
+        # whole point of resuming. Polling again for something we are holding
+        # would sit through another wait cycle for no reason.
+        data = (state if (state or {}).get("status") == "COMPLETED"
+                else self._await_runpod(base, headers, job_id, ctx))
+
         (ctx.artifacts(self.name) / "runpod_output.json").write_text(
-            json.dumps(_safe(data), indent=2), encoding="utf-8")
+            json.dumps(_elide_blobs(_safe(data)), indent=2), encoding="utf-8")
         if not _save_glb_from_output(data.get("output", data), glb_out):
             raise RuntimeError("RunPod returned no GLB — see runpod_output.json")
+
+        # Consumed. Clearing it stops a LATER re-run from resurrecting this
+        # result instead of generating from a new image.
+        ctx.set("runpod_job_id", "")
         ctx.set("reconstruction", "trellis@runpod")
-        return f"TRELLIS (RunPod) → {glb_out.name}"
+        exec_s = (data.get("executionTime") or 0) / 1000
+        delay_s = (data.get("delayTime") or 0) / 1000
+        return (f"TRELLIS (RunPod{', resumed' if resumed else ''}) → {glb_out.name}"
+                f" · queued {delay_s:.0f}s + ran {exec_s:.0f}s")
+
+    def _runpod_status(self, base, headers, job_id) -> dict | None:
+        """One status read. Returns None when the call itself failed, which is
+        NOT the same as the job having failed and must not be treated as such."""
+        try:
+            r = requests.get(f"{base}/status/{job_id}", headers=headers, timeout=60)
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return None
+
+    def _await_runpod(self, base, headers, job_id, ctx) -> dict:
+        """Poll until the job finishes, or until patience runs out.
+
+        A FAILED STATUS READ IS NOT A FAILED JOB. The poll loop this replaced
+        raised on any exception, so a single TLS blip mid-poll abandoned a job
+        that was running perfectly well — observed against the live endpoint.
+        Transient errors are retried; only a terminal status from RunPod, or the
+        budget expiring, ends the wait.
+        """
+        deadline = time.time() + settings.trellis_wait_seconds
+        last_status = ""
+        consecutive_errors = 0
+
+        while time.time() < deadline:
+            time.sleep(POLL_SECONDS)
+            state = self._runpod_status(base, headers, job_id)
+            if state is None:
+                consecutive_errors += 1
+                if consecutive_errors >= MAX_POLL_ERRORS:
+                    raise RuntimeError(
+                        f"Lost contact with RunPod while job {job_id} was "
+                        f"{last_status or 'in flight'} ({consecutive_errors} "
+                        f"failed status reads). The job id is recorded, so "
+                        f"re-running this job will pick it up.")
+                continue
+            consecutive_errors = 0
+
+            status = state.get("status") or ""
+            if status != last_status:
+                last_status = status
+                # Visible in the job record while it is still running, which is
+                # the difference between "queued behind a cold start" and "stuck".
+                ctx.set("runpod_status", status)
+
+            if status == "COMPLETED":
+                return state
+            if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
+                ctx.set("runpod_job_id", "")      # terminal: nothing to resume
+                raise RuntimeError(f"RunPod job {status}: {state.get('error')}")
+
+        waited = settings.trellis_wait_seconds
+        raise RuntimeError(
+            f"RunPod job {job_id} was still {last_status or 'unstarted'} after "
+            f"{waited}s. It has NOT been cancelled and its id is recorded — "
+            f"re-run this job to collect the result. If it is stuck IN_QUEUE, "
+            f"the endpoint has no ready worker: set an active worker "
+            f"(workersMin >= 1) or raise the idle timeout, see the README.")
 
     # ── generic HTTP server ──────────────────────────────────────────────────
     def _http(self, ctx, img_path, glb_out, hint) -> str:
@@ -205,7 +312,7 @@ class ReconstructStage(Stage):
         if "application/json" in ctype:
             data = r.json()
             (ctx.artifacts(self.name) / "http_output.json").write_text(
-                json.dumps(_safe(data), indent=2), encoding="utf-8")
+                json.dumps(_elide_blobs(_safe(data)), indent=2), encoding="utf-8")
             if not _save_glb_from_output(data, glb_out):
                 raise RuntimeError("HTTP server returned no GLB")
         else:  # raw .glb bytes
@@ -256,3 +363,28 @@ def _safe(o):
         return o
     except Exception:
         return str(o)
+
+
+# Long enough to be a payload rather than an id, short enough to keep every field
+# that helps diagnose a response — urls, statuses, error strings, metadata.
+_BLOB_CHARS = 512
+
+
+def _elide_blobs(o):
+    """A copy of a RunPod response with the model blobs replaced by a summary.
+
+    `runpod_output.json` exists so an operator can see what the worker actually
+    returned when something looks wrong. It was written verbatim, which meant the
+    base64 mesh was stored a SECOND time — a 1.34 MB GLB becomes a 1.8 MB JSON
+    file sitting next to the model.glb that already holds it, on every job.
+
+    What matters for diagnosis is the shape of the response: which key carried
+    the model and how big it was. That is kept; the payload is not.
+    """
+    if isinstance(o, dict):
+        return {k: _elide_blobs(v) for k, v in o.items()}
+    if isinstance(o, list | tuple):
+        return [_elide_blobs(v) for v in o]
+    if isinstance(o, str) and len(o) > _BLOB_CHARS:
+        return f"<{len(o)} chars elided — see model.glb>"
+    return o

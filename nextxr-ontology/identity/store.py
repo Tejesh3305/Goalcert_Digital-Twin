@@ -123,6 +123,57 @@ def slugify(value: str) -> str:
     return slug.strip("-")[:40]
 
 
+# ── The reserved organisation that owns the platform's shared twins ─────
+#
+# WHY AN ORGANISATION AND NOT A LIST IN THE ENVIRONMENT. "Which twins does every
+# account land on" is the same question as "who owns this twin", and this codebase
+# already has one answer for that: a row in `org_tenants`. Expressing it as an env
+# var would add a SECOND authorization source that the audit log, the ownership
+# report and `tenants_for()` all have to learn about separately — and would make
+# the answer differ between the local database and the deployed one, which is
+# exactly how a demo ends up empty in front of a client.
+#
+# THE ID CANNOT COLLIDE WITH A REAL CUSTOMER'S. `slugify()` emits only
+# [a-z0-9-], so no organisation created from a company name can ever be called
+# "nxr:shared" — the colon is unproducible. A customer signing up as "NXR Shared"
+# becomes `nxr-shared`, a different row.
+SHARED_ORG_ID = "nxr:shared"
+_SHARED_ORG_NAME = "Shared demo twins"
+
+
+def ensure_shared_org() -> Organization:
+    """Create the reserved shared organisation if it is missing. Idempotent.
+
+    Inserted directly rather than through `create_org()`, which slugifies the id
+    it is given — that is the right behaviour for a customer name and would turn
+    this id into "nxrshared", quietly defeating the collision guarantee above.
+    """
+    _ensure()
+    existing = get_org(SHARED_ORG_ID)
+    if existing is not None:
+        return existing
+    now = _now()
+    with connect(_STORE) as conn:
+        conn.execute(
+            "INSERT INTO organizations (org_id, name, plan, status, "
+            "tenant_prefix, settings, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (org_id) DO NOTHING",
+            (SHARED_ORG_ID, _SHARED_ORG_NAME, "internal", "active",
+             f"{SHARED_ORG_ID}-", Json({"shared": True}), now, now))
+    return get_org(SHARED_ORG_ID) or Organization(
+        org_id=SHARED_ORG_ID, name=_SHARED_ORG_NAME, plan="internal",
+        status="active", tenant_prefix=f"{SHARED_ORG_ID}-", settings={},
+        created_at=now, updated_at=now)
+
+
+def share_tenant(tenant_id: str) -> None:
+    """Make one twin common to every account. Never reassigns: a twin a real
+    organisation already owns stays theirs (see `claim_tenant`)."""
+    ensure_shared_org()
+    claim_tenant(tenant_id, SHARED_ORG_ID)
+
+
 def create_org(name: str, *, org_id: str = "", plan: str = "trial") -> Organization:
     _ensure()
     base = slugify(org_id or name) or "org"

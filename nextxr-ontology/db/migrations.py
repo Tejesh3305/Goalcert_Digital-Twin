@@ -257,7 +257,15 @@ def apply_one(migration: Migration, *, dry_run: bool = False) -> None:
 def _execute(migration: Migration, conn) -> None:
     for statement in migration.statements:
         try:
-            conn.execute(_dialect_sql(statement))
+            # A statement the migration says MAY fail runs in a nested
+            # transaction. Without it, on Postgres the tolerated error aborts the
+            # whole transaction and every statement after it — plus the ledger
+            # INSERT — fails with "current transaction is aborted". Tolerating an
+            # error would then break the migration it was meant to let through,
+            # and only on RDS: SQLite fails per statement, so local runs looked
+            # fine. See core.Conn.nested().
+            with conn.nested("nxr_mig"):
+                conn.execute(_dialect_sql(statement))
         except Exception as e:
             if _is_tolerated(e, migration):
                 print(f"    (tolerated) {type(e).__name__}: {e}")

@@ -62,9 +62,31 @@ def _get_changelog() -> ChangeLog:
 # (bad label, etc.) are still raised before we get here.
 
 def _is_conn_error(exc: Exception) -> bool:
-    """True if this looks like Neo4j being unreachable (vs. a query bug)."""
+    """True if this looks like the graph being UNUSABLE, rather than a query bug.
+
+    Every read route below degrades on this and re-raises on anything else, so what
+    counts is load-bearing: a query bug must surface as a 500, and an unusable
+    graph must not.
+
+    THE `RuntimeError` CASE IS NOT UNREACHABILITY — IT IS MISCONFIGURATION, and it
+    belongs here anyway. `graph/connection.get_driver()` refuses to build a driver
+    at all when NEO4J_PASSWORD is unset (it will not fall back to the password
+    published in this repository), so nothing that touches the graph ever gets as
+    far as a socket. That produced a split personality on a deployment missing the
+    variable: `/twins` and `/health` reported the graph as unavailable and rendered
+    a degraded UI, while `/stats` — the endpoint the dashboard polls every 2.5
+    seconds — returned 500 with a traceback. Same cause, two behaviours, and the
+    louder one was the wrong one.
+
+    The misconfiguration is not hidden by this: `get_driver()`'s message says
+    exactly what is unset, the boot log prints it, and /health reports the
+    component as unreachable. This only stops it from being an unhandled 500 on
+    every poll.
+    """
     from neo4j.exceptions import AuthError, ServiceUnavailable, SessionExpired
-    return isinstance(exc, ServiceUnavailable | SessionExpired | AuthError | OSError)
+    if isinstance(exc, ServiceUnavailable | SessionExpired | AuthError | OSError):
+        return True
+    return isinstance(exc, RuntimeError) and "NEO4J_PASSWORD" in str(exc)
 
 
 # ── Entities ────────────────────────────────────────────────────────

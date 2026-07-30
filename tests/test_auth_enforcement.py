@@ -184,6 +184,36 @@ def test_readiness_reports_its_checks(api):
     assert "checks" in resp.json()
 
 
+def test_the_posture_endpoint_needs_no_credential(api):
+    """The sign-in page has to know whether a credential is required BEFORE it can
+    hold one. It used to find out by calling a protected endpoint and reading the
+    401 — so every page load of every real deployment deliberately provoked an
+    authentication failure, which is indistinguishable in the logs from a genuine
+    one."""
+    resp = api.get("/api/v1/auth/posture")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["auth_required"] is True        # conftest enforces auth
+    assert isinstance(body["signup_open"], bool)
+
+
+def test_the_posture_endpoint_discloses_nothing_else(api):
+    """It is unauthenticated, so its payload is a standing disclosure. Two
+    booleans a caller could determine anyway — no counts, names or versions."""
+    assert set(api.get("/api/v1/auth/posture").json()) == {
+        "auth_required", "signup_open"}
+
+
+def test_posture_reports_an_open_backend_as_open(api, monkeypatch):
+    """The case the whole endpoint exists to serve: a local server with auth
+    disabled must SAY so, or the SPA puts a login form in front of a backend that
+    cannot issue a token."""
+    monkeypatch.setenv("NXR_REQUIRE_AUTH", "0")
+
+    assert api.get("/api/v1/auth/posture").json()["auth_required"] is False
+
+
 @pytest.mark.parametrize("path", [
     "/api/v1/auth/login",
     "/api/v1/auth/signup",

@@ -24,6 +24,13 @@ def _f(name: str, default: float) -> float:
         return default
 
 
+def _i(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, default))
+    except Exception:
+        return default
+
+
 @dataclass(frozen=True)
 class Settings:
     data_dir: Path = Path(os.getenv("DATA_DIR", ROOT / "data")).resolve()
@@ -37,6 +44,19 @@ class Settings:
     # Replicate (kept as an alternative).
     replicate_token: str = os.getenv("REPLICATE_API_TOKEN", "") or ""
     replicate_model: str = os.getenv("TRELLIS_REPLICATE_MODEL", "") or ""
+
+    # ── TRELLIS generation ──
+    # Texture resolution asked of the worker. 1024 rather than 2048, measured:
+    # 2048 quadruples the texture data, and the worker hands the GLB back INSIDE
+    # the job result as base64 — so it lengthens both the inference and the
+    # payload that has to survive the round trip. A 1024 run on the live endpoint
+    # returned a 1.34 MB GLB in 126s. Raise it when a job is worth the wait.
+    trellis_texture_size: int = _i("TRELLIS_TEXTURE_SIZE", 1024)
+    # How long to wait for one job before giving up on THIS attempt. Giving up no
+    # longer loses the job — the RunPod job id is recorded, so a re-run collects
+    # the result (see stages/reconstruct.py) — so this is a patience setting, not
+    # a deadline for the work.
+    trellis_wait_seconds: int = _i("TRELLIS_WAIT_SECONDS", 900)
 
     # ── geometry prior retrieval ──
     prior_enabled: bool = (os.getenv("PRIOR_ENABLED", "1") not in ("0", "false", "False"))

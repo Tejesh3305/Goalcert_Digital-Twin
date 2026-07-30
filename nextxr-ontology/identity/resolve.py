@@ -36,8 +36,10 @@ _cache_lock = threading.Lock()
 def clear_cache() -> None:
     """Drop the API-key cache. Called by tests, and by the route that revokes a
     key so the revocation is instant on at least the task that served it."""
+    global _shared_cache
     with _cache_lock:
         _key_cache.clear()
+        _shared_cache = None
 
 
 def principal_from_api_key(secret: str) -> Principal | None:
@@ -126,24 +128,77 @@ def principal_from_access_token(token: str) -> Principal | None:
     )
 
 
+_SHARED_TTL = 10.0
+_shared_cache: tuple[float, frozenset[str]] | None = None
+
+
+def clear_shared_cache() -> None:
+    """Forget the shared-twin set — for tests, and after sharing/unsharing one."""
+    global _shared_cache
+    with _cache_lock:
+        _shared_cache = None
+
+
+def shared_tenants() -> frozenset[str]:
+    """The twins EVERY account can reach — the platform's own demo set.
+
+    Owned by the reserved `nxr:shared` organisation (`store.SHARED_ORG_ID`), so
+    "is this twin common to everyone" is answered by the same `org_tenants`
+    relation as every other ownership question, and shows up in the audit log and
+    the ownership report for free.
+
+    CACHED, because this is on the path of every single request: `scope_of()`
+    builds a Scope per request and would otherwise add a second indexed query to
+    all of them. The TTL is the delay before sharing or unsharing a twin takes
+    effect on a task that has already answered a request — ten seconds, the same
+    bounded-staleness trade as the API-key cache above. A failure is cached as
+    EMPTY rather than raising: an unreadable identity table must degrade to "no
+    shared twins", never to "no requests served".
+    """
+    global _shared_cache
+    now = time.monotonic()
+    cached = _shared_cache
+    if cached is not None and cached[0] > now:
+        return cached[1]
+    try:
+        found = frozenset(store.org_tenants(store.SHARED_ORG_ID))
+    except Exception:
+        found = frozenset()
+    with _cache_lock:
+        _shared_cache = (now + _SHARED_TTL, found)
+    return found
+
+
 def tenants_for(principal: Principal) -> frozenset[str] | None:
     """The tenant set a principal may reach, or None for unrestricted.
 
     THE resolution that replaced the tenant-prefix string convention. A platform
     admin gets None (everything). Everyone else gets exactly the tenants their
-    organisation owns, intersected with any narrowing on their key — so a tenant
-    absent from `org_tenants` is unreachable, whatever it is named.
+    organisation owns, PLUS the shared demo set, intersected with any narrowing on
+    their key — so a tenant that is neither owned nor shared is unreachable,
+    whatever it is named.
+
+    THE SHARED SET DOES NOT WIDEN A NARROWED KEY. A key issued with an explicit
+    `tenants` list was deliberately scoped by whoever issued it, and silently
+    granting it more than was asked for is the over-grant this module exists to
+    prevent — so the intersection is applied last. A key that names a shared
+    tenant itself still reaches it, because its issuer said so.
     """
     if principal.is_platform_admin:
         return None
 
-    if not principal.org_id:
-        return frozenset()                 # authenticated, member of nothing
+    shared = shared_tenants()
 
-    owned = frozenset(store.org_tenants(principal.org_id))
+    # Authenticated, member of no organisation — a user whose last membership was
+    # removed, or one mid-invitation. They own nothing, and still land on the
+    # shared twins like everybody else.
+    owned = (frozenset(store.org_tenants(principal.org_id))
+             if principal.org_id else frozenset())
+
+    reachable = owned | shared
     if principal.tenants is None:
-        return owned
-    return frozenset(principal.tenants) & owned
+        return reachable
+    return frozenset(principal.tenants) & reachable
 
 
 def principal_for_device(device) -> Principal:

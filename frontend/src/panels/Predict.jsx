@@ -4,7 +4,9 @@ import { Empty } from '../components/ui/States'
 import NoTwin from '../components/NoTwin'
 import { useTwin } from '../context/TwinContext'
 import { usePolling } from '../hooks/useApi'
+import SimTwinNotice from '../components/SimTwinNotice'
 import { isMachineDomain, healthBand, statusColor } from '../lib/machine'
+import { isSimTenant } from '../lib/simTwins'
 import { localName } from '../lib/format'
 import api from '../api/client'
 
@@ -311,6 +313,15 @@ function FacilityForecast({ tenant, twin }) {
 export default function Predict() {
   const { activeTenant, activeTwin } = useTwin()
   if (!activeTenant) return <NoTwin />
+
+  // A simulated twin has no registry record, so `activeTwin` is null and this
+  // used to fall through to FacilityForecast — which polled /stats and /findings
+  // for a tenant no organisation owns, i.e. a 403 every three seconds for as long
+  // as the panel stayed open.
+  if (isSimTenant(activeTenant)) {
+    return <SimTwinNotice tenant={activeTenant} title="Prediction"
+                          what="Forecasting" icon="ti-chart-dots-3" />
+  }
 
   const machine = isMachineDomain(activeTwin?.domain)
   return (

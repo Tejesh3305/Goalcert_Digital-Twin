@@ -6,6 +6,14 @@ twin per machine domain plus a generic facility — so the library is populated
 out of the box. It is safe to run on every boot: a domain that already has a
 twin is skipped (never duplicated), and the whole thing no-ops if Neo4j is
 unreachable. User-built twins are untouched.
+
+SEEDED TWINS ARE SHARED WITH EVERY ACCOUNT, and that is the half this was
+missing. Creating the twin only puts a row in the registry; a signed-in user
+reaches a twin because `org_tenants` says their organisation owns it, so a seeded
+twin owned by nobody is invisible to everyone who logs in — the library was
+"populated out of the box" and empty for every actual user. Each one is therefore
+claimed for the reserved shared organisation (`identity.store.SHARED_ORG_ID`),
+which is what makes them the set every new account lands on.
 """
 from __future__ import annotations
 
@@ -28,6 +36,21 @@ DEMO_TWINS = [
     ("defence-warship", "Warship"),
     ("generic-facility", "Generic Facility"),
 ]
+
+
+def _share(tenant_id: str) -> None:
+    """Make a seeded twin reachable by every account.
+
+    Best-effort and separate from creation on purpose: if the identity tables are
+    not provisioned yet the twin should still exist (an operator can share it
+    afterwards with `python -m identity.tenants`), rather than the seed failing
+    and the library staying empty.
+    """
+    try:
+        from identity import store as identity_store
+        identity_store.share_tenant(tenant_id)
+    except Exception as e:  # noqa: BLE001
+        log.warning("could not share seeded twin %s: %s", tenant_id, e)
 
 
 def seed_demo_twins() -> None:
@@ -57,8 +80,9 @@ def seed_demo_twins() -> None:
                 # Deterministic tenant id per domain: create() rejects an id that
                 # already exists, so a re-run or a second booting instance can't
                 # produce a duplicate for the same domain (the create is the lock).
-                reg.create(name=name, domain=domain, writer=writer,
-                           tenant_id=f"demo-{domain}")
+                twin = reg.create(name=name, domain=domain, writer=writer,
+                                  tenant_id=f"demo-{domain}")
+                _share(twin.tenant_id)
                 created += 1
             except Exception as e:  # noqa: BLE001 — one bad domain shouldn't stop the rest
                 log.warning("demo-twin seed for %s failed: %s", domain, e)

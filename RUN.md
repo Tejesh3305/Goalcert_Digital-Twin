@@ -62,6 +62,28 @@ a twin because your org owns it — not because of how its id is spelled. So a
 fresh account sees an empty twin list until it creates one or is given one, which
 is correct rather than broken.
 
+**Twins that already existed belong to nobody.** Every twin created before
+`identity/` was reachable by a tenant-prefix convention, so there is no
+`org_tenants` row saying who owns it — and the rule above then makes it invisible
+to every signed-in user. The boot log says so:
+
+```
+[tenancy] !! 14 of 14 twin(s) are owned by no organisation, so no signed-in
+          user can see them (a platform admin can).
+```
+
+Sign up first, so the organisation exists, then hand them over:
+
+```powershell
+cd nextxr-ontology
+python -m identity.tenants                                 # who owns what
+python -m identity.tenants --org <ORG_ID> --adopt-unowned  # claim the orphans
+```
+
+`--org` is the id from the report (a slug of the organisation name, e.g.
+`acme-energy`). Add `--dry-run` to see the assignment without making it. It never
+reassigns a twin another organisation already owns.
+
 **Account → API keys** issues machine credentials for scripts and CI. The secret
 is shown once and stored only as a hash; there is no way to read it back.
 

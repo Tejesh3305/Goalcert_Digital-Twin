@@ -1,5 +1,6 @@
 """auth_routes.py — the HTTP surface of `identity/`.
 
+    GET  /api/v1/auth/posture           is auth required, is signup open (public)
     POST /api/v1/auth/signup            create a user + their organisation
     POST /api/v1/auth/login             email + password  -> access + refresh
     POST /api/v1/auth/refresh           rotate a refresh token
@@ -225,6 +226,39 @@ def _handle(exc: Exception) -> HTTPException:
     if isinstance(exc, PasswordError):
         return HTTPException(status_code=422, detail=str(exc))
     raise exc
+
+
+# ── Posture (public) ────────────────────────────────────────────────────
+
+
+@router.get("/posture")
+async def posture():
+    """What the sign-in surface needs to know BEFORE anyone signs in.
+
+    WHY THIS ENDPOINT EXISTS. The SPA has to answer two questions on load, and it
+    used to answer both by guessing:
+
+      * Is a credential required at all? Against a dev server with NXR_DEV_MODE
+        set the API answers without one, and putting a login page in front of that
+        would demand an account the open backend cannot issue a token for. The old
+        detection was to call `GET /api/v1/twins` unauthenticated and read the
+        status code — so every single page load of a REAL deployment deliberately
+        provoked a 401 (three of them, with the retry and the refresh), which is
+        indistinguishable in the logs from a genuine auth failure and buried real
+        ones in noise.
+      * Is self-service signup open? Otherwise the login page offers a "Create an
+        account" link that leads to a form that always 403s.
+
+    Deliberately non-sensitive: two booleans an unauthenticated caller can already
+    determine by trying, and no counts, names or versions. It is a constant-time
+    read of process configuration, so it touches no store.
+    """
+    from server.auth import auth_required
+
+    return {
+        "auth_required": auth_required(),
+        "signup_open": service.signup_allowed(),
+    }
 
 
 # ── Signup / login / refresh / logout ───────────────────────────────────

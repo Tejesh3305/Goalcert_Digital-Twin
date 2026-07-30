@@ -101,6 +101,33 @@ async def create_job(
     return {"job_id": job["id"], "status": "queued"}
 
 
+@app.post("/api/jobs/{job_id}/retry")
+def retry_job(job_id: str):
+    """Run a finished-or-failed job again, from its recorded input.
+
+    THE REASON THIS EXISTS is the reconstruct stage's resume path. When a TRELLIS
+    job outlives the client's patience, the stage records the RunPod job id and
+    fails — RunPod keeps working and the result becomes collectable rather than
+    lost. Collecting it means running the stage again, and until now the only way
+    to do that was `orchestrator.submit(id)` from a Python shell, which made the
+    advice in that error message ("re-run this job") true only for whoever wrote
+    it.
+
+    Cheap in the case that matters: a re-run whose RunPod job already COMPLETED
+    fetches the finished mesh instead of paying for a second generation.
+    """
+    job = store.load(job_id)
+    if not job:
+        raise HTTPException(404, "no such job")
+    if job.get("status") == "running":
+        raise HTTPException(409, "that job is still running")
+    if not job.get("state", {}).get("input_path"):
+        raise HTTPException(400, "that job has no recorded input to re-run")
+    submit(job_id)
+    return {"job_id": job_id, "status": "queued",
+            "resuming_runpod_job": job.get("state", {}).get("runpod_job_id") or None}
+
+
 @app.get("/api/jobs")
 def list_jobs():
     return {"jobs": store.list_jobs()}

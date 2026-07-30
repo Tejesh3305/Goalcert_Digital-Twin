@@ -45,6 +45,28 @@ async function call(path, { method = 'POST', body, token } = {}) {
   return payload
 }
 
+/**
+ * What the sign-in surface needs before anyone is signed in: whether a
+ * credential is required at all, and whether self-service signup is open.
+ *
+ * Replaces a probe that called a PROTECTED endpoint unauthenticated and read the
+ * 401 to infer the first of those — so every page load of a real deployment
+ * deliberately provoked authentication failures, which look exactly like real
+ * ones in the server log.
+ *
+ * Never throws. This runs on the startup path, and a failure here must degrade to
+ * "assume a normal, closed deployment" rather than block the app from rendering.
+ */
+export async function posture() {
+  try {
+    const res = await fetch(`${apiBase()}/auth/posture`, { credentials: 'include' })
+    if (!res.ok) return { auth_required: true, signup_open: false }
+    return await res.json()
+  } catch {
+    return { auth_required: true, signup_open: false }
+  }
+}
+
 /** Sign in. Stores the access token in memory and returns the full session. */
 export async function login({ email, password, orgId = '' }) {
   const data = await call('/login', { body: { email, password, org_id: orgId } })

@@ -1,8 +1,10 @@
 import { PanelHeader, Card } from '../components/ui/Card'
 import { Empty, ErrorBox } from '../components/ui/States'
 import NoTwin from '../components/NoTwin'
+import SimTwinNotice from '../components/SimTwinNotice'
 import { usePolling } from '../hooks/useApi'
 import { useTwin } from '../context/TwinContext'
+import { isSimTenant } from '../lib/simTwins'
 import { actionColor, localName, shortId, timeOf } from '../lib/format'
 import api from '../api/client'
 
@@ -10,11 +12,19 @@ import api from '../api/client'
  *  Every create/update/delete that passed the Graph Writer appears here. */
 export default function Changelog() {
   const { activeTenant } = useTwin()
+  // A simulated twin writes nothing through the Graph Writer, so there is no
+  // chain to read — and asking for one is a 403 every three seconds.
+  const simulated = isSimTenant(activeTenant)
   const { data, error } = usePolling(
-    () => api.changelog(activeTenant, 100), 3000, [activeTenant], { skip: !activeTenant },
+    () => api.changelog(activeTenant, 100), 3000, [activeTenant],
+    { skip: !activeTenant || simulated },
   )
 
   if (!activeTenant) return <NoTwin />
+  if (simulated) {
+    return <SimTwinNotice tenant={activeTenant} title="Change Log"
+                          what="The change log" icon="ti-history" />
+  }
 
   const events = data?.events || []
 

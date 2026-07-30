@@ -16,9 +16,28 @@ Provision explicitly before a deploy (idempotent, safe to re-run):
 
 Dialect differences live only in `_T`. Everything else is SQL that means the
 same thing in SQLite ≥3.24 and Postgres 16.
+
+`CREATE TABLE IF NOT EXISTS` CANNOT ADD A COLUMN, WHICH IS WHY `ensure()`
+RECONCILES
+--------------------------------------------------------------------------
+Declaring a new column here and an index on it used to break every database that
+already existed: the CREATE TABLE was a no-op (the table is there), so the column
+never appeared, and the CREATE INDEX that followed failed with "no such column".
+That failure took `db/migrations.py` down with it — migration 0001 calls
+`ensure_all(strict=True)`, so the whole chain aborted BEFORE reaching the
+migration that would have added the column. The database could then never be
+upgraded, on SQLite or on RDS.
+
+So `ensure()` now does three things per store, in this order: create the tables,
+ADD any declared column an existing table is missing, then create the indexes.
+The middle step is what makes the first paragraph's promise ("a fresh database is
+created from schema.py in one step") also true of a database that already exists.
+It only ever ADDs — nothing here drops, renames or retypes a column, because
+those need a data decision and belong in a migration.
 """
 from __future__ import annotations
 
+import re
 import sys
 import threading
 
@@ -48,9 +67,15 @@ DDL: dict[str, list[str]] = {
     "twins": [
         # `org_id` is denormalised from `org_tenants`, which stays the source of
         # truth for AUTHORIZATION — a twin is reachable because its org owns it
-        # there, never because of this column. It exists so the twin listing can
-        # filter by organisation in one query instead of one lookup per row.
-        # See migration 0003_twin_org_owner for the upgrade path.
+        # there, never because of this column. It is here so the twin listing can
+        # one day filter by organisation in one query instead of one lookup per
+        # row. See migration 0003_twin_org_owner for the upgrade path.
+        #
+        # NOT POPULATED YET, and stated here so nobody builds a query on it: the
+        # listing in server/twins_routes.py filters through `Scope.allows()`,
+        # which reads `org_tenants`. Every row's org_id is NULL, so a
+        # `WHERE org_id = ?` would return nothing at all — write the column on
+        # creation and backfill the existing rows before relying on it.
         """CREATE TABLE IF NOT EXISTS twins (
                tenant_id     TEXT PRIMARY KEY,
                name          TEXT NOT NULL,
@@ -358,9 +383,156 @@ def render(store: str, backend: str | None = None) -> list[str]:
     return [stmt.format(**_T[backend or core.dialect()]) for stmt in DDL[store]]
 
 
+# ── Reconciling an EXISTING table with its declaration ──────────────────
+
+_CREATE_TABLE = re.compile(
+    r"^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*"
+    r"\((?P<body>.*)\)\s*;?\s*$",
+    re.IGNORECASE | re.DOTALL)
+
+# A fragment starting with one of these is a TABLE constraint, not a column —
+# `PRIMARY KEY (org_id, user_id)` must not be read as a column called "PRIMARY".
+_TABLE_CONSTRAINTS = ("primary", "unique", "foreign", "check", "constraint",
+                      "exclude")
+
+
+def _split_columns(body: str) -> list[str]:
+    """Split a CREATE TABLE body on its top-level commas.
+
+    Depth-aware because a column definition can contain its own parentheses —
+    `NUMERIC(10, 2)`, `CHECK (n > 0)` — and splitting on every comma would tear
+    those in half.
+    """
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    for char in body:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+    return [p.strip() for p in parts if p.strip()]
+
+
+def declared_columns(create_stmt: str) -> tuple[str, dict[str, str]]:
+    """(table, {column: definition}) for a rendered CREATE TABLE statement.
+
+    Returns ("", {}) for anything that is not one — the DDL lists interleave
+    CREATE TABLE and CREATE INDEX, and only the former declares columns.
+    """
+    match = _CREATE_TABLE.match(create_stmt)
+    if not match:
+        return "", {}
+    columns: dict[str, str] = {}
+    for fragment in _split_columns(match.group("body")):
+        head, _, rest = fragment.partition(" ")
+        if head.lower() in _TABLE_CONSTRAINTS:
+            continue
+        columns[head.strip('"')] = rest.strip()
+    return match.group(1), columns
+
+
+def _live_columns(conn, table: str) -> set[str]:
+    """The columns a table ACTUALLY has, or an empty set if it has none/does not
+    exist. Called immediately after CREATE TABLE IF NOT EXISTS, so empty means
+    "unreadable", which the caller treats as "nothing to reconcile"."""
+    if core.is_postgres():
+        rows = conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = ? AND table_schema = current_schema()",
+            (table,)).fetchall()
+        return {dict(r)["column_name"] for r in rows}
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return {dict(r)["name"] for r in rows}
+
+
+def _is_addable(definition: str) -> bool:
+    """Whether ALTER TABLE ADD COLUMN can express this definition at all.
+
+    A PRIMARY KEY / UNIQUE / REFERENCES column cannot be bolted onto an existing
+    SQLite table, and NOT NULL without a DEFAULT is rejected by both backends the
+    moment the table has a row. Those need a real migration (create-copy-swap, or
+    a backfill between the ADD and the constraint), so this reports them instead
+    of emitting DDL that is guaranteed to fail.
+    """
+    upper = definition.upper()
+    if any(token in upper for token in
+           ("PRIMARY KEY", "UNIQUE", "REFERENCES", "GENERATED")):
+        return False
+    return "NOT NULL" not in upper or "DEFAULT" in upper
+
+
+def reconcile(conn, create_stmt: str) -> list[str]:
+    """ADD every column `create_stmt` declares that the live table lacks.
+
+    Returns the columns added, for the boot log — a column appearing on a
+    production table is not something to do silently.
+
+    Each ALTER runs in its own nested transaction: on Postgres a failure aborts
+    the surrounding transaction otherwise, which would take out the index
+    statements after it and turn one un-addable column into a completely
+    unprovisioned store.
+    """
+    table, declared = declared_columns(create_stmt)
+    if not table or not declared:
+        return []
+
+    live = _live_columns(conn, table)
+    if not live:
+        return []                      # brand-new table (or unreadable): nothing to do
+
+    added: list[str] = []
+    for column, definition in declared.items():
+        if column in live:
+            continue
+        if not _is_addable(definition):
+            print(f"[db] !! {table}.{column} is declared in db/schema.py and "
+                  f"missing from the live table, and cannot be added in place "
+                  f"({definition}). This needs a migration in db/migrations.py.",
+                  file=sys.stderr)
+            continue
+        try:
+            with conn.nested():
+                conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except Exception as e:
+            # Two tasks reconciling at once: one wins, the other sees "duplicate
+            # column", which is the desired end state rather than a problem.
+            message = str(e).lower()
+            if "duplicate column" in message or "already exists" in message:
+                continue
+            # SQLite refuses a non-constant DEFAULT (CURRENT_TIMESTAMP) in ADD
+            # COLUMN, so the statement below is the starting point rather than a
+            # guaranteed fix — a column like that needs the value backfilled in a
+            # migration. Either way the operator gets the table, the column and
+            # the driver's own reason, instead of a store that silently stays
+            # unprovisioned.
+            print(f"[db] !! could not add {table}.{column}: {e}\n"
+                  f"     needs a migration in db/migrations.py; the change is "
+                  f"ALTER TABLE {table} ADD COLUMN {column} {definition};",
+                  file=sys.stderr)
+            continue
+        added.append(column)
+    return added
+
+
 def ensure(store: str, *, strict: bool = False) -> None:
-    """Create `store`'s tables if missing. Cached per (backend, store), so the
-    common path — re-constructing a store object — costs nothing.
+    """Bring `store`'s tables to the shape declared above: create what is
+    missing, then ADD any declared column an existing table does not have, then
+    create the indexes. Cached per (backend, store), so the common path —
+    re-constructing a store object — costs nothing.
+
+    THE ORDER IS LOAD-BEARING. An index on a newly declared column is the exact
+    case that used to fail: `CREATE TABLE IF NOT EXISTS` will not add the column,
+    so `CREATE INDEX ... (new_column)` raised "no such column" on every database
+    that predated the declaration. Reconciling between the two is what makes a
+    new column-plus-index a normal deploy instead of a broken one.
 
     Not strict by default, and deliberately so: several agent graphs build their
     checkpointer at MODULE IMPORT time. Raising here when RDS is momentarily
@@ -376,10 +548,15 @@ def ensure(store: str, *, strict: bool = False) -> None:
     with _lock:
         if key in _done:
             return
+        added: list[str] = []
         try:
             with core.connect(store) as conn:
                 for stmt in render(store):
                     conn.execute(stmt)
+                    # Reconcile right after the table it belongs to, so the
+                    # indexes further down the list see the columns they need.
+                    added += [f"{declared_columns(stmt)[0]}.{c}"
+                              for c in reconcile(conn, stmt)]
         except Exception as e:
             if strict:
                 raise
@@ -388,6 +565,8 @@ def ensure(store: str, *, strict: bool = False) -> None:
                 print(f"[db] schema for '{store}' not provisioned yet: {e}",
                       file=sys.stderr)
             return
+        if added:
+            print(f"[db] schema updated: added {', '.join(added)}", flush=True)
         _done.add(key)
 
 

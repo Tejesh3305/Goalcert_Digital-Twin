@@ -146,6 +146,136 @@ def test_a_tolerated_failure_does_not_abort(scratch_db):
     assert "0003_twin_org_owner" in applied
 
 
+# ── Upgrading a database that PREDATES a column ─────────────────────────
+#
+# The regression these cover took every existing deployment down to an
+# unmigratable state, and every test above passed throughout — because they all
+# start from an empty directory, and the bug only exists on a database that was
+# created BEFORE a column joined schema.py.
+
+
+def _legacy_twins_table(directory) -> None:
+    """A `twins` table as it existed before `org_id` was declared: the real
+    starting state of every database created before that change."""
+    import sqlite3
+
+    conn = sqlite3.connect(directory / "twins.db")
+    conn.execute("""CREATE TABLE twins (
+                        tenant_id     TEXT PRIMARY KEY,
+                        name          TEXT NOT NULL,
+                        domain        TEXT NOT NULL,
+                        description   TEXT NOT NULL DEFAULT '',
+                        created_at    TEXT NOT NULL,
+                        seed_asset_id TEXT
+                    )""")
+    conn.execute("INSERT INTO twins (tenant_id, name, domain, created_at) "
+                 "VALUES ('legacy-plant', 'Legacy Plant', 'hvac', '2026-01-01')")
+    conn.commit()
+    conn.close()
+
+
+def test_a_database_predating_a_column_can_still_migrate(scratch_db):
+    """THE REGRESSION.
+
+    `CREATE TABLE IF NOT EXISTS` cannot add a column, so on a table that predates
+    `org_id` the CREATE INDEX on that column raised "no such column: org_id".
+    Migration 0001 runs `ensure_all(strict=True)`, so the whole chain aborted
+    there — BEFORE 0003, the migration that adds the column. The database was
+    then permanently stuck: every boot printed the same failure and no migration
+    could ever be applied.
+    """
+    _legacy_twins_table(scratch_db)
+
+    applied = migrations.apply_all()
+
+    assert applied == [m.migration_id for m in migrations.MIGRATIONS]
+    with core.connect("twins") as conn:
+        columns = {dict(r)["name"]
+                   for r in conn.execute("PRAGMA table_info(twins)").fetchall()}
+    assert "org_id" in columns
+
+
+def test_upgrading_in_place_keeps_the_existing_rows(scratch_db):
+    """Reconciling ADDs; it must never re-create the table. A create-copy-swap
+    that lost a row would be a far worse bug than the one being fixed."""
+    _legacy_twins_table(scratch_db)
+
+    migrations.apply_all()
+
+    with core.connect("twins") as conn:
+        row = dict(conn.execute(
+            "SELECT name, org_id FROM twins WHERE tenant_id = 'legacy-plant'"
+        ).fetchone())
+    assert row["name"] == "Legacy Plant"
+    assert row["org_id"] is None        # added, not invented
+
+
+def test_ensure_reconciles_without_migrations(scratch_db):
+    """A boot with NXR_AUTO_MIGRATE unset must also self-heal. `ensure()` is what
+    runs on every start; if only the migration path could add the column, a
+    deployment that runs migrations as a separate task would still serve requests
+    against a table missing it."""
+    _legacy_twins_table(scratch_db)
+
+    schema.ensure("twins")
+
+    with core.connect("twins") as conn:
+        columns = {dict(r)["name"]
+                   for r in conn.execute("PRAGMA table_info(twins)").fetchall()}
+        indexes = {dict(r)["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'index'").fetchall()}
+    assert "org_id" in columns
+    assert "idx_twins_org" in indexes
+
+
+def test_reconciling_is_idempotent(scratch_db):
+    """The second boot must not try to add the column again — `ALTER TABLE ADD
+    COLUMN` twice is an error, and this runs on every start."""
+    _legacy_twins_table(scratch_db)
+
+    schema.ensure("twins")
+    schema.reset_cache()
+    schema.ensure("twins")              # must not raise
+
+    with core.connect("twins") as conn:
+        names = [dict(r)["name"]
+                 for r in conn.execute("PRAGMA table_info(twins)").fetchall()]
+    assert names.count("org_id") == 1
+
+
+def test_declared_columns_ignores_table_constraints():
+    """`PRIMARY KEY (org_id, user_id)` is a table constraint. Read as a column it
+    would produce `ALTER TABLE memberships ADD COLUMN PRIMARY ...`."""
+    table, columns = schema.declared_columns(
+        schema.render("identity")[3])   # the memberships CREATE TABLE
+
+    assert table == "memberships"
+    assert set(columns) == {"org_id", "user_id", "role", "created_at"}
+    assert "primary" not in {c.lower() for c in columns}
+
+
+def test_declared_columns_skips_non_table_statements():
+    for statement in schema.render("twins"):
+        if statement.upper().startswith("CREATE INDEX"):
+            assert schema.declared_columns(statement) == ("", {})
+
+
+def test_a_column_that_cannot_be_added_in_place_is_reported(scratch_db, capsys):
+    """ADD COLUMN cannot express UNIQUE on an existing SQLite table, or NOT NULL
+    without a default on a populated one. Those need a real migration — and the
+    operator has to be TOLD, rather than the store silently staying unprovisioned.
+    """
+    _legacy_twins_table(scratch_db)
+    with core.connect("twins") as conn:
+        added = schema.reconcile(conn, """CREATE TABLE IF NOT EXISTS twins (
+                                              tenant_id TEXT PRIMARY KEY,
+                                              serial    TEXT NOT NULL UNIQUE
+                                          )""")
+
+    assert added == []
+    assert "serial" in capsys.readouterr().err
+
+
 # ── Drift ───────────────────────────────────────────────────────────────
 
 

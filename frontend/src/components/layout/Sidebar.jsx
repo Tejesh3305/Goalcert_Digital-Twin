@@ -3,14 +3,18 @@ import { NAV } from '../../nav'
 import { usePolling } from '../../hooks/useApi'
 import api from '../../api/client'
 import { useTwin } from '../../context/TwinContext'
+import { hasBackendState } from '../../lib/simTwins'
 
 /** Left navigation. Badges show live counts for the active twin where it
  *  makes sense (findings, incidents). */
 export default function Sidebar() {
   const { activeTenant } = useTwin()
   const navigate = useNavigate()
+  // A simulated twin has no server-side state, so this poll would 403 every 5s
+  // for as long as one is open. See lib/simTwins hasBackendState().
   const { data: stats } = usePolling(
-    () => api.stats(activeTenant), 5000, [activeTenant], { skip: !activeTenant },
+    () => api.stats(activeTenant), 5000, [activeTenant],
+    { skip: !hasBackendState(activeTenant) },
   )
 
   const findings = stats?.total_findings || 0
