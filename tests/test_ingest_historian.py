@@ -552,11 +552,12 @@ def test_health_reports_the_historian_backend(api, historian_ready):
     body = api.get("/api/v1/health").json()
     assert "historian" in body
     hist = body["historian"]
-    assert hist["backend"] in ("timescale", "postgres", "sqlite")
-    if hist["backend"] != "timescale":
-        assert hist["scale_safe"] is False, \
-            "a backend with no compression or retention must not claim to be safe"
-        assert "retention" in hist["detail"]
+    assert hist["backend"] in ("mysql", "sqlite")
+    # Neither backend has columnar compression or automatic retention, so must not
+    # claim to be safe for unbounded production ingest.
+    assert hist["scale_safe"] is False, \
+        "a backend with no compression or retention must not claim to be safe"
+    assert "retention" in hist["detail"]
 
 
 def test_ingest_status_reports_silent_devices(api, device):

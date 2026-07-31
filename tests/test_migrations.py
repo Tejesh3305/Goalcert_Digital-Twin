@@ -352,7 +352,7 @@ def test_dialect_placeholders_render_for_both_backends():
     local dev is the other one."""
     for m in migrations.MIGRATIONS:
         for statement in m.statements:
-            for backend in (core.SQLITE, core.POSTGRES):
+            for backend in (core.SQLITE, core.MYSQL):
                 rendered = statement.format(**schema._T[backend])
                 assert "{" not in rendered, (
                     f"{m.migration_id} has an unrendered placeholder on {backend}")

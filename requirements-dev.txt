@@ -20,7 +20,15 @@ httpx==0.28.1
 
 # Linting. Configured in pyproject.toml ([tool.ruff]); the CI `lint` job runs it
 # as a blocking gate.
-ruff==0.8.6
+#
+# THE CI JOB MUST INSTALL THIS PIN, NOT `pip install ruff`. It used to do the
+# latter, which meant the gate ran a DIFFERENT linter from the one this file
+# declares: ruff promoted UP042 (str+Enum -> StrEnum) out of preview, and a green
+# local run turned into a red build on a commit that touched neither file. A
+# blocking gate whose rule set changes on someone else's release schedule fails
+# on unrelated pull requests, which is how gates get bypassed. Bump this pin
+# deliberately, and fix what the new version finds in that same commit.
+ruff==0.16.1
 
 # Security scanning, run in CI. Both are advisory locally and blocking there.
 #   pip-audit  known CVEs in the installed dependency tree

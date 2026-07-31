@@ -16,9 +16,10 @@
 #                gracefully when a store is down (a product requirement, RUN.md
 #                §10), so authorization, validation and the historian's own logic
 #                are all genuinely testable with nothing running.
-#   integration  Neo4j + TimescaleDB + Redis + MinIO via services. Proves the
-#                Timescale path specifically: the hypertable, the continuous
-#                aggregates and the compression policy CANNOT be exercised on the
+#   integration  MySQL 8 + Neo4j + Redis via service containers. Proves the
+#                MySQL path specifically: the upsert and reserved-word rewrites
+#                in db/core.py, GET_LOCK advisory locking, and the historian's
+#                window-function queries are all no-ops or different code on the
 #                SQLite fallback, so without this job the production backend is
 #                the one configuration nothing tests.
 
@@ -47,8 +48,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      # The PINNED ruff from requirements-dev.txt, never a bare `pip install
+      # ruff`. See the comment on that pin: an unpinned install made this gate
+      # run a different linter from the local one, so a new ruff release turned
+      # unrelated pull requests red.
       - name: Install ruff
-        run: pip install ruff
+        run: pip install "$(grep -E '^ruff==' requirements-dev.txt)"
       # BLOCKING. This was `continue-on-error: true` while the pre-linting
       # backlog was cleared; a report nobody is forced to act on is a report
       # nobody reads. The rules live in pyproject.toml.
@@ -165,48 +170,8 @@ jobs:
           done
           exit $FOUND
 
-  # ── Infrastructure ──────────────────────────────────────────────────────
-  #
-  # The Terraform is a deploy artifact like any other, so a syntax error or a bad
-  # module reference must fail a pull request rather than a `terraform apply` at
-  # 6pm. `validate` needs no credentials and touches no AWS account.
-  terraform:
-    name: Terraform validate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: "1.9.8"
-
-      - name: Formatting
-        run: terraform fmt -check -recursive infra/terraform
-
-      - name: Validate the root module
-        run: |
-          terraform -chdir=infra/terraform init -backend=false
-          terraform -chdir=infra/terraform validate
-
-      - name: Validate each environment
-        run: |
-          for env in infra/terraform/environments/*/; do
-            echo "--- $env"
-            terraform -chdir="$env" init -backend=false
-            terraform -chdir="$env" validate
-          done
-
-      - name: Static analysis
-        uses: aquasecurity/tfsec-action@v1.0.3
-        with:
-          working_directory: infra/terraform
-          # Advisory: tfsec flags things this topology accepts deliberately (an
-          # ALB open to 0.0.0.0/0 is the point of a public API). The findings are
-          # worth reading, not worth blocking on without a suppression pass.
-          soft_fail: true
-
   integration:
-    name: Integration (Neo4j + TimescaleDB + Redis + MinIO)
+    name: Integration (MySQL 8 + Neo4j + Redis)
     runs-on: ubuntu-latest
     services:
       neo4j:
@@ -218,16 +183,22 @@ jobs:
         options: >-
           --health-cmd "cypher-shell -u neo4j -p testpassword 'RETURN 1'"
           --health-interval 10s --health-timeout 5s --health-retries 20
-      postgres:
-        image: timescale/timescaledb:2.17.2-pg16
+      # MySQL 8, matching RDS. NOT 5.7 and NOT MariaDB: the historian's
+      # `latest()` and rollup queries use `ROW_NUMBER() OVER (...)`, which
+      # neither has — a deploy onto one would provision cleanly and then fail on
+      # the first history read. `test_dialect_is_mysql_and_server_is_8_or_newer`
+      # asserts the floor rather than trusting this tag.
+      mysql:
+        image: mysql:8
         env:
-          POSTGRES_USER: nextxr
-          POSTGRES_PASSWORD: testpassword
-          POSTGRES_DB: nextxr
-        ports: ["5432:5432"]
+          MYSQL_ROOT_PASSWORD: testpassword
+          MYSQL_DATABASE: nextxr
+          MYSQL_USER: nextxr
+          MYSQL_PASSWORD: testpassword
+        ports: ["3306:3306"]
         options: >-
-          --health-cmd pg_isready --health-interval 10s
-          --health-timeout 5s --health-retries 10
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -u root -ptestpassword"
+          --health-interval 10s --health-timeout 5s --health-retries 20
       redis:
         image: redis:7-alpine
         ports: ["6379:6379"]
@@ -238,7 +209,7 @@ jobs:
       NEO4J_URI: bolt://localhost:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: testpassword
-      NXR_DATABASE_URL: postgresql://nextxr:testpassword@localhost:5432/nextxr
+      NXR_DATABASE_URL: mysql://nextxr:testpassword@127.0.0.1:3306/nextxr
       NXR_REDIS_URL: redis://localhost:6379/0
       # The production posture, asserted rather than assumed. If any required
       # dependency is missing the app refuses to boot — which is exactly the
@@ -246,7 +217,7 @@ jobs:
       # standing between a deploy and a silent per-task fallback.
       NXR_REQUIRE_DB: "1"
       NXR_REQUIRE_REDIS: "1"
-      NXR_REQUIRE_TIMESCALE: "1"
+      NXR_REQUIRE_HISTORIAN: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -261,25 +232,63 @@ jobs:
       - name: Provision relational schema
         run: python -m db.schema
         working-directory: nextxr-ontology
-      - name: Provision historian (extension + hypertable + rollups)
-        run: python -m tools.historian_provision --extension --strict
+      - name: Apply migrations
+        # The deploy runs these as a one-off task before the service rolls
+        # (AWS_DEPLOYMENT.md §14). Running them here is what proves a fresh
+        # database and a migrated one end up the same shape — the disagreement
+        # `db.migrations --verify` exists to catch.
+        run: python -m db.migrations
         working-directory: nextxr-ontology
-      - name: Confirm the Timescale backend actually resolved
-        # Without this the job could pass on the plain-Postgres fallback and
+      - name: Provision the historian
+        # A plain MySQL table, not a Timescale hypertable — there is no
+        # extension to create and no compression policy to apply.
+        run: python -m tools.historian_provision --strict
+        working-directory: nextxr-ontology
+      - name: Confirm the MySQL backend actually resolved
+        # Without this the job could pass on the per-task SQLite fallback and
         # nothing would ever test the production configuration.
         run: |
           python -m tools.historian_provision --check
           python -c "
           import sys; sys.path.insert(0, '.')
-          import historian
-          assert historian.backend() == 'timescale', historian.backend()
-          assert historian.info()['compression'] is True
-          print('historian backend:', historian.backend(),
-                historian.timescale_version())
+          import db, historian
+          assert db.is_mysql(), db.dialect()
+          assert historian.backend() == 'mysql', historian.backend()
+          print('db:', db.dialect(), '| historian:', historian.backend())
           "
         working-directory: nextxr-ontology
+
+      - name: The integration marker must select tests
+        # THE BUG THIS EXISTS FOR: nothing was marked `integration`, so the step
+        # below selected 0 of 366 tests and pytest exited 5 ("no tests
+        # collected"). The job failed for its whole existence while proving
+        # nothing about the production backend. An empty selection is now its own
+        # failure with its own message, so a future rename cannot quietly turn
+        # this job back into a no-op.
+        run: |
+          COLLECTED=$(python -m pytest -m integration --collect-only -q 2>/dev/null \
+            | grep -cE '^tests/' || true)
+          echo "integration tests collected: $COLLECTED"
+          if [ "$COLLECTED" -lt 1 ]; then
+            echo "::error::No tests carry the 'integration' marker. This job cannot prove anything — see tests/test_integration_stores.py."
+            exit 1
+          fi
+
       - name: Run integration tests
-        run: python -m pytest -m integration -v
+        # A SKIP IS A FAILURE HERE. Every one of these tests skips when its store
+        # is absent, so `pytest -m integration` stays quiet on a laptop with
+        # nothing running. In this job the stores ARE present, so a skip means the
+        # URL never reached the test — and the job would go green having tested
+        # nothing, which is the same failure the collection guard above catches,
+        # one level further down.
+        run: |
+          set -o pipefail
+          python -m pytest -m integration -v -ra --no-header | tee /tmp/integration.log
+          if grep -qE '[0-9]+ skipped' /tmp/integration.log; then
+            echo "::error::An integration test skipped while its store was running. The store URL is not reaching the test — see the 'SKIPPED' reasons above."
+            exit 1
+          fi
+
       - name: Boot the app in production posture
         # A smoke test of _preflight(): with every REQUIRE flag set and every
         # dependency present, the app must come up and report healthy.
@@ -293,14 +302,17 @@ jobs:
           python -c "
           import json
           h = json.load(open('/tmp/health.json'))
-          assert h['historian']['backend'] == 'timescale', h['historian']
-          assert h['database']['backend'] == 'postgres', h['database']
+          assert h['historian']['backend'] == 'mysql', h['historian']
+          assert h['database']['backend'] == 'mysql', h['database']
           assert h['bus']['backend'] == 'redis', h['bus']
           print('posture OK:', h['status'])
           "
         working-directory: nextxr-ontology
         env:
           NXR_API_KEYS: '[{"key":"ci-admin","tenant":"*","role":"admin","name":"CI"}]'
+          # Mandatory while auth is enforced: the app refuses to boot with an
+          # ephemeral signing key, which is the same guard a real deploy hits.
+          NXR_JWT_SECRET: ci-jwt-secret-not-used-outside-this-job
 
   frontend:
     name: Frontend build

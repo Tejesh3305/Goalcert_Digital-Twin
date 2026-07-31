@@ -1,4 +1,4 @@
-"""core.py — the ONE relational connection layer (Postgres in prod, SQLite in dev).
+"""core.py — the ONE relational connection layer (MySQL in prod, SQLite in dev).
 
 WHY THIS EXISTS
 ---------------
@@ -6,29 +6,36 @@ The twin's relational state used to be five separate SQLite files on a mounted
 volume. SQLite over NFS/EFS is safe for exactly ONE writer, which pinned the ECS
 service at `desired count = 1`: no scale-out, no zero-downtime rolling deploy.
 
-This module replaces those five files with **one RDS PostgreSQL 16 database**
+This module replaces those five files with **one RDS MySQL 8 database**
 (AWS_DEPLOYMENT.md §7) while keeping SQLite as the local-dev backend, so nothing
 about `start.ps1` / offline work changes.
 
-    NXR_DATABASE_URL (or DATABASE_URL) set  →  PostgreSQL, pooled
+    NXR_DATABASE_URL (or DATABASE_URL) set  →  MySQL, pooled
     unset                                  →  SQLite, one file per store (as before)
+
+The URL is a standard MySQL DSN, e.g.
+`mysql://user:pass@host:3306/nextxr` (or `mysql+pymysql://...`).
 
 WRITING SQL THAT RUNS ON BOTH
 -----------------------------
 Call sites write **SQLite-flavoured** SQL with `?` placeholders. This layer
-rewrites `?` → `%s` for psycopg2 (string literals are respected). The remaining
+rewrites `?` → `%s` for PyMySQL (string literals are respected). The remaining
 dialect differences are handled by `db/schema.py`, which owns every CREATE TABLE,
-and by two helpers here:
+and by helpers here:
 
-    Json(obj)     — bind a dict/list to a JSONB (Postgres) or TEXT (SQLite) column
-    json_load(v)  — read one back (psycopg2 already parses JSONB into a dict)
+    Json(obj)     — serialise a dict/list for a JSON (MySQL) or TEXT (SQLite) column
+    json_load(v)  — read one back (both backends hand us the JSON as text)
 
-Portable-by-construction SQL used by the stores: `ON CONFLICT (...) DO UPDATE SET
-... excluded.x`, `ON CONFLICT (...) DO NOTHING` and `CURRENT_TIMESTAMP` all mean
-the same thing in SQLite ≥3.24 and Postgres. `datetime('now')`, `AUTOINCREMENT`
-and `INSERT OR IGNORE` do NOT — none survive in the stores.
+SQLite-flavoured UPSERTS ARE TRANSLATED FOR MySQL, so call sites keep writing one
+dialect. `translate()` rewrites, for MySQL only:
 
-CAVEAT: a literal `%` inside SQL is escaped to `%%` before it reaches psycopg2.
+    ON CONFLICT (...) DO UPDATE SET x = excluded.x  →  ... ON DUPLICATE KEY UPDATE x = VALUES(x)
+    ON CONFLICT (...) DO NOTHING                    →  INSERT IGNORE INTO ... (clause stripped)
+
+`CURRENT_TIMESTAMP` means the same thing in SQLite ≥3.24 and MySQL 8. `datetime('now')`,
+`AUTOINCREMENT` and `INSERT OR IGNORE` do NOT — none survive in the stores.
+
+CAVEAT: a literal `%` inside SQL is escaped to `%%` before it reaches PyMySQL.
 That is correct for `LIKE '%x%'` patterns written inline, but bind them as
 parameters where you can.
 
@@ -40,9 +47,9 @@ CONNECTIONS
 connection that raised a driver-level error is closed instead of pooled, so a
 Multi-AZ failover or an RDS Proxy pin-drop costs one request, not the pool.
 
-`store` names the logical store ("twins", "changelog", ...). On Postgres every
-store shares one database and the name is only used for diagnostics; on SQLite it
-picks the per-store file, which is what keeps existing local `data/*.db` readable.
+`store` names the logical store ("twins", "changelog", ...). On MySQL every store
+shares one database and the name is only used for diagnostics; on SQLite it picks
+the per-store file, which is what keeps existing local `data/*.db` readable.
 """
 from __future__ import annotations
 
@@ -50,17 +57,18 @@ import functools
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import threading
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote, urlsplit, urlunsplit
 
 from paths import DATA_DIR, data_path
 
-# ── Which store maps to which SQLite file (Postgres ignores this) ────────
+# ── Which store maps to which SQLite file (MySQL ignores this) ───────────
 SQLITE_FILES = {
     "twins":       "twins.db",
     "changelog":   "changelog.db",
@@ -69,42 +77,43 @@ SQLITE_FILES = {
     "scenes":      "scenes.db",
     "threed":      "threed_jobs.db",
     # Accounts: organisations, users, memberships, sessions, API keys, audit.
-    # Its own file locally for the same reason as every other store; on Postgres
-    # it shares the one database, so a login and the twin it authorises are in
-    # the same transaction domain.
+    # Its own file locally for the same reason as every other store; on MySQL it
+    # shares the one database, so a login and the twin it authorises are in the
+    # same transaction domain.
     "identity":    "identity.db",
     "connectors":  "connectors.db",
     "devices":     "devices.db",
-    # Telemetry history. In production this is a TimescaleDB hypertable on the
-    # SAME Postgres instance as the stores above (see historian/) — the local
-    # SQLite file exists so `npm run dev` needs no server, and is explicitly not
-    # sized for real ingest volume.
+    # Telemetry history. In production this is a plain table on the SAME MySQL
+    # instance as the stores above (see historian/) — the local SQLite file exists
+    # so `npm run dev` needs no server, and is explicitly not sized for real
+    # ingest volume.
     "historian":   "historian.db",
 }
 
-POSTGRES = "postgres"
+MYSQL = "mysql"
 SQLITE = "sqlite"
 
 
-def database_url() -> str:
-    """The configured Postgres URL, or "" for SQLite mode.
+def _truthy(val: str | None) -> bool:
+    return str(val or "").strip().lower() in ("1", "true", "yes", "on")
 
-    `postgres://` is normalised to `postgresql://` — RDS consoles and several
-    deploy tools still emit the former, which psycopg2 rejects outright.
+
+def database_url() -> str:
+    """The configured MySQL URL, or "" for SQLite mode.
+
+    Accepts `mysql://` and `mysql+pymysql://` (SQLAlchemy-style) DSNs — both are
+    parsed the same way by `_mysql_params()`.
     """
-    url = (os.environ.get("NXR_DATABASE_URL")
-           or os.environ.get("DATABASE_URL") or "").strip()
-    if url.startswith("postgres://"):
-        url = "postgresql://" + url[len("postgres://"):]
-    return url
+    return (os.environ.get("NXR_DATABASE_URL")
+            or os.environ.get("DATABASE_URL") or "").strip()
 
 
 def dialect() -> str:
-    return POSTGRES if database_url() else SQLITE
+    return MYSQL if database_url() else SQLITE
 
 
-def is_postgres() -> bool:
-    return dialect() == POSTGRES
+def is_mysql() -> bool:
+    return dialect() == MYSQL
 
 
 def redacted_url() -> str:
@@ -120,17 +129,60 @@ def redacted_url() -> str:
         netloc = f"{p.username}:***@{host}" if p.username else host
         return urlunsplit((p.scheme, netloc, p.path, "", ""))
     except Exception:
-        return "postgresql://***"
+        return "mysql://***"
 
 
 # ── Placeholder / dialect translation ───────────────────────────────────
+_ONCONFLICT_UPDATE = re.compile(
+    r"ON\s+CONFLICT\s*(?:\([^)]*\))?\s*DO\s+UPDATE\s+SET", re.IGNORECASE)
+_ONCONFLICT_NOTHING = re.compile(
+    r"ON\s+CONFLICT\s*(?:\([^)]*\))?\s*DO\s+NOTHING", re.IGNORECASE)
+_EXCLUDED = re.compile(r"\bexcluded\.(\w+)", re.IGNORECASE)
+_INSERT_INTO = re.compile(r"(\s*)INSERT\s+INTO\b", re.IGNORECASE)
+
+# Column names that are MySQL reserved words and must be back-quoted to be used as
+# identifiers. `signal` is the historian's measurement column (SIGNAL/RESIGNAL are
+# reserved for stored-program condition handling). The word-boundary match leaves
+# substrings like `tenant_signal_ts` untouched, and `(?<!`)…(?!`)` avoids
+# double-quoting. SQLite never sees this — it does not go through translate().
+_RESERVED_COLS = ("signal",)
+_RESERVED_RE = re.compile(
+    r"(?<!`)\b(" + "|".join(_RESERVED_COLS) + r")\b(?!`)", re.IGNORECASE)
+
+
+def _rewrite_upsert(sql: str) -> str:
+    """Rewrite SQLite/Postgres `ON CONFLICT` upserts into MySQL's dialect.
+
+    Two shapes are used across the stores:
+      • DO NOTHING  → `INSERT IGNORE INTO ...` with the ON CONFLICT clause removed
+                      (first-writer-wins, which is what every DO NOTHING site wants).
+      • DO UPDATE   → `... ON DUPLICATE KEY UPDATE ...`, with each `excluded.col`
+                      reference turned into `VALUES(col)`.
+    Leaves SQL without an ON CONFLICT clause untouched.
+    """
+    if "ON CONFLICT" not in sql.upper():
+        return sql
+    if _ONCONFLICT_NOTHING.search(sql):
+        sql = _ONCONFLICT_NOTHING.sub("", sql)
+        sql = _INSERT_INTO.sub(
+            lambda m: f"{m.group(1)}INSERT IGNORE INTO", sql, count=1)
+        return sql.rstrip()
+    if _ONCONFLICT_UPDATE.search(sql):
+        sql = _ONCONFLICT_UPDATE.sub("ON DUPLICATE KEY UPDATE", sql)
+        sql = _EXCLUDED.sub(lambda m: f"VALUES({m.group(1)})", sql)
+    return sql
+
+
 @functools.lru_cache(maxsize=512)
 def translate(sql: str) -> str:
-    """Rewrite SQLite-flavoured SQL for psycopg2: `?` → `%s`, `%` → `%%`.
+    """Rewrite SQLite-flavoured SQL for PyMySQL: upserts first, then `?` → `%s`,
+    `%` → `%%`.
 
     Quoted string literals are scanned so a `?` inside one is left alone;
     doubled quotes ('') are handled as SQL escapes rather than terminators.
     """
+    sql = _rewrite_upsert(sql)
+    sql = _RESERVED_RE.sub(r"`\1`", sql)
     out: list[str] = []
     in_str = False
     i, n = 0, len(sql)
@@ -158,20 +210,19 @@ def translate(sql: str) -> str:
 
 
 def Json(obj: Any):
-    """Bind a dict/list to a JSON column, whichever backend is live.
+    """Serialise a dict/list for a JSON column, whichever backend is live.
 
-    Postgres columns are JSONB (queryable, indexable — the reason the
-    architecture calls for it); SQLite keeps the same value as TEXT.
+    MySQL columns are `JSON` (queryable, indexable — the reason the architecture
+    calls for it) and accept a JSON-text string, which is exactly what SQLite
+    keeps in its TEXT column too. So one representation serves both.
     """
-    if is_postgres():
-        from psycopg2.extras import Json as _PgJson
-        return _PgJson(obj)
     return json.dumps(obj)
 
 
 def json_load(value: Any) -> Any:
-    """Read a JSON column back. psycopg2 already parses JSONB into Python, so
-    only the SQLite TEXT case needs decoding — and a NULL stays None."""
+    """Read a JSON column back. Both PyMySQL and sqlite3 hand JSON columns back as
+    text, so decode a str/bytes; a dict/list (already decoded) or NULL passes
+    through untouched."""
     if value is None or isinstance(value, dict | list):
         return value
     if isinstance(value, bytes | bytearray):
@@ -179,22 +230,39 @@ def json_load(value: Any) -> Any:
     return json.loads(value)
 
 
-def advisory_key(name: str) -> int:
-    """A stable signed 64-bit key for pg_advisory_xact_lock().
+# ── MySQL connection parameters ─────────────────────────────────────────
+def _mysql_params() -> dict:
+    """Parse NXR_DATABASE_URL into PyMySQL connect kwargs."""
+    url = database_url()
+    p = urlsplit(url)
+    params: dict[str, Any] = {
+        "host": p.hostname or "127.0.0.1",
+        "port": p.port or 3306,
+        "user": unquote(p.username) if p.username else "root",
+        "password": unquote(p.password) if p.password else "",
+        "database": (p.path or "/nextxr")[1:] or "nextxr",
+        "charset": "utf8mb4",
+        "connect_timeout": int(os.environ.get("NXR_DB_CONNECT_TIMEOUT", "10")),
+    }
+    # TLS. RDS terminates TLS: point NXR_DB_SSL_CA at the RDS CA bundle to verify,
+    # or set NXR_DB_SSL=1 for TLS without CA pinning. Absent both, connect plain
+    # (correct for a private-subnet local/dev instance).
+    ssl_ca = os.environ.get("NXR_DB_SSL_CA", "").strip()
+    if ssl_ca:
+        params["ssl"] = {"ca": ssl_ca}
+    elif _truthy(os.environ.get("NXR_DB_SSL")):
+        params["ssl"] = {}
+    return params
 
-    Derived in Python rather than via Postgres' undocumented `hashtext()`, so
-    the value can't shift under us across server versions.
-    """
-    return int.from_bytes(hashlib.sha1(name.encode("utf-8")).digest()[:8],
-                          "big", signed=True)
+
+def _mysql_connect():
+    import pymysql
+    from pymysql.cursors import DictCursor
+    return pymysql.connect(cursorclass=DictCursor, autocommit=False,
+                           **_mysql_params())
 
 
-# ── Postgres pool ───────────────────────────────────────────────────────
-_pool = None
-_pool_lock = threading.Lock()
-_pool_url: str = ""
-
-
+# ── MySQL pool ──────────────────────────────────────────────────────────
 def _pool_size() -> tuple[int, int]:
     """Per-TASK pool bounds. Keep max modest: with N Fargate tasks the real
     server-side number is N × max, and RDS Proxy multiplexes on top."""
@@ -209,26 +277,74 @@ def _pool_size() -> tuple[int, int]:
     return lo, max(lo, hi)
 
 
-def _connect_kwargs() -> dict:
-    kw: dict[str, Any] = {
-        # Named in pg_stat_activity / RDS Performance Insights, so a stuck
-        # query is attributable to this service rather than "python".
-        "application_name": os.environ.get("NXR_DB_APP_NAME", "nextxr-twin"),
-        "connect_timeout": int(os.environ.get("NXR_DB_CONNECT_TIMEOUT", "10")),
-    }
-    sslmode = os.environ.get("NXR_DB_SSLMODE", "").strip()
-    if sslmode:
-        kw["sslmode"] = sslmode
-    return kw
+def _safe_close(conn) -> None:
+    try:
+        conn.close()
+    except Exception:
+        pass
 
 
-def get_pool():
-    """The process-wide psycopg2 pool, created on first use.
+class _MySQLPool:
+    """A small thread-safe connection pool. PyMySQL ships no pool of its own, and
+    the stores construct connections ad hoc (`ChangeLog()` inside a request
+    handler); without pooling every construction is a fresh TCP + auth round-trip
+    against RDS."""
 
-    Stores are constructed ad hoc all over this codebase (`ChangeLog()` inside
-    request handlers, for instance). One shared pool is what keeps that pattern
-    from opening a TCP connection per object.
-    """
+    def __init__(self, minconn: int, maxconn: int, connect_fn):
+        self._connect = connect_fn
+        self._max = max(1, maxconn)
+        self._idle: list[Any] = []
+        self._in_use = 0
+        self._cond = threading.Condition(threading.Lock())
+        self._closed = False
+
+    def getconn(self, timeout: float = 30.0):
+        with self._cond:
+            while True:
+                if self._closed:
+                    raise RuntimeError("MySQL pool is closed")
+                if self._idle:
+                    self._in_use += 1
+                    return self._idle.pop()
+                if self._in_use < self._max:
+                    self._in_use += 1
+                    break
+                if not self._cond.wait(timeout=timeout):
+                    raise RuntimeError(
+                        "timed out waiting for a MySQL connection from the pool")
+        try:
+            return self._connect()
+        except Exception:
+            with self._cond:
+                self._in_use -= 1
+                self._cond.notify()
+            raise
+
+    def putconn(self, conn, close: bool = False) -> None:
+        with self._cond:
+            if self._in_use > 0:
+                self._in_use -= 1
+            if self._closed or close:
+                _safe_close(conn)
+            else:
+                self._idle.append(conn)
+            self._cond.notify()
+
+    def closeall(self) -> None:
+        with self._cond:
+            self._closed = True
+            while self._idle:
+                _safe_close(self._idle.pop())
+            self._cond.notify_all()
+
+
+_pool: _MySQLPool | None = None
+_pool_lock = threading.Lock()
+_pool_url: str = ""
+
+
+def get_pool() -> _MySQLPool:
+    """The process-wide MySQL pool, created on first use."""
     global _pool, _pool_url
     url = database_url()
     if not url:
@@ -238,9 +354,8 @@ def get_pool():
     with _pool_lock:
         if _pool is not None and _pool_url == url:
             return _pool
-        from psycopg2.pool import ThreadedConnectionPool
         lo, hi = _pool_size()
-        _pool = ThreadedConnectionPool(lo, hi, url, **_connect_kwargs())
+        _pool = _MySQLPool(lo, hi, _mysql_connect)
         _pool_url = url
         return _pool
 
@@ -258,6 +373,21 @@ def close_pool() -> None:
         _pool_url = ""
 
 
+def _lock_name(name: str) -> str:
+    """A MySQL GET_LOCK() name (max 64 chars). Long names are hashed to a stable
+    short token so the lock still serialises the right set of writers.
+
+    SHA-256 rather than SHA-1 purely to keep static analysis quiet (bandit B324
+    flags SHA-1 wherever it appears). Nothing here is a security boundary — the
+    digest namespaces a lock, it does not authenticate anything — but "the weak
+    hash is fine, look at the call site" is an argument every reviewer has to
+    re-run, and a one-word change ends it permanently.
+    """
+    if len(name) <= 64:
+        return name
+    return "nxrlock_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:24]
+
+
 # ── Connection wrapper ──────────────────────────────────────────────────
 class Conn:
     """One checked-out connection, shaped like the `sqlite3.Connection` the
@@ -269,6 +399,7 @@ class Conn:
         self.kind = kind
         self._release = release
         self._broken = False
+        self._locks: list[str] = []
 
     # -- statements ------------------------------------------------------
     def execute(self, sql: str, params: Sequence[Any] = ()):
@@ -297,48 +428,65 @@ class Conn:
         """Serialise writers across ALL tasks for the duration of this
         transaction. This is what makes the change log's read-last-hash →
         append sequence safe once the service runs more than one task; on
-        SQLite the single-writer file lock already provides it."""
-        if self.kind == POSTGRES:
-            self.execute("SELECT pg_advisory_xact_lock(?)",
-                         (advisory_key(name),))
+        SQLite the single-writer file lock already provides it.
+
+        MySQL's GET_LOCK is session- (not transaction-) scoped, so the lock is
+        released explicitly at the end of this transaction — see `_release_locks`,
+        called from `close()` before the connection returns to the pool."""
+        if self.kind != MYSQL:
+            return
+        lock_name = _lock_name(name)
+        timeout = int(os.environ.get("NXR_DB_LOCK_TIMEOUT", "10"))
+        row = self.execute("SELECT GET_LOCK(?, ?) AS ok",
+                           (lock_name, timeout)).fetchone()
+        if not row or not row.get("ok"):
+            raise RuntimeError(f"could not acquire lock '{lock_name}' "
+                               f"within {timeout}s")
+        self._locks.append(lock_name)
+
+    def _release_locks(self) -> None:
+        if self.kind != MYSQL or not self._locks:
+            return
+        for name in self._locks:
+            try:
+                self._raw.cursor().execute("SELECT RELEASE_LOCK(%s)", (name,))
+            except Exception:
+                self._broken = True
+        self._locks = []
 
     @contextmanager
     def nested(self, name: str = "nxr_sp") -> Iterator[None]:
-        """A nested transaction for a statement that is ALLOWED to fail.
+        """Scope a statement that is ALLOWED to fail. A no-op on both live
+        backends — kept because the call sites are the ones that need it.
 
-        THE POSTGRES RULE THIS EXISTS FOR: any error aborts the WHOLE
-        transaction, and every subsequent statement then fails with "current
-        transaction is aborted". So `try: conn.execute(...) except: pass` — which
-        reads as harmless and works perfectly on SQLite — silently poisons the
-        rest of the transaction on RDS. A schema reconcile that probes one
+        THIS EXISTED FOR POSTGRES, WHICH IS NO LONGER A BACKEND. There, any
+        error aborts the WHOLE transaction and every later statement fails with
+        "current transaction is aborted", so a schema reconcile probing one
         ALTER, or a migration with a `tolerate` list, would take out the
-        statements after it and the ledger row with them.
+        statements after it and the ledger row with them. A SAVEPOINT scoped the
+        failure.
 
-        A SAVEPOINT scopes the failure: rolling back to it leaves the outer
-        transaction usable. SQLite fails per statement rather than per
-        transaction, so there this is a no-op and the caller's `except` is
-        already sufficient.
+        Neither backend we now run has that rule. MySQL/InnoDB fails per
+        STATEMENT: a rejected ALTER leaves the transaction usable, and the DDL
+        these callers issue implicitly commits anyway, so a savepoint around it
+        would have nothing to roll back to. SQLite likewise fails per statement.
+        In both cases the caller's own `except` is already sufficient.
 
-        The exception is re-raised either way — this makes failure RECOVERABLE,
-        it does not swallow it.
+        So this yields and re-raises, unchanged. It is deliberately NOT deleted:
+        `schema.reconcile()` and `db.migrations._execute()` read more honestly
+        when the "this may fail, and that is survivable" intent is explicit, and
+        keeping the seam means a backend with Postgres' rule can be supported
+        again by editing this one method.
         """
-        if self.kind != POSTGRES:
-            yield
-            return
-        self.execute(f"SAVEPOINT {name}")
-        try:
-            yield
-        except Exception:
-            self.execute(f"ROLLBACK TO SAVEPOINT {name}")
-            raise
-        self.execute(f"RELEASE SAVEPOINT {name}")
+        yield
 
     def _note(self, exc: Exception) -> None:
         """Flag driver-level failures so this connection is closed rather than
         handed back to the pool — a failover leaves sockets that look open."""
         try:
-            import psycopg2
-            if isinstance(exc, psycopg2.OperationalError | psycopg2.InterfaceError):
+            import pymysql
+            if isinstance(exc, pymysql.err.OperationalError
+                          | pymysql.err.InterfaceError):
                 self._broken = True
         except Exception:
             pass
@@ -355,6 +503,7 @@ class Conn:
 
     def close(self) -> None:
         if self._release is not None:
+            self._release_locks()
             self._release(self._raw, self._broken)
             self._release = None
 
@@ -383,24 +532,23 @@ def _sqlite_path(store: str, path: Path | None) -> Path:
 def connect(store: str, *, path: Path | None = None) -> Conn:
     """Check out a connection for `store`.
 
-    `path` forces a specific SQLite file even when Postgres is configured —
-    used by throwaway/offline tools that need their own reproducible file.
+    `path` forces a specific SQLite file even when MySQL is configured — used by
+    throwaway/offline tools that need their own reproducible file.
     """
-    if path is None and is_postgres():
+    if path is None and is_mysql():
         pool = get_pool()
-        from psycopg2.extras import RealDictCursor
-
         raw = None
         for _ in range(3):
-            raw = pool.getconn()
-            if getattr(raw, "closed", 0) == 0:
+            cand = pool.getconn()
+            try:
+                cand.ping(reconnect=True)     # revive/replace a stale socket
+                raw = cand
                 break
-            pool.putconn(raw, close=True)     # stale — the server hung up
-            raw = None
+            except Exception:
+                pool.putconn(cand, close=True)
+                raw = None
         if raw is None:
-            raise RuntimeError("no usable Postgres connection in the pool")
-
-        raw.cursor_factory = RealDictCursor
+            raise RuntimeError("no usable MySQL connection in the pool")
 
         def release(c, broken: bool):
             try:
@@ -408,7 +556,7 @@ def connect(store: str, *, path: Path | None = None) -> Conn:
             except Exception:
                 pass
 
-        return Conn(raw, POSTGRES, release)
+        return Conn(raw, MYSQL, release)
 
     raw = sqlite3.connect(_sqlite_path(store, path), timeout=30.0)
     raw.row_factory = sqlite3.Row
@@ -442,9 +590,9 @@ def log_posture() -> None:
     anything failing. The twins would be there, they would just be a different
     set on each task. This makes that visible in CloudWatch on the first boot.
     """
-    if is_postgres():
+    if is_mysql():
         lo, hi = _pool_size()
-        print(f"[db] PostgreSQL - {redacted_url()} (pool {lo}-{hi} per task)",
+        print(f"[db] MySQL - {redacted_url()} (pool {lo}-{hi} per task)",
               flush=True)
     else:
         print(f"[db] SQLite under {DATA_DIR} - single-writer, per-task state. "
@@ -455,7 +603,7 @@ def log_posture() -> None:
 def info() -> dict:
     """Backend summary for /health. Includes no credentials."""
     out: dict[str, Any] = {"backend": dialect()}
-    if is_postgres():
+    if is_mysql():
         lo, hi = _pool_size()
         out["url"] = redacted_url()
         out["pool"] = {"min": lo, "max": hi,

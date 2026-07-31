@@ -7,7 +7,7 @@ authorization decisions from being spread across handlers.
 
 WRITTEN AGAINST `db/core.py`, SO IT RUNS ON BOTH BACKENDS
 ---------------------------------------------------------
-SQLite-flavoured SQL with `?` placeholders; `db.core` rewrites for psycopg2. The
+SQLite-flavoured SQL with `?` placeholders; `db.core` rewrites for PyMySQL. The
 portable-by-construction subset (`ON CONFLICT ... DO UPDATE`, `CURRENT_TIMESTAMP`)
 is the same one the other stores use — see the note at the top of `db/core.py`.
 Timestamps are ISO-8601 UTC strings written by Python rather than by the

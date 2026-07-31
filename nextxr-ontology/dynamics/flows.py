@@ -20,10 +20,10 @@ data depending on the entities). We resolve that two ways:
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class Flow(str, Enum):
+class Flow(StrEnum):
     ELECTRICAL = "electrical"      # kW / V / A along feeds, backsUp, fedBy
     THERMAL_FLUID = "thermal_fluid"  # chilled/hot/condenser water along feeds
     AIR = "air"                    # conditioned air along suppliesAirTo/servesSpace

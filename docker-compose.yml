@@ -20,53 +20,40 @@ services:
       timeout: 5s
       retries: 10
 
-  # The relational store: twin registry, change log, agent bundles, agent
-  # checkpoints and the BIM scene cache. Matches the RDS engine version so a
-  # local run exercises the same dialect the deploy does (AWS_DEPLOYMENT.md §7).
+  # The relational store: twin registry, change log, identity/auth, agent
+  # bundles, agent checkpoints, the BIM scene cache and the telemetry historian.
+  # Matches the RDS engine (MySQL 8) so a local run exercises the same dialect the
+  # deploy does (AWS_DEPLOYMENT.md §7).
   #
   # OPTIONAL locally. With NXR_DATABASE_URL unset the app uses SQLite files under
   # nextxr-ontology/data/ exactly as before, so nothing here is required to work
   # offline. Point at it with:
-  #   $env:NXR_DATABASE_URL="postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+  #   $env:NXR_DATABASE_URL="mysql://nextxr:nextxr2026@localhost:3306/nextxr"
   #
-  # If you already run PostgreSQL natively it owns host port 5432 and this
-  # container cannot bind it. The failure is confusing — you connect "fine" and
-  # get `password authentication failed`, from the OTHER server. Set
-  # POSTGRES_PORT=5433 (and use that port in the URL) instead of stopping yours.
-  # TimescaleDB rather than plain postgres:16-alpine.
+  # If you already run MySQL natively it owns host port 3306 and this container
+  # cannot bind it. Set MYSQL_PORT=3307 (and use that port in the URL) instead of
+  # stopping yours.
   #
-  # It IS Postgres 16 — the same server, the same protocol, the same psycopg2
-  # connection — with the timescaledb extension preloaded. That is the whole
-  # reason the historian was built on Timescale instead of a second database:
-  # nothing else in the compose file or the app changes, and the local stack now
-  # matches what production needs (hypertable, continuous aggregates,
-  # compression, retention).
-  #
-  # Swapping the image on an EXISTING postgres_data volume will not work — the
-  # extension needs shared_preload_libraries set at initdb time. Either start
-  # fresh (`docker compose down -v`) or keep plain Postgres locally and accept
-  # the on-the-fly rollups (historian/ reports which backend it resolved to).
-  postgres:
-    image: timescale/timescaledb:2.17.2-pg16
-    container_name: nxr-postgres
+  # MySQL 8 is required (not 5.7 / MariaDB): the historian's "latest value" and
+  # rollup queries use window functions (ROW_NUMBER() OVER …) that only exist in 8.
+  mysql:
+    image: mysql:8
+    container_name: nxr-mysql
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${MYSQL_PORT:-3306}:3306"
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-nextxr}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nextxr2026}
-      POSTGRES_DB: ${POSTGRES_DB:-nextxr}
-      # Create the extension on first init so a fresh stack is ready without a
-      # manual superuser step. `historian_provision --extension` does the same
-      # thing for an environment that already exists.
-      POSTGRES_INITDB_ARGS: ""
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-nextxr2026}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-nextxr}
+      MYSQL_USER: ${MYSQL_USER:-nextxr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-nextxr2026}
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./docker/timescale-init.sql:/docker-entrypoint-initdb.d/00-timescale.sql:ro
+      - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nextxr} -d ${POSTGRES_DB:-nextxr}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-nextxr2026}"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 15
 
   redis:
     image: redis:7-alpine
@@ -142,7 +129,7 @@ services:
     depends_on:
       neo4j:
         condition: service_healthy
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
@@ -153,8 +140,8 @@ services:
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: ${NEO4J_PASSWORD:-nextxr2026}
       # ── The three shared stores. This block mirrors the ECS task definition:
-      #    Postgres = records, MinIO/S3 = blobs, Redis = live events.
-      NXR_DATABASE_URL: postgresql://${POSTGRES_USER:-nextxr}:${POSTGRES_PASSWORD:-nextxr2026}@postgres:5432/${POSTGRES_DB:-nextxr}
+      #    MySQL = records, MinIO/S3 = blobs, Redis = live events.
+      NXR_DATABASE_URL: mysql://${MYSQL_USER:-nextxr}:${MYSQL_PASSWORD:-nextxr2026}@mysql:3306/${MYSQL_DATABASE:-nextxr}
       NXR_REDIS_URL: redis://redis:6379/0
       NXR_S3_BUCKET: ${NXR_S3_BUCKET:-nextxr-blobs}
       NXR_S3_ENDPOINT_URL: http://minio:9000
@@ -170,6 +157,6 @@ services:
 
 volumes:
   neo4j_data:
-  postgres_data:
+  mysql_data:
   redis_data:
   minio_data:

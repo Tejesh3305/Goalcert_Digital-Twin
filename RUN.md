@@ -20,7 +20,7 @@ For live frontend development with hot-reload:
 Manual equivalent:
 
 ```powershell
-docker compose up -d            # Neo4j + Postgres + Redis
+docker compose up -d            # Neo4j + MySQL + Redis
 cd nextxr-ontology
 $env:NXR_DEV_MODE = "1"         # see below — the API is closed without this
 python -m server.main           # http://localhost:8080
@@ -96,7 +96,7 @@ nothing running:
 
 | Store | Production | Fallback when unset |
 |---|---|---|
-| Records — twins, change log, bundles, checkpoints, scenes, 3-D jobs | RDS Postgres 16 (`NXR_DATABASE_URL`) | SQLite files in `nextxr-ontology/data/` |
+| Records — twins, change log, identity/auth, bundles, checkpoints, scenes, 3-D jobs, historian | RDS MySQL 8 (`NXR_DATABASE_URL`) | SQLite files in `nextxr-ontology/data/` |
 | Blobs — generated GLBs, 3-D artifacts | S3 (`NXR_S3_BUCKET`) | files in `data/blobs/` |
 | Event bus | ElastiCache Redis (`NXR_REDIS_URL`) | in-memory, this process only |
 
@@ -107,14 +107,14 @@ variable into a refusal to start (AWS_DEPLOYMENT.md §9).
 
 ### Run the production shape locally
 
-`docker compose` brings up the real thing — Postgres 16, Redis 7 and **MinIO**
+`docker compose` brings up the real thing — MySQL 8, Redis 7 and **MinIO**
 (S3-compatible), so the same code paths run as on AWS. Worth doing before any
 deploy; the full procedure is AWS_DEPLOYMENT.md §11.
 
 ```powershell
-docker compose up -d            # Neo4j + Postgres + Redis + MinIO (+ bucket)
+docker compose up -d            # Neo4j + MySQL + Redis + MinIO (+ bucket)
 
-$env:NXR_DATABASE_URL  = "postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+$env:NXR_DATABASE_URL  = "mysql://nextxr:nextxr2026@localhost:3306/nextxr"
 $env:NXR_REDIS_URL     = "redis://localhost:6379/0"
 $env:NXR_S3_BUCKET     = "nextxr-blobs"
 $env:NXR_S3_ENDPOINT_URL     = "http://localhost:9000"
@@ -125,6 +125,8 @@ $env:NXR_REQUIRE_DB="1"; $env:NXR_REQUIRE_S3="1"; $env:NXR_REQUIRE_REDIS="1"
 
 cd nextxr-ontology
 python -m db.schema             # provision (idempotent); --check to inspect
+python -m db.migrations         # apply ordered schema changes
+python -m tools.historian_provision   # create the measurements table
 python -m server.main
 ```
 
@@ -132,7 +134,7 @@ The server prints its posture at startup — this is the same thing you read in
 CloudWatch after a deploy:
 
 ```
-[db]    PostgreSQL - postgresql://nextxr:***@localhost:5432/nextxr (pool 1-10 per task)
+[db]    MySQL - mysql://nextxr:***@localhost:3306/nextxr (pool 1-10 per task)
 [blobs] S3 - bucket=nextxr-blobs prefix=/ endpoint=http://localhost:9000
 [bus]   Redis Streams - redis://localhost:6379/0
 ```
@@ -144,13 +146,12 @@ GLBs land.
 Clear those variables to go back to zero-dependency offline dev — the SQLite
 files and local blobs are untouched, so you can switch back and forth freely.
 
-To copy existing SQLite data into Postgres: `python -m db.migrate --dry-run`,
-then `python -m db.migrate`.
+The deploy starts from a fresh MySQL database — there is no SQLite→MySQL data
+cutover (the old `db.migrate` importer was Postgres-specific and is retired).
 
-> **Port 5432 already taken?** A locally-installed PostgreSQL owns it and the
-> container silently cannot bind — you then connect "fine" and get `password
-> authentication failed` from the *other* server. Start with
-> `POSTGRES_PORT=5433 docker compose up -d postgres` and use 5433 in the URL.
+> **Port 3306 already taken?** A locally-installed MySQL owns it and the
+> container cannot bind. Start with `MYSQL_PORT=3307 docker compose up -d mysql`
+> and use 3307 in the URL.
 
 ---
 

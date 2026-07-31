@@ -28,11 +28,15 @@ addopts = [
     "--strict-config",
 ]
 markers = [
-    # Tests that need Neo4j / Postgres / Redis reachable. Deselected by default
+    # Tests that need MySQL 8 / Neo4j / Redis reachable. Deselected by default
     # (`-m "not integration"` in CI's unit job) so the fast suite stays runnable
     # on a laptop with nothing started, and run in the integration job where
-    # docker-compose has brought the stores up.
-    "integration: requires live Neo4j/Postgres/Redis (see docker-compose.yml)",
+    # the service containers have brought the stores up.
+    #
+    # These live in tests/test_integration_stores.py and each SKIPS when its
+    # store is absent, so `pytest -m integration` is quiet locally. CI treats a
+    # skip as a failure, because there the stores are running.
+    "integration: requires live MySQL 8/Neo4j/Redis (see docker-compose.yml)",
     "slow: takes more than ~2s",
 ]
 filterwarnings = [

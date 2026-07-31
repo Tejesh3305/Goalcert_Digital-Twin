@@ -13,32 +13,30 @@ image is non-root, `$PORT`-driven, healthchecked, and serves its own frontend.
 
 ## 0. Read this first — what changed
 
-Everything below §1 remains accurate as the *explanation* of the topology. Three
+Everything below §1 remains accurate as the *explanation* of the topology. Two
 things about the *mechanics* have changed, and they change what you actually run.
 
-### The infrastructure is now code
+### Deployment is manual, and §12 is the procedure
 
-`infra/terraform/` creates every resource this document describes — VPC, RDS,
-ElastiCache, S3, ALB, ECS, Secrets Manager, IAM, alarms. **Sections 12.1–12.9
-are the manual equivalent, kept for reference.** Prefer:
+There is no Terraform and no deploy pipeline. Both were removed deliberately:
+the infrastructure is provisioned once and changes rarely, and a generated plan
+nobody reads is worse than a checklist somebody follows. **§12 is the runbook** —
+ordered steps, each ending in something you can check.
 
-```bash
-cd infra/terraform/environments/prod
-terraform init && terraform apply -var-file=prod.tfvars
-```
+Two consequences you have to own by hand, because nothing else will:
 
-The `next_steps` output prints the exact remaining commands. See
-`infra/terraform/README.md`.
+1. **Run the migrations BEFORE you roll the service** (§14). This is the step a
+   pipeline existed to make unforgettable. Adding a column and redeploying
+   without it produces a fleet whose queries reference a column that does not
+   exist. Run `python -m db.migrations` as a one-off task, confirm it exits 0,
+   *then* update the service.
+2. **Tag images with the commit SHA, never `latest`** (§12.1). An immutable tag
+   is what makes a rollback a task-definition change rather than a rebuild, and
+   it is the only thing that answers "which build is running".
 
-### Deployment is now a pipeline
-
-`.github/workflows/deploy.yml` builds the image, **runs the migrations as a
-one-off task**, rolls the service, and smoke-tests the result — including an
-assertion that an unauthenticated request is refused. It authenticates with
-GitHub OIDC, so there is no AWS access key in a repository secret.
-
-The migration step is the part that was missing. Adding a column and redeploying
-previously produced a fleet whose queries referenced a column that did not exist.
+`NXR_AUTO_MIGRATE` stays `0` regardless: several tasks starting at once would
+queue on the advisory lock and the ones that wait would fail their health check
+(§14).
 
 ### The API is closed by default, and it has users
 
@@ -88,7 +86,7 @@ Route 53 ─▶ CloudFront (optional) ─▶ ALB ─▶ ECS Fargate service
                                               │   THE TASK IS STATELESS
                   ┌───────────────┬───────────┴──┬──────────────┬───────────────────┐
                   ▼               ▼              ▼              ▼                    ▼
-          RDS PostgreSQL 16      S3        ElastiCache      Neo4j Aura        RunPod serverless
+          RDS MySQL 8          S3        ElastiCache      Neo4j Aura        RunPod serverless
             (Multi-AZ)        (blobs:      Redis 7          (or EC2)         GPU (TRELLIS) —
           via RDS Proxy       GLBs +      (event bus)                            external
                              artifacts)
@@ -98,7 +96,7 @@ Four stores, each with one job:
 
 | Store | Holds | §  |
 |---|---|---|
-| **RDS Postgres 16** | records: twin registry, change log, agent bundles, checkpoints, scene cache, 3-D job records | §7 |
+| **RDS MySQL 8** | records: twin registry, change log, identity/auth, agent bundles, checkpoints, scene cache, 3-D job records, telemetry historian | §7 |
 | **S3** | blobs: generated GLBs and 3-D job artifacts | §7.3 |
 | **ElastiCache Redis 7** | the live event bus (one stream per tenant) | §9 |
 | **Neo4j** | the twin's graph: entities, relationships, findings | §6 |
@@ -139,7 +137,7 @@ origin, or hub-embedded assets 404).
 | ECR repository | holds the built image |
 | ECS cluster + Fargate service + task def | runs the container (desired count **2+**) |
 | Application Load Balancer + target group | fronts `:8080`; health check path `/api/v1/health` |
-| **RDS PostgreSQL 16** (Multi-AZ), private subnets | the relational store (§7) |
+| **RDS MySQL 8** (Multi-AZ), private subnets | the relational store (§7) |
 | **S3 bucket** | blobs: generated GLBs + 3-D artifacts (§7.3) |
 | **ElastiCache Redis 7** (Multi-AZ), private subnets | the event bus (§9) |
 | **RDS Proxy** (optional but recommended) | connection pooling across tasks (§7.5) |
@@ -148,7 +146,7 @@ origin, or hub-embedded assets 404).
 | RunPod serverless endpoint | GPU reconstruction (§8) — external to AWS |
 | EFS filesystem + access point (uid/gid **10001**) | **optional** once S3 is set (§7.4) |
 
-Security groups: RDS (5432) and ElastiCache (6379) accept traffic **only** from
+Security groups: RDS (3306) and ElastiCache (6379) accept traffic **only** from
 the ECS task security group (and RDS Proxy), and live in the isolated/private
 subnets — neither is ever publicly addressable. Add an **S3 gateway VPC
 endpoint** so blob traffic skips the NAT gateway's per-GB charge.
@@ -177,8 +175,9 @@ short version — the things whose absence is silent:
 5. **Move every key to Secrets Manager** (§5.2) — nothing in `.env` on the task.
 6. **Stand up managed Neo4j** and rotate off the `nextxr2026` default (§6).
 7. **Restrict CORS** with `NXR_CORS_ORIGINS` (§10).
-8. **Migrating an existing deployment?** Run `python -m db.migrate --dry-run`,
-   then `python -m db.migrate`, before pointing traffic at the new stack (§7.2).
+8. **Provision the database** on the fresh RDS MySQL: `python -m db.schema`,
+   `python -m db.migrations`, `python -m tools.historian_provision` (§7.1). There
+   is no SQLite→MySQL data cutover (§7.2).
 9. **Read the four posture lines** in CloudWatch after the rollout (§12.9):
    `[auth]`, `[db]`, `[blobs]`, `[bus]`. They state the posture in plain words
    and take ten seconds to check.
@@ -190,7 +189,7 @@ short version — the things whose absence is silent:
 Fargate tasks built from the `Dockerfile`, behind an ALB, **desired count 2+**
 across two AZs (see §9). The ALB target-group health check uses
 `GET /api/v1/health`, which returns 200 while the *process* is up even if Neo4j
-or Postgres is down (a deliberate product choice so a DB blip doesn't roll the
+or MySQL is down (a deliberate product choice so a DB blip doesn't roll the
 fleet) — so add a separate CloudWatch alarm on the health payload's `degraded`
 status for DB visibility.
 
@@ -223,7 +222,7 @@ Plain **environment** (task-def `environment:`):
 | `NXR_REQUIRE_S3` | `1` | refuse to start on local-disk blobs (§9) |
 | `NXR_REQUIRE_REDIS` | `1` | refuse to start on the in-memory bus (§9) |
 | `NXR_DB_POOL_MAX` | `10` | per-task pool ceiling; server-side total is tasks × this (§7.5) |
-| `NXR_DB_SSLMODE` | `require` | unless already in the URL (§7) |
+| `NXR_DB_SSL_CA` | `/path/rds-ca.pem` | verify RDS TLS (or `NXR_DB_SSL=1` for TLS without CA pinning) (§7) |
 | `NXR_REQUIRE_AUTH` | `1` | enforce auth even before keys load (§10) |
 | `NXR_CORS_ORIGINS` | `https://app…,https://hub…` | allow-list (§10) |
 | `NXR_DATA_DIR` | `/data` | only if you mount EFS (§7.4); scratch, not durable state |
@@ -261,59 +260,63 @@ unreachable — a deploy is not "done" while `/api/v1/health` reports `degraded`
 
 ---
 
-## 7. State: RDS PostgreSQL 16
+## 7. State: RDS MySQL 8
 
-All relational state lives in one Postgres database, reached via
-`NXR_DATABASE_URL`:
+All relational state lives in one MySQL database, reached via `NXR_DATABASE_URL`.
+**MySQL 8.0+ is required** (not 5.7 / MariaDB): the historian's "latest value" and
+rollup queries use window functions (`ROW_NUMBER() OVER …`) that only exist in 8.
 
 | Table | Holds | Was |
 |---|---|---|
 | `twins` | the twin registry — every twin a user has created | `twins.db` |
 | `events` | the governance change log (per-tenant hash chain) | `changelog.db` |
+| `organizations`/`users`/`sessions`/`api_keys`/… | identity & auth | `identity.db` |
 | `published_bundles` | agent-authored capability bundles | `bundles.db` |
 | `checkpoints` | agent graph checkpoints (human-in-the-loop resume) | `agent_checkpoints.db` |
 | `scene_cache` | BIM scene graphs for the 3-D viewer | `data/scenes/*.json` |
+| `measurements` | the telemetry historian (one plain table) | `historian.db` |
 
-`field_changes`, `payload`, `domains`, `state` and `scene` are **JSONB**, so the
-change log and scene graphs are queryable in place rather than opaque text.
+`field_changes`, `payload`, `domains`, `state` and `scene` are **`JSON`** columns
+(MySQL has no `JSONB`; `JSON` is queryable in place), so the change log and scene
+graphs are not opaque text. Auto-increment keys are `BIGINT AUTO_INCREMENT` (no
+sequences). Identifier/indexed columns are `VARCHAR` (MySQL cannot index bare
+`TEXT`).
 
-**Instance shape.** `db.t4g.medium` + gp3 is ample for this workload — it is
-metadata and an audit log, not telemetry (live physics state is in-process and on
-Redis; the graph is in Neo4j). Multi-AZ for failover. Plain **RDS, not Aurora**:
-cheaper at this size, flat I/O pricing, and the same engine runs on-prem for a
-customer who needs it. Enable automated backups; the change log is an audit
-record and PITR is the point.
+**Instance shape.** `db.t4g.medium` + gp3 is a fine starting point — the records
+and audit log are small (live physics state is in-process and on Redis; the graph
+is in Neo4j). The historian's `measurements` table is the one that grows: it is a
+plain table with no columnar compression and no automatic retention, so size the
+instance for your telemetry volume, or add an app-level purge (see
+`historian.retention_days`) / partitioning if ingest is heavy. Multi-AZ for
+failover; enable automated backups (the change log is an audit record and PITR is
+the point).
 
-**Extensions.** `python -m db.schema --extensions` enables `pgvector` and
-`postgis` if the role permits. Nothing queries them yet — they are why the
-architecture specifies Postgres (geospatial asset positions, embedding search
-over the ontology) rather than a KV store. Skipping them changes nothing today.
+**Extensions.** None. MySQL needs no `CREATE EXTENSION` step (there is no pgvector
+/ PostGIS equivalent, and nothing queried them). `python -m db.schema` alone
+provisions everything.
 
 ### 7.1 Provisioning
 
 ```bash
-export NXR_DATABASE_URL='postgresql://nextxr:PASS@twin.xxxx.rds.amazonaws.com:5432/nextxr?sslmode=require'
+# TLS: append the RDS CA via NXR_DB_SSL_CA, or set NXR_DB_SSL=1 (see §5.2).
+export NXR_DATABASE_URL='mysql://nextxr:PASS@twin.xxxx.rds.amazonaws.com:3306/nextxr'
 python -m db.schema              # create every table (idempotent)
 python -m db.schema --check      # report only, create nothing
+python -m db.migrations          # apply ordered schema changes
+python -m tools.historian_provision   # create the measurements table
 ```
 
 Run it from a bastion/ECS-exec session inside the VPC — RDS is not publicly
-reachable. The app also self-provisions on first use, so this is a
-fail-early check rather than a hard prerequisite.
+reachable. The app also self-provisions the relational tables on first use, so
+this is a fail-early check rather than a hard prerequisite.
 
-### 7.2 Migrating an existing SQLite deployment
+### 7.2 Fresh database only — no SQLite cutover
 
-```bash
-python -m db.migrate --dry-run    # read the .db files, write nothing
-python -m db.migrate              # copy them in
-```
-
-`--source` defaults to `NXR_DATA_DIR`, so run it on a task that has the EFS
-volume mounted. It is idempotent (`ON CONFLICT DO NOTHING` — a live row always
-beats the snapshot), copies the change log **verbatim including `seq`**, resets
-the `events.seq` sequence past the copied rows, and then re-verifies every
-tenant's hash chain in the target, exiting non-zero if any fails. Keep the SQLite
-files until the deployment is confirmed.
+The standalone deploy starts from a **fresh MySQL database**; there is no
+supported SQLite→MySQL data import (the old `db.migrate` importer was
+Postgres-specific and is retired). Provision with the commands in §7.1. If you
+must lift data from an old SQLite dev instance, do it with a purpose-built
+export/import rather than an in-app tool.
 
 ### 7.3 Blobs — S3 (`NXR_S3_BUCKET`)
 
@@ -400,7 +403,7 @@ stubs the reconstruction step.
   Set all three flags for any multi-task service. A task that crash-loops with a
   one-line reason in CloudWatch is a far better outcome than a fleet that serves
   half the twins and half the models.
-- **Sticky sessions are not required.** Agent checkpoints are in Postgres, so a
+- **Sticky sessions are not required.** Agent checkpoints are in MySQL, so a
   run interrupted for human approval on one task resumes on another.
 - **Live physics has one owner per twin** (`twins/coordinator.py`). The machine-twin
   runtime is a stateful integrator — wear accumulates, an injected fault persists —
@@ -425,11 +428,12 @@ stubs the reconstruction step.
 - **The task is stateless** once RDS + S3 + ElastiCache are configured. Nothing
   durable is left on local disk or EFS (§7.4), so tasks are disposable and
   rolling deploys are safe.
-- **Change-log writes serialise per tenant.** `append()` takes a Postgres
-  advisory lock for the length of its transaction so a tenant's hash chain cannot
-  fork under concurrent writers. Tenants never block each other, but a single
-  tenant's write throughput is bounded by that lock — which is the correct
-  trade for a tamper-evident ledger.
+- **Change-log writes serialise per tenant.** `append()` takes a MySQL
+  `GET_LOCK()` advisory lock for the length of its transaction so a tenant's hash
+  chain cannot fork under concurrent writers (the lock is released deterministically
+  at transaction end, since MySQL's `GET_LOCK` is session- not transaction-scoped).
+  Tenants never block each other, but a single tenant's write throughput is bounded
+  by that lock — which is the correct trade for a tamper-evident ledger.
 
 ---
 
@@ -467,11 +471,11 @@ stubs the reconstruction step.
 - **`NEO4J_PASSWORD` is mandatory.** The development password is published in this
   repository and is no longer a fallback — the driver refuses to connect without
   an explicit password once auth is enforced.
-- **Database:** RDS in private/isolated subnets, security group open to the task
-  SG only, storage encrypted at rest, and TLS enforced in transit
-  (`sslmode=require` in the URL or `NXR_DB_SSLMODE`) — without it psycopg2 will
-  quietly accept an unencrypted connection. Rotate the password through Secrets
-  Manager, or skip it entirely with RDS IAM auth.
+- **Database:** RDS MySQL in private/isolated subnets, security group open to the
+  task SG only, storage encrypted at rest, and TLS enforced in transit — set
+  `NXR_DB_SSL_CA` to the RDS CA bundle (or `NXR_DB_SSL=1` for TLS without CA
+  pinning); without it the driver connects unencrypted. Rotate the password
+  through Secrets Manager, or skip it entirely with RDS IAM auth.
 - **S3:** Block Public Access ON; the task role gets object read/write on this
   bucket only (§7.3). Presigned URLs still work with public access blocked.
 - **Health check** never 503s by design; add a CloudWatch alarm on the `degraded`
@@ -485,17 +489,17 @@ stubs the reconstruction step.
 
 ## 11. Rehearse the deploy locally (do this first)
 
-`docker compose` runs the same three shared stores the deploy uses — Postgres 16,
-Redis 7 and **MinIO** (S3-compatible). With the required-flags on, a local run
-exercises the exact code paths ECS will, so a configuration mistake surfaces on
-your machine instead of in a rollout.
+`docker compose` runs the same shared stores the deploy uses — MySQL 8, Redis 7
+and **MinIO** (S3-compatible). With the required-flags on, a local run exercises
+the exact code paths ECS will, so a configuration mistake surfaces on your machine
+instead of in a rollout.
 
 ```powershell
-# 1. Start every dependency (Neo4j, Postgres, Redis, MinIO + bucket creation)
+# 1. Start every dependency (Neo4j, MySQL, Redis, MinIO + bucket creation)
 docker compose up -d
 
 # 2. Point the app at them, in production posture
-$env:NXR_DATABASE_URL   = "postgresql://nextxr:nextxr2026@localhost:5432/nextxr"
+$env:NXR_DATABASE_URL   = "mysql://nextxr:nextxr2026@localhost:3306/nextxr"
 $env:NXR_REDIS_URL      = "redis://localhost:6379/0"
 $env:NXR_S3_BUCKET      = "nextxr-blobs"
 $env:NXR_S3_ENDPOINT_URL      = "http://localhost:9000"   # MinIO; unset for real S3
@@ -508,20 +512,21 @@ $env:NXR_REQUIRE_DB = "1"; $env:NXR_REQUIRE_S3 = "1"; $env:NXR_REQUIRE_REDIS = "
 # 3. Provision the schema, then run
 cd nextxr-ontology
 python -m db.schema
+python -m db.migrations
+python -m tools.historian_provision
 python -m server.main
 ```
 
-> Already running PostgreSQL natively? It owns port 5432 and the container cannot
-> bind it — you will connect "successfully" and get `password authentication
-> failed` from the *other* server. Start with `POSTGRES_PORT=5433 docker compose
-> up -d postgres` and use 5433 in the URL.
+> Already running MySQL natively? It owns port 3306 and the container cannot bind
+> it. Start with `MYSQL_PORT=3307 docker compose up -d mysql` and use 3307 in the
+> URL.
 
 **What a correct start looks like.** Four posture lines, and they are the same
 four you will read in CloudWatch:
 
 ```
 [auth]  API key enforcement ON - NXR_API_KEYS configured.
-[db]    PostgreSQL - postgresql://nextxr:***@localhost:5432/nextxr (pool 1-10 per task)
+[db]    MySQL - mysql://nextxr:***@localhost:3306/nextxr (pool 1-10 per task)
 [blobs] S3 - bucket=nextxr-blobs prefix=/ endpoint=http://localhost:9000
 [bus]   Redis Streams - redis://localhost:6379/0
 ```
@@ -538,7 +543,7 @@ python bus/bus_test.py                       # event bus contract (22 checks)
 cd server/threed_platform; python selftest.py   # full photo->GLB, artifacts to S3
 ```
 
-`/api/v1/health` must show `status: "healthy"` with `database.backend: postgres`,
+`/api/v1/health` must show `status: "healthy"` with `database.backend: mysql`,
 `blobs.backend: s3` and `bus.backend: redis` + `scale_safe: true`. Anything else
 is the thing that would have broken in production.
 
@@ -582,7 +587,7 @@ ElastiCache) across **two AZs**. Security groups:
 | From | To | Port |
 |---|---|---|
 | ALB SG | task SG | 8080 |
-| task SG | RDS SG | 5432 |
+| task SG | RDS SG | 3306 |
 | task SG | ElastiCache SG | 6379 |
 
 RDS and ElastiCache are **not** publicly reachable. S3 goes over a gateway VPC
@@ -591,11 +596,12 @@ endpoint (free, and keeps blob traffic off the NAT gateway's per-GB charge).
 ### 3. Create the three shared stores
 
 ```bash
-# Postgres 16 — records
+# MySQL 8 — records
 aws rds create-db-instance --db-instance-identifier nextxr-twin \
-  --engine postgres --engine-version 16 --db-instance-class db.t4g.medium \
+  --engine mysql --engine-version 8.0 --db-instance-class db.t4g.medium \
   --allocated-storage 50 --storage-type gp3 --storage-encrypted --multi-az \
   --master-username nextxr --manage-master-user-password \
+  --db-name nextxr \
   --db-subnet-group-name nextxr-private --vpc-security-group-ids $RDS_SG \
   --backup-retention-period 7 --no-publicly-accessible
 
@@ -613,14 +619,14 @@ aws elasticache create-replication-group \
   --cache-subnet-group-name nextxr-private --security-group-ids $REDIS_SG
 ```
 
-Also stand up **Neo4j** (Aura, §6) and add **RDS Proxy** in front of Postgres
+Also stand up **Neo4j** (Aura, §6) and add **RDS Proxy** in front of MySQL
 (§7.5) if you expect more than a couple of tasks.
 
 ### 4. Secrets
 
 ```bash
 aws secretsmanager create-secret --name nextxr/database-url \
-  --secret-string 'postgresql://nextxr:PASS@nextxr-twin.xxxx.rds.amazonaws.com:5432/nextxr?sslmode=require'
+  --secret-string 'mysql://nextxr:PASS@nextxr-twin.xxxx.rds.amazonaws.com:3306/nextxr'
 aws secretsmanager create-secret --name nextxr/api-keys \
   --secret-string '[{"key":"...","tenant":"*","role":"admin","name":"prod"}]'
 aws secretsmanager create-secret --name nextxr/neo4j-password --secret-string '...'
@@ -641,14 +647,15 @@ From inside the VPC (`ecs execute-command`, or a bastion), against the new RDS
 instance:
 
 ```bash
-export NXR_DATABASE_URL='postgresql://nextxr:PASS@...rds.amazonaws.com:5432/nextxr?sslmode=require'
+export NXR_DATABASE_URL='mysql://nextxr:PASS@...rds.amazonaws.com:3306/nextxr'
 python -m db.schema                 # create every table (idempotent)
-python -m db.schema --extensions    # optional: pgvector / PostGIS
+python -m db.migrations             # apply ordered schema changes
+python -m tools.historian_provision # create the measurements table
 python -m db.schema --check         # confirm
 ```
 
-Migrating an existing SQLite deployment? Do it now, before traffic:
-`python -m db.migrate --dry-run`, then `python -m db.migrate` (§7.2).
+The deploy starts from a fresh MySQL database — there is no SQLite→MySQL cutover
+(§7.2).
 
 ### 7. Task definition
 
@@ -668,7 +675,7 @@ Container port 8080, image from step 1, `awslogs` driver, and:
   {"name":"NXR_REQUIRE_AUTH","value":"1"},
   {"name":"NXR_CORS_ORIGINS","value":"https://app.example.com"},
   {"name":"NXR_DB_POOL_MAX","value":"10"},
-  {"name":"NXR_DB_SSLMODE","value":"require"}
+  {"name":"NXR_DB_SSL","value":"1"}          // TLS to RDS (or NXR_DB_SSL_CA for CA pinning)
 ],
 "secrets": [
   {"name":"NXR_DATABASE_URL","valueFrom":"arn:aws:secretsmanager:...:nextxr/database-url"},
@@ -711,7 +718,7 @@ Every one of these must hold:
 | Check | Required value |
 |---|---|
 | `status` | `healthy` |
-| `database.backend` | `postgres` (**not** `sqlite`) |
+| `database.backend` | `mysql` (**not** `sqlite`) |
 | `blobs.backend` | `s3` (**not** `local`) |
 | `bus.backend` / `bus.scale_safe` | `redis` / `true` |
 | `twin_runtime.enabled` | `true` (leases active — each twin has one owner) |
@@ -864,11 +871,24 @@ python -m db.migrations --dry-run    # print the SQL, change nothing
 python -m db.migrations              # apply
 ```
 
-**Run them as a one-off ECS task before the service rolls** — which is what the
-deploy workflow does, and why `NXR_AUTO_MIGRATE` stays `0`. With several tasks
-starting at once they would queue on the advisory lock, and the ones that wait
-fail their health check: a failed deploy caused by the migration *mechanism*
-rather than by the migration.
+**Run them as a one-off ECS task before the service rolls**, and confirm the task
+exited 0 before you touch the service. This is a manual step with no pipeline
+enforcing it (§0), so it is the one most worth building a habit around:
+
+```bash
+TASK_ARN=$(aws ecs run-task --cluster nextxr --task-definition nextxr-twin \
+  --launch-type FARGATE --network-configuration "$NETWORK" \
+  --overrides '{"containerOverrides":[{"name":"app","command":["python","-m","db.migrations"]}]}' \
+  --query 'tasks[0].taskArn' --output text)
+aws ecs wait tasks-stopped --cluster nextxr --tasks "$TASK_ARN"
+aws ecs describe-tasks --cluster nextxr --tasks "$TASK_ARN" \
+  --query 'tasks[0].containers[0].exitCode' --output text   # must be 0
+```
+
+`NXR_AUTO_MIGRATE` stays `0` for the same reason it always did: with several
+tasks starting at once they would queue on the advisory lock, and the ones that
+wait fail their health check — a failed deploy caused by the migration
+*mechanism* rather than by the migration.
 
 ### Writing one
 
@@ -883,6 +903,6 @@ single release that renames a column is broken for the entire rolling-deploy
 window, because old and new tasks serve simultaneously.
 
 On SQLite each store is a separate **file**, so a migration must name the store
-its tables live in (`store="twins"`). On Postgres they share one database and the
+its tables live in (`store="twins"`). On MySQL they share one database and the
 name is only diagnostic — which means getting it wrong fails locally and works in
 production, or the reverse.

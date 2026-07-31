@@ -7,7 +7,7 @@ and a live monitoring dashboard.
 ## Quick start
 
 ```bash
-# 1. Start Neo4j (+ Postgres and Redis)
+# 1. Start Neo4j (+ MySQL and Redis)
 docker compose up -d
 
 # 2. Install dependencies
@@ -34,7 +34,7 @@ Telemetry Feed ──> Behavior Registry ──> Graph Writer ──> Neo4j
                    (Tier A/B/C)          (SHACL gate)     (graph)
                                               |
                                          Change Log
-                                      (Postgres, hash-chained)
+                                       (MySQL, hash-chained)
                                               |
                                          REST API ──> Dashboard
 ```
@@ -47,9 +47,10 @@ event reference. Nothing else writes directly.
 relationships, findings. The relational store (`db/`) holds everything that is a
 record rather than a graph: the twin registry, the hash-chained change log,
 published agent bundles, agent checkpoints and the BIM scene cache. That is RDS
-PostgreSQL 16 in production and SQLite files under `data/` when
-`NXR_DATABASE_URL` is unset, so local dev needs no database server. See
-`db/core.py` and AWS_DEPLOYMENT.md §7.
+**MySQL 8** in production and SQLite files under `data/` when
+`NXR_DATABASE_URL` is unset, so local dev needs no database server. MySQL 8.0+
+specifically — the historian's queries use window functions that 5.7 and MariaDB
+do not have. See `db/core.py` and AWS_DEPLOYMENT.md §7.
 
 ## API endpoints
 
