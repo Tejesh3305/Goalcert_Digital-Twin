@@ -75,7 +75,24 @@ python-dotenv==1.2.2
 # only needed for a MySQL deploy — the app imports it lazily and runs fine
 # without it. It stays in this file because the container image IS the deploy
 # artifact and must not have to install it at boot.
-PyMySQL==1.1.1
+PyMySQL[rsa]==1.1.1
+
+# PyMySQL's `rsa` extra, pinned explicitly because everything else here is.
+#
+# NOT OPTIONAL FOR MYSQL 8. The default authentication plugin changed from
+# `mysql_native_password` (5.7) to `caching_sha2_password` (8.0), and PyMySQL
+# cannot complete that handshake without cryptography. It fails at CONNECT time:
+#
+#     RuntimeError: 'cryptography' package is required for sha256_password or
+#                   caching_sha2_password auth methods
+#
+# So this is a deploy-blocking dependency, not a CI detail: RDS MySQL 8 uses the
+# same plugin, and without this package the container cannot reach its database
+# at all. It was missing here and went unnoticed for exactly one reason worth
+# remembering — several packages (google-auth among them) pull cryptography in
+# transitively, so a developer machine has it and the container, which installs
+# only this file, does not.
+cryptography==46.0.5
 
 # ── Event bus (Redis Streams) ───────────────────────────────────────────
 # Best-effort with an automatic in-memory fallback, so this is OPTIONAL for a
