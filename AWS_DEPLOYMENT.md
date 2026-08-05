@@ -38,6 +38,47 @@ Two consequences you have to own by hand, because nothing else will:
 queue on the advisory lock and the ones that wait would fail their health check
 (§14).
 
+### Applying a schema change without a second deploy
+
+Most schema changes need no migration at all. `db/schema.py` is the definition of
+every table and `schema.ensure()` **reconciles**: it creates tables that do not
+exist and `ALTER TABLE ... ADD COLUMN`s any declared column an existing table is
+missing. So:
+
+| Change | What it takes |
+| ------ | ------------- |
+| Add a table | declare it in `db/schema.py` → reconcile |
+| Add a column | declare it in `db/schema.py` → reconcile |
+| Drop / rename / retype a column | write a migration — it needs a data decision |
+| Backfill a value | write a migration with a `run=` callable |
+
+Reconcile only ever ADDs. Nothing in it drops, renames or retypes, because each
+of those can lose data and belongs in a reviewed, ledgered migration.
+
+`NXR_DB_ADMIN_API=1` mounts an admin-scoped surface that runs both against the
+**live** database, so the apply step no longer needs a one-off ECS task or an
+`ecs execute-command` shell:
+
+```bash
+BASE=https://<your-host>/api/v1/admin/db
+curl -H "X-API-Key: $ADMIN_KEY" $BASE/status        # applied vs pending
+curl -H "X-API-Key: $ADMIN_KEY" $BASE/verify        # schema.py vs migrations drift
+curl -X POST -H "X-API-Key: $ADMIN_KEY" $BASE/reconcile          # add tables/columns
+curl -X POST -H "X-API-Key: $ADMIN_KEY" "$BASE/migrate"          # dry run (default)
+curl -X POST -H "X-API-Key: $ADMIN_KEY" "$BASE/migrate?dry_run=false"
+```
+
+Gated twice: the env flag decides whether the routes exist (404 otherwise), and
+an admin scope decides who may call them. `migrate` defaults to `dry_run=true` —
+applying schema changes because a parameter was omitted is not a behaviour worth
+having.
+
+**What this does not remove.** The table definitions live in `db/schema.py`,
+which is code, so *defining* a new table still ships with an image. What you no
+longer need is the separate migration ceremony after the rollout. There is
+deliberately no free-form-SQL route: that would move your schema out of version
+control and put `DROP TABLE` one HTTP call from anyone holding an admin key.
+
 ### The API is closed by default, and it has users
 
 The two changes that matter most for a deploy:

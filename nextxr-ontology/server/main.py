@@ -72,6 +72,7 @@ from server.auth import AuthMiddleware
 from server.auth_routes import router as auth_router
 from server.connector_routes import router as connector_router
 from server.copilot_routes import router as copilot_router
+from server.db_admin_routes import router as db_admin_router
 from server.historian_routes import router as historian_router
 from server.hub_routes import router as hub_router
 from server.ingest_routes import router as ingest_router
@@ -194,6 +195,11 @@ app.include_router(agent_router)
 # not a proxy to an external agent service. See copilot/README.md.
 app.include_router(copilot_router)
 app.include_router(hub_router)
+# Schema status/reconcile/migrate against the LIVE database, so a schema change
+# does not need a second one-off ECS task after the image rolls. Every route is
+# a 404 unless NXR_DB_ADMIN_API=1, and an admin scope on top of that — these
+# execute DDL. See server/db_admin_routes.py.
+app.include_router(db_admin_router)
 
 # 3-D generation platform (photo-of-an-object → TRELLIS/RunPod → GLB; floor-plan
 # → the 2d-to-3d parser). Was a standalone service (apps/3d-platform); now mounted

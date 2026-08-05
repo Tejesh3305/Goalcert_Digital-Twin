@@ -138,8 +138,25 @@ class ReconstructStage(Stage):
 
         # 2) Otherwise generate, optionally with the prior as a hint.
         provider = settings.provider()
-        img_path = ctx.get("recon_input_image") or ctx.get("working_image")
         hint = prior if prior.get("mode") == "hint" else None
+
+        # WHICH IMAGE THE MODEL SEES — the single most consequential line here.
+        #
+        # Faithful profile sends the ORIGINAL upload, because upstream's
+        # `preprocess_image` is part of the model, not a convenience wrapper: it
+        # mattes, crops a SQUARE around the object, and premultiplies alpha onto
+        # black, and the image conditioner was trained on exactly that output.
+        #
+        # Sending our own cutout instead is worse than redundant. Upstream opens
+        # with "if the input already carries a non-opaque alpha channel, use it
+        # and skip matting" — so a pre-matted RGBA DISABLES their matting model
+        # and substitutes ours. We were overriding the authors' preprocessing
+        # with a weaker imitation and then wondering why the output was weaker.
+        if settings.pipeline_profile == "legacy":
+            img_path = (ctx.get("recon_input_image") or ctx.get("working_image")
+                        or ctx.get("input_path"))
+        else:
+            img_path = ctx.get("input_path") or ctx.get("working_image")
 
         if provider == "runpod":
             note = self._runpod(ctx, img_path, glb_out, hint)
@@ -159,22 +176,83 @@ class ReconstructStage(Stage):
         b64 = _b64_image(img_path)
         # Send the image under the common base64 aliases so the worker finds it
         # regardless of which key it reads (all raw base64, no data: prefix).
-        # Full TRELLIS sampler params included: the legacy worker ignores them,
-        # the production worker (apps/trellis-worker) honours them.
-        return {"input": {
+        inp = {
             "image": b64,
             "image_base64": b64,
             "images": [b64],
             "seed": 1,
-            "ss_sampling_steps": 25, "ss_guidance_strength": 7.5,
-            "slat_sampling_steps": 25, "slat_guidance_strength": 3.0,
-            "mesh_simplify": 0.90,
             "texture_size": settings.trellis_texture_size,
             "preprocess": True,
             "output_format": "glb",
             "prior": ({"asset_type": hint["asset_type"], "similarity": hint["similarity"]}
                       if hint else None),
-        }}
+        }
+        variant = settings.trellis_variant
+        faithful = settings.pipeline_profile == "faithful"
+
+        # ── TRELLIS 1 (apps/trellis-worker) ──────────────────────────────────
+        # `ss_guidance_strength` here means cfg_strength over the sparse
+        # structure; `slat_*` drives the single SLat sampler. Neither name
+        # exists in TRELLIS.2.
+        #
+        # THE FAITHFUL VALUES ARE TRELLIS 1's OWN example.py, WHICH IS:
+        #
+        #     outputs = pipeline.run(image, seed=1)
+        #     glb = postprocessing_utils.to_glb(
+        #         outputs['gaussian'][0], outputs['mesh'][0],
+        #         simplify=0.95, texture_size=1024)
+        #
+        # `run(image, seed=1)` passes NO sampler params, so it takes the library
+        # defaults — steps 12 / cfg 7.5 for the sparse structure, steps 12 /
+        # cfg 3.0 for SLat. Their repo lists both, commented out, at exactly
+        # those values. We send them explicitly rather than omitting them,
+        # because a worker we did not build might carry different defaults and
+        # "faithful" should not depend on that.
+        #
+        # The legacy numbers below (25 steps, simplify 0.90) were ours, not
+        # theirs. More steps is a plausible guess and simplify 0.90 keeps more
+        # faces than their 0.95 — but neither is what the authors published or
+        # measured, and matching their example is the point of this profile.
+        if variant in ("1", "both"):
+            if faithful:
+                inp.update({
+                    "ss_sampling_steps": 12, "ss_guidance_strength": 7.5,
+                    "slat_sampling_steps": 12, "slat_guidance_strength": 3.0,
+                    "mesh_simplify": 0.95,
+                })
+            else:
+                inp.update({
+                    "ss_sampling_steps": 25, "ss_guidance_strength": 7.5,
+                    "slat_sampling_steps": 25, "slat_guidance_strength": 3.0,
+                    "mesh_simplify": 0.90,
+                })
+
+        # ── TRELLIS.2 (apps/trellis2-worker) ─────────────────────────────────
+        # Three separate samplers, each with guidance_rescale and rescale_t.
+        # Values are upstream's published defaults — the v2 worker clamps and
+        # re-applies its own defaults for anything omitted, so sending them is
+        # about making the request self-documenting, not about overriding.
+        #
+        # `ss_sampling_steps` is intentionally NOT set to the v1 value of 25
+        # when both sets are sent: v2's worker clamps that key to its own 1-50
+        # range and reads it as ITS sparse-structure step count. 25 steps is a
+        # legitimate (slower, marginally cleaner) v2 setting, so the overlap is
+        # harmless — but it is the one key the two schemas genuinely share, and
+        # it is worth knowing that it lands in both.
+        if variant in ("2", "both"):
+            inp.update({
+                "resolution": settings.trellis2_resolution,
+                "ss_guidance_rescale": 0.7, "ss_rescale_t": 5.0,
+                "shape_slat_sampling_steps": 12,
+                "shape_slat_guidance_strength": 7.5,
+                "shape_slat_guidance_rescale": 0.5, "shape_slat_rescale_t": 3.0,
+                "tex_slat_sampling_steps": 12,
+                "tex_slat_guidance_strength": 1.0,
+                "tex_slat_guidance_rescale": 0.0, "tex_slat_rescale_t": 3.0,
+                "decimation_target": settings.trellis2_decimation_target,
+                "extension_webp": settings.trellis2_webp,
+            })
+        return {"input": inp}
 
     # ── RunPod serverless ────────────────────────────────────────────────────
     def _runpod(self, ctx, img_path, glb_out, hint) -> str:
@@ -239,10 +317,13 @@ class ReconstructStage(Stage):
         # Consumed. Clearing it stops a LATER re-run from resurrecting this
         # result instead of generating from a new image.
         ctx.set("runpod_job_id", "")
-        ctx.set("reconstruction", "trellis@runpod")
+        model = _worker_model(data)
+        ctx.set("reconstruction", f"trellis@runpod ({model})" if model
+                else "trellis@runpod")
         exec_s = (data.get("executionTime") or 0) / 1000
         delay_s = (data.get("delayTime") or 0) / 1000
         return (f"TRELLIS (RunPod{', resumed' if resumed else ''}) → {glb_out.name}"
+                f"{' · ' + model if model else ''}"
                 f" · queued {delay_s:.0f}s + ran {exec_s:.0f}s")
 
     def _runpod_status(self, base, headers, job_id) -> dict | None:
@@ -355,6 +436,21 @@ class ReconstructStage(Stage):
         mesh.export(glb_out)
         ctx.set("reconstruction", "stub")
         return "⚠ STUB mesh (configure RunPod: RUNPOD_API_KEY + RUNPOD_ENDPOINT_ID)"
+
+
+def _worker_model(data) -> str:
+    """The model id the worker reported, if it reported one.
+
+    Both workers echo `metadata.model`. Recording it turns "which TRELLIS
+    actually produced this mesh?" from an inference about deployment state into
+    a fact stored on the job — which matters precisely because v1 and v2 return
+    identically-shaped responses and a stale endpoint looks exactly like a
+    fresh one from the client side.
+    """
+    try:
+        return str((((data.get("output") or {}).get("metadata")) or {}).get("model") or "")
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def _safe(o):
