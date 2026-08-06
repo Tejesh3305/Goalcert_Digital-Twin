@@ -162,7 +162,8 @@ desired count > 1 and rolling deploys safe.
 1. `node:20-slim` builds `frontend/dist`.
 2. `python:3.12-slim` installs `requirements.txt`, copies `nextxr-ontology/` and the
    built `dist`, runs as non-root **uid/gid 10001**, exposes `:8080`, and
-   healthchecks `GET /api/v1/health`.
+   healthchecks `GET /api/v1/health/live` — liveness only, so a slow RDS or S3
+   cannot time the probe out and get a working process killed (§0).
 
 The container serves the UI at `/`, so a first deploy needs **no S3/CloudFront** —
 this is the true one-URL deploy. Add CloudFront later only if you federate the UI
@@ -177,7 +178,7 @@ origin, or hub-embedded assets 404).
 |---|---|
 | ECR repository | holds the built image |
 | ECS cluster + Fargate service + task def | runs the container (desired count **2+**) |
-| Application Load Balancer + target group | fronts `:8080`; health check path `/api/v1/health` |
+| Application Load Balancer + target group | fronts `:8080`; health check path `/api/v1/health/ready` (§0) |
 | **RDS MySQL 8** (Multi-AZ), private subnets | the relational store (§7) |
 | **S3 bucket** | blobs: generated GLBs + 3-D artifacts (§7.3) |
 | **ElastiCache Redis 7** (Multi-AZ), private subnets | the event bus (§9) |
@@ -223,16 +224,56 @@ short version — the things whose absence is silent:
    `[auth]`, `[db]`, `[blobs]`, `[bus]`. They state the posture in plain words
    and take ten seconds to check.
 
+### 4.1 What you must supply — the operator's input list
+
+Everything the repository cannot know. Nothing here is in version control, and
+each line is something a deploy stalls on if it is missing.
+
+**You do NOT need to supply a DB schema.** This is the most common assumption
+and it is wrong: `db/schema.py` *is* the schema — 16 tables of declarative DDL —
+and `python -m db.schema` creates all of them against an empty database. What
+you supply is an **empty MySQL 8 database and a user that can `CREATE TABLE` in
+it**. Do not hand-write SQL, and do not import a dump.
+
+| # | You provide | Where it goes | Notes |
+|---|---|---|---|
+| 1 | **RDS MySQL 8 endpoint + user + password + empty DB name** | `NXR_DATABASE_URL` secret | `mysql://user:pass@host:3306/nextxr`. **MySQL 8.0+, not 5.7/MariaDB** — the historian uses `ROW_NUMBER() OVER` (§7) |
+| 2 | **S3 bucket name** (Block Public Access ON) | `NXR_S3_BUCKET` env | plus a task role with object read/write (§7.3). No access keys |
+| 3 | **ElastiCache Redis 7 endpoint** | `NXR_REDIS_URL` env | `redis://host:6379/0` (§9) |
+| 4 | **Neo4j Aura URI + password** | `NEO4J_URI` env, `NEO4J_PASSWORD` secret | rotate off the `nextxr2026` dev default (§6) |
+| 5 | **`NXR_JWT_SECRET`** | secret | **32+ random bytes.** The app will not boot without it. `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
+| 6 | **`NXR_SECRET_PEPPER`** | secret | same generator. Set it once and never rotate casually (§13) |
+| 7 | **First admin email + password** | `NXR_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | **first deploy only, then delete both** (§13) |
+| 8 | **`ANTHROPIC_API_KEY`** | secret | only if `/copilot` is used |
+| 9 | **`RUNPOD_API_KEY` + `RUNPOD_ENDPOINT_ID`** | secrets | only if photo→3-D is used; unset stubs the step (§8) |
+| 10 | **Public hostname + ACM certificate** | ALB listener, `NXR_CORS_ORIGINS` | |
+| 11 | **VPC, 2 AZs, subnets, security groups** | §12.2 | |
+
+**There is no `.env` file on AWS.** `.env` is gitignored and local-only;
+`.env.example` is the annotated catalogue of every variable and is the file to
+read, but on ECS these values are task-definition `environment:` entries and
+Secrets Manager `secrets:` references (§5.2). Nothing is baked into the image —
+`.dockerignore` excludes `.env` for exactly this reason.
+
 ---
 
 ## 5. Deployment shape (ECS Fargate)
 
 Fargate tasks built from the `Dockerfile`, behind an ALB, **desired count 2+**
-across two AZs (see §9). The ALB target-group health check uses
-`GET /api/v1/health`, which returns 200 while the *process* is up even if Neo4j
-or MySQL is down (a deliberate product choice so a DB blip doesn't roll the
-fleet) — so add a separate CloudWatch alarm on the health payload's `degraded`
-status for DB visibility.
+across two AZs (see §9).
+
+The ALB target-group health check uses **`GET /api/v1/health/ready`**, which
+*is* allowed to 503 — that is the whole point of it. A task that cannot reach a
+configured MySQL, or that is running on the in-memory bus while
+`NXR_REQUIRE_REDIS=1`, drops out of rotation without being killed, and rejoins
+on its own when the dependency recovers.
+
+Readiness is deliberately narrower than health: **Neo4j being down is not
+unready.** The twin registry, schema API, auth and the SPA all still serve, and
+the documented product behaviour is to degrade rather than disappear — draining
+every task for a graph outage would be a self-inflicted outage larger than the
+fault. So still add a CloudWatch alarm on `/api/v1/health`'s `degraded` status
+(§12.10): that is the only signal that reports a sick Neo4j.
 
 ### 5.1 Task definition (essentials)
 
@@ -266,13 +307,27 @@ Plain **environment** (task-def `environment:`):
 | `NXR_DB_SSL_CA` | `/path/rds-ca.pem` | verify RDS TLS (or `NXR_DB_SSL=1` for TLS without CA pinning) (§7) |
 | `NXR_REQUIRE_AUTH` | `1` | enforce auth even before keys load (§10) |
 | `NXR_CORS_ORIGINS` | `https://app…,https://hub…` | allow-list (§10) |
+| `AWS_REGION` | `ap-southeast-2` | region for the S3 client; must match the bucket |
+| `NXR_TRUST_PROXY` | `1` | honour `X-Forwarded-For` behind the ALB, or every audit-log entry and rate-limit bucket keys off the ALB's IP (§10) |
+| `NXR_HSTS` | `1` | emit `Strict-Transport-Security`; set only once HTTPS is terminated at the ALB |
+| `NXR_AUTO_MIGRATE` | `0` | migrations run as a one-off task, never at container start (§14) |
+| `NXR_DB_ADMIN_API` | unset | set `1` **only** to mount `/api/v1/admin/db` (§0); 404 otherwise |
 | `NXR_DATA_DIR` | `/data` | only if you mount EFS (§7.4); scratch, not durable state |
 | `DATA_DIR` | `/data/threed` | ditto — the 3-D platform's own working dir |
 
 **Secrets** (task-def `secrets:` → Secrets Manager / SSM — never in `environment`):
 
-`NXR_DATABASE_URL`, `NXR_API_KEYS`, `NEO4J_PASSWORD`, `ANTHROPIC_API_KEY`,
-`RUNPOD_API_KEY`, `RUNPOD_ENDPOINT_ID`, and (if used) `REPLICATE_API_TOKEN`.
+| Secret | Required? | Why it is a secret |
+|---|---|---|
+| `NXR_DATABASE_URL` | **yes** | embeds the RDS password |
+| `NXR_JWT_SECRET` | **yes** | **32+ random bytes.** `identity/tokens.require_secret()` refuses to boot without it while auth is enforced — otherwise each task signs with its own random key and a token minted by one task is rejected by every other (intermittent 401s that look like a client bug) |
+| `NXR_API_KEYS` | yes | break-glass machine credentials (§10) |
+| `NEO4J_PASSWORD` | **yes** | the driver refuses to connect without it once auth is enforced (§6) |
+| `NXR_SECRET_PEPPER` | recommended | peppers API-key and refresh-token hashes; rotating it invalidates every key and session (§13) |
+| `ANTHROPIC_API_KEY` | if `/copilot` is used | LLM billing |
+| `RUNPOD_API_KEY` / `RUNPOD_ENDPOINT_ID` | if 3-D is used | GPU reconstruction (§8); unset stubs the step |
+| `REPLICATE_API_TOKEN` | optional | alternate 3-D backend |
+| `NXR_BOOTSTRAP_ADMIN_PASSWORD` | **first deploy only** | creates the first admin — **remove afterwards** (§13) |
 
 `NXR_DATABASE_URL` is a secret because it embeds the password. If you prefer to
 keep the URL in plain `environment`, use RDS **IAM authentication** or store only
@@ -307,15 +362,32 @@ All relational state lives in one MySQL database, reached via `NXR_DATABASE_URL`
 **MySQL 8.0+ is required** (not 5.7 / MariaDB): the historian's "latest value" and
 rollup queries use window functions (`ROW_NUMBER() OVER …`) that only exist in 8.
 
+`db/schema.py` declares **16 tables** and `python -m tools.historian_provision`
+adds a 17th (`measurements`). The full set — this is what `--check` verifies:
+
 | Table | Holds | Was |
 |---|---|---|
 | `twins` | the twin registry — every twin a user has created | `twins.db` |
 | `events` | the governance change log (per-tenant hash chain) | `changelog.db` |
-| `organizations`/`users`/`sessions`/`api_keys`/… | identity & auth | `identity.db` |
 | `published_bundles` | agent-authored capability bundles | `bundles.db` |
 | `checkpoints` | agent graph checkpoints (human-in-the-loop resume) | `agent_checkpoints.db` |
 | `scene_cache` | BIM scene graphs for the 3-D viewer | `data/scenes/*.json` |
-| `measurements` | the telemetry historian (one plain table) | `historian.db` |
+| `threed_jobs` | photo→GLB job records (the artifacts themselves go to S3, §7.3) | local JSON |
+| `ingest_devices` | registered telemetry devices / connectivity credentials | — |
+| `connectors` | external system connector configurations | — |
+| `organizations` | tenant-owning organisations | `identity.db` |
+| `users` | accounts, password hashes, `is_platform_admin` | `identity.db` |
+| `memberships` | user↔org role grants (`owner`/`admin`/`write`/`read`, §13) | `identity.db` |
+| `sessions` | refresh-token session families (reuse detection, §13) | `identity.db` |
+| `api_keys` | database-backed machine credentials (peppered hashes) | `identity.db` |
+| `org_tenants` | **the ownership table** `server/tenancy.py` enforces against | `identity.db` |
+| `auth_tokens` | password-reset / invite tokens | `identity.db` |
+| `audit_log` | who did what, incl. `session.reuse_detected` (§13) | `identity.db` |
+| `measurements` | the telemetry historian — **provisioned separately** (§7.1) | `historian.db` |
+
+`measurements` is the only one not in `db/schema.py`; it is created by
+`python -m tools.historian_provision`, which is why that command is a distinct
+step in §7.1 and §12.6 rather than something `db.schema` covers.
 
 `field_changes`, `payload`, `domains`, `state` and `scene` are **`JSON`** columns
 (MySQL has no `JSONB`; `JSON` is queryable in place), so the change log and scene
@@ -730,8 +802,10 @@ No `NXR_DATA_DIR`/EFS needed once S3 is set (§7.4).
 
 ### 8. ALB + service
 
-Target group on 8080, health check `/api/v1/health` (matcher 200), HTTPS
-listener with an ACM certificate. Then:
+Target group on 8080, health check **`/api/v1/health/ready`** (matcher 200),
+HTTPS listener with an ACM certificate. Do not point it at `/api/v1/health` —
+that endpoint never fails, so an unready task would stay in rotation serving
+errors (§0). Then:
 
 ```bash
 aws ecs create-service --cluster nextxr --service-name twin \

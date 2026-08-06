@@ -1,15 +1,15 @@
 # NextXR Digital Twin — image.
 #
-# Bakes the built React app (frontend/dist) into the image so single-URL hosts (e.g.
-# Render) serve both the API and the UI from one process — see the "Frontend serving"
-# section of server/main.py, which serves frontend/dist at "/" when present. On AWS ECS
-# the federated UI is ALSO published to S3/CloudFront by CI (AWS_DEPLOYMENT.md §5); the
-# copy baked in here just goes unused there, since traffic to the ECS task's "/" isn't
-# what serves the AWS frontend.
+# Bakes the built React app (frontend/dist) into the image so single-URL hosts serve
+# both the API and the UI from one process — see the "Frontend serving" section of
+# server/main.py, which serves frontend/dist at "/" when present. This is the whole
+# frontend story on AWS too: the ALB routes "/" to this container. There is no CI job
+# publishing the UI to S3/CloudFront — add CloudFront only to federate the UI into the
+# Goalcert hub, and then set VITE_REMOTE_BASE at build time (AWS_DEPLOYMENT.md §2).
 #
 # THE RUNNING TASK IS STATELESS. STATE LIVES IN RDS, S3 AND ELASTICACHE.
 #
-#   records (twins, change log, bundles, checkpoints, scenes, 3-D jobs) -> RDS Postgres
+#   records (twins, change log, bundles, checkpoints, scenes, 3-D jobs) -> RDS MySQL 8
 #   blobs   (generated GLBs, 3-D job artifacts)                         -> S3
 #   live events                                                         -> ElastiCache Redis
 #
