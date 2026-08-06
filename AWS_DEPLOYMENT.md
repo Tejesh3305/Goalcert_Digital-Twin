@@ -127,11 +127,15 @@ Route 53 ─▶ CloudFront (optional) ─▶ ALB ─▶ ECS Fargate service
                                               │   THE TASK IS STATELESS
                   ┌───────────────┬───────────┴──┬──────────────┬───────────────────┐
                   ▼               ▼              ▼              ▼                    ▼
-          RDS MySQL 8          S3        ElastiCache      Neo4j Aura        RunPod serverless
-            (Multi-AZ)        (blobs:      Redis 7          (or EC2)         GPU (TRELLIS) —
-          via RDS Proxy       GLBs +      (event bus)                            external
-                             artifacts)
+          RDS MySQL 8          S3        ElastiCache     Neo4j 5 EC2        RunPod serverless
+            (Multi-AZ)        (blobs:      Redis 7        (private          GPU (TRELLIS) —
+          via RDS Proxy       GLBs +      (event bus,     subnet, EBS)          external
+                             artifacts)     TLS+AUTH)      SINGLE NODE
 ```
+
+**Everything except RunPod is inside your VPC and your AWS account**, Neo4j
+included — it runs on an EC2 instance you own rather than a hosted service (§6).
+RunPod is the one external dependency, and only if photo→3-D is used (§8).
 
 Four stores, each with one job:
 
@@ -140,7 +144,11 @@ Four stores, each with one job:
 | **RDS MySQL 8** | records: twin registry, change log, identity/auth, agent bundles, checkpoints, scene cache, 3-D job records, telemetry historian | §7 |
 | **S3** | blobs: generated GLBs and 3-D job artifacts | §7.3 |
 | **ElastiCache Redis 7** | the live event bus (one stream per tenant) | §9 |
-| **Neo4j** | the twin's graph: entities, relationships, findings | §6 |
+| **Neo4j 5 on EC2** | the twin's graph: entities, relationships, findings | §6 |
+
+Three of the four are managed and redundant. **Neo4j is the exception and the
+only single point of failure in the design** — Community Edition cannot cluster
+(§6). Size the recovery plan accordingly.
 
 Everything else — the API process, the LLM, the GPU worker — is stateless or
 external. **The ECS task itself holds nothing durable**, which is what makes
@@ -184,14 +192,20 @@ origin, or hub-embedded assets 404).
 | **ElastiCache Redis 7** (Multi-AZ), private subnets | the event bus (§9) |
 | **RDS Proxy** (optional but recommended) | connection pooling across tasks (§7.5) |
 | Secrets Manager secrets | API keys, DB URL/password (§5.2, §10) |
-| Neo4j Aura instance (or Neo4j on EC2) | the graph DB (§6) |
+| **EC2 instance + EBS gp3 volume** (private subnet) | Neo4j 5 Community — the graph DB (§6) |
 | RunPod serverless endpoint | GPU reconstruction (§8) — external to AWS |
 | EFS filesystem + access point (uid/gid **10001**) | **optional** once S3 is set (§7.4) |
 
-Security groups: RDS (3306) and ElastiCache (6379) accept traffic **only** from
-the ECS task security group (and RDS Proxy), and live in the isolated/private
-subnets — neither is ever publicly addressable. Add an **S3 gateway VPC
-endpoint** so blob traffic skips the NAT gateway's per-GB charge.
+Security groups: RDS (3306), ElastiCache (6379) and Neo4j (7687) accept traffic
+**only** from the ECS task security group (and RDS Proxy), and live in the
+isolated/private subnets — none is ever publicly addressable. Add an **S3
+gateway VPC endpoint** so blob traffic skips the NAT gateway's per-GB charge.
+
+Note what is *not* in this table: there is no managed Neo4j on AWS. **Amazon
+Neptune is not a substitute** — it is a different engine with no bolt protocol
+and only partial openCypher, so adopting it would mean rewriting `graph/` and
+every Cypher query in the codebase, not changing a connection string. Neo4j runs
+on an instance you operate (§6).
 
 ---
 
@@ -215,7 +229,9 @@ short version — the things whose absence is silent:
 4. **Set `NXR_API_KEYS`** (+ `NXR_REQUIRE_AUTH=1`) — closes the fail-open hole
    (§10). Without it the API is public and unauthenticated.
 5. **Move every key to Secrets Manager** (§5.2) — nothing in `.env` on the task.
-6. **Stand up managed Neo4j** and rotate off the `nextxr2026` default (§6).
+6. **Stand up Neo4j on EC2** in a private subnet, rotate off the `nextxr2026`
+   default, and **write the snapshot restore procedure down before you need it**
+   (§6). It is the one store with no managed failover.
 7. **Restrict CORS** with `NXR_CORS_ORIGINS` (§10).
 8. **Provision the database** on the fresh RDS MySQL: `python -m db.schema`,
    `python -m db.migrations`, `python -m tools.historian_provision` (§7.1). There
@@ -239,8 +255,8 @@ it**. Do not hand-write SQL, and do not import a dump.
 |---|---|---|---|
 | 1 | **RDS MySQL 8 endpoint + user + password + empty DB name** | `NXR_DATABASE_URL` secret | `mysql://user:pass@host:3306/nextxr`. **MySQL 8.0+, not 5.7/MariaDB** — the historian uses `ROW_NUMBER() OVER` (§7) |
 | 2 | **S3 bucket name** (Block Public Access ON) | `NXR_S3_BUCKET` env | plus a task role with object read/write (§7.3). No access keys |
-| 3 | **ElastiCache Redis 7 endpoint** | `NXR_REDIS_URL` env | `redis://host:6379/0` (§9) |
-| 4 | **Neo4j Aura URI + password** | `NEO4J_URI` env, `NEO4J_PASSWORD` secret | rotate off the `nextxr2026` dev default (§6) |
+| 3 | **ElastiCache Redis 7 endpoint + AUTH token** | `NXR_REDIS_URL` *(secret)* | `rediss://:TOKEN@host:6379/0`. Encryption must be enabled **at creation** — it cannot be added later (§12.3) |
+| 4 | **An EC2 instance running Neo4j 5**, its private IP, and a password | `NEO4J_URI` env, `NEO4J_PASSWORD` secret | you operate this one — AWS has no managed Neo4j and Neptune is not a substitute (§6). Rotate off the `nextxr2026` dev default |
 | 5 | **`NXR_JWT_SECRET`** | secret | **32+ random bytes.** The app will not boot without it. `python -c "import secrets;print(secrets.token_urlsafe(48))"` |
 | 6 | **`NXR_SECRET_PEPPER`** | secret | same generator. Set it once and never rotate casually (§13) |
 | 7 | **First admin email + password** | `NXR_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD` | **first deploy only, then delete both** (§13) |
@@ -295,11 +311,10 @@ Plain **environment** (task-def `environment:`):
 | Var | Value | Notes |
 |---|---|---|
 | `PORT` | `8080` | ALB target port |
-| `NEO4J_URI` | `neo4j+s://<aura-id>.databases.neo4j.io` | managed Neo4j (§6) |
+| `NEO4J_URI` | `bolt://10.0.2.15:7687` | the Neo4j EC2 instance's **private** IP or internal DNS name (§6). Use `bolt+s://` if you terminate TLS on it |
 | `NEO4J_USER` | `neo4j` | |
 | `NXR_S3_BUCKET` | `nextxr-twin-blobs` | blob store (§7.3); access via the task role |
 | `NXR_S3_PREFIX` | `prod` | optional — share one bucket across environments |
-| `NXR_REDIS_URL` | `redis://…cache.amazonaws.com:6379/0` | event bus (§9) |
 | `NXR_REQUIRE_DB` | `1` | refuse to start on the SQLite fallback (§9) |
 | `NXR_REQUIRE_S3` | `1` | refuse to start on local-disk blobs (§9) |
 | `NXR_REQUIRE_REDIS` | `1` | refuse to start on the in-memory bus (§9) |
@@ -320,6 +335,7 @@ Plain **environment** (task-def `environment:`):
 | Secret | Required? | Why it is a secret |
 |---|---|---|
 | `NXR_DATABASE_URL` | **yes** | embeds the RDS password |
+| `NXR_REDIS_URL` | **yes** | `rediss://:TOKEN@…cache.amazonaws.com:6379/0` — a secret because it embeds the ElastiCache AUTH token (§9). Plain `redis://` with no token is unencrypted and unauthenticated |
 | `NXR_JWT_SECRET` | **yes** | **32+ random bytes.** `identity/tokens.require_secret()` refuses to boot without it while auth is enforced — otherwise each task signs with its own random key and a token minted by one task is rejected by every other (intermittent 401s that look like a client bug) |
 | `NXR_API_KEYS` | yes | break-glass machine credentials (§10) |
 | `NEO4J_PASSWORD` | **yes** | the driver refuses to connect without it once auth is enforced (§6) |
@@ -341,18 +357,117 @@ in `describe-task-definition`.
 
 ---
 
-## 6. Neo4j (graph database)
+## 6. Neo4j (graph database) — self-hosted on EC2
 
-No AWS-managed Neo4j is wired up by default. Two options:
+Neo4j runs on an **EC2 instance in a private subnet, inside your VPC and your
+account.** There is no managed alternative: AWS does not offer Neo4j, and
+Neptune is a different engine (§3). Neo4j Aura is Neo4j's own hosted service —
+it also runs on AWS, but in *their* account, and this deployment does not use it.
 
-- **Neo4j Aura** (recommended, least ops) — set `NEO4J_URI` to the `neo4j+s://…`
-  endpoint and put the password in Secrets Manager.
-- **Neo4j on EC2/ECS** with an EBS volume — more control, more ops.
+### 6.1 What the application needs — which is very little
 
-Either way, **rotate off the `nextxr2026` default** baked into `graph/connection.py`
-and `docker-compose.yml` (both now read `NEO4J_PASSWORD` and only fall back to that
-value for local dev). Reads degrade to empty and writes 503 while Neo4j is
-unreachable — a deploy is not "done" while `/api/v1/health` reports `degraded`.
+Two facts make this an unusually easy service to self-host:
+
+**The connection is URI-agnostic.** `graph/connection.py` is
+`GraphDatabase.driver(os.getenv("NEO4J_URI", "bolt://localhost:7687"), …)` and
+nothing constrains the scheme. `bolt://`, `neo4j://`, `bolt+s://` and
+`neo4j+s://` all work. Moving between hosts is one environment variable and
+**no code change**.
+
+**No plugins are required.** `docker-compose.yml` loads APOC for local
+convenience, but nothing in the codebase calls `apoc.*`, `gds.*`, fulltext
+indexes or n10s. A stock Neo4j 5 Community install is sufficient — do not spend
+time provisioning plugin JARs.
+
+**The graph schema provisions itself.** `server/main.py` calls
+`graph.schema.apply_schema()` at startup and again lazily whenever a twin is
+created. The constraints are `CREATE CONSTRAINT … IF NOT EXISTS`, so it is
+idempotent and safe to re-run. There is no graph equivalent of `python -m
+db.schema` to remember.
+
+### 6.2 The instance
+
+| | |
+|---|---|
+| **AMI** | Ubuntu 22.04 LTS or Amazon Linux 2023; install Neo4j 5 from Neo4j's apt/yum repo. The Marketplace AMI is fine too but buys you nothing here — there are no plugins to pre-bake |
+| **Type** | `t3.medium` (2 vCPU / 4 GB) is a reasonable start. Neo4j wants RAM: size the page cache to the graph, not the query rate |
+| **Storage** | EBS **gp3**, encrypted, 50 GB+. Not instance store — that does not survive a stop |
+| **Subnet** | private. **No public IP, no Elastic IP** |
+| **Security group** | inbound **7687 from the ECS task SG only**. Not `0.0.0.0/0`, not the VPC CIDR. 7474 (browser) should be closed — reach it through SSM port-forwarding when you need it |
+| **Access** | **SSM Session Manager**, not SSH. No bastion, no key pairs, no port 22 |
+| **Version** | match `docker-compose.yml`'s `neo4j:5-community` major version so local and production behave alike |
+
+Set `dbms.memory.heap.max_size` and `dbms.memory.pagecache.size` in
+`neo4j.conf` — the defaults are conservative and assume the machine is shared.
+
+### 6.3 Community Edition is single-instance — plan the recovery, not the failover
+
+This is the one part of the deployment with **no managed redundancy**, and it is
+the thing to be deliberate about. Neo4j **Community** cannot cluster: there is no
+read replica, no automatic failover and no online backup. Clustering requires an
+Enterprise licence negotiated with Neo4j, so "self-host to avoid paying Neo4j"
+holds only at a single node.
+
+The consequence, stated plainly: **if this instance dies, the graph is down until
+you restore it.** Recovery is a restore, not a failover, and it takes minutes.
+
+So the backup procedure is not optional paperwork — it is the entire availability
+story:
+
+```bash
+# Nightly, via EventBridge + SSM or a cron on the instance.
+# neo4j-admin database dump requires the database to be STOPPED on Community.
+sudo systemctl stop neo4j
+neo4j-admin database dump neo4j --to-path=/var/backups/neo4j
+sudo systemctl start neo4j
+aws s3 cp /var/backups/neo4j/neo4j.dump s3://nextxr-twin-blobs/backups/neo4j/$(date +%F).dump
+```
+
+A scheduled **EBS snapshot** via Data Lifecycle Manager is the cheaper, simpler
+half of this and needs no downtime — take both. The snapshot gets the volume
+back; the dump is what survives a corrupted volume.
+
+**Rehearse the restore.** A backup nobody has restored is a hypothesis. Bring up
+a second instance from a snapshot, point a scratch `NEO4J_URI` at it, and confirm
+the twins load.
+
+Two things soften the blow, and are worth knowing:
+
+- **The app degrades rather than dies.** Reads return empty and writes 503 while
+  Neo4j is unreachable; the twin registry, auth, the SPA and the REST API all
+  keep serving from MySQL. This is deliberate (§10) — a graph outage is not a
+  site outage.
+- **`/api/v1/health/ready` does not check Neo4j on purpose.** Tasks stay in the
+  ALB during a graph outage. Draining the fleet for it would convert a degraded
+  service into a total one.
+
+The cost of that choice is that the ALB will *never* tell you Neo4j is down. Add
+the CloudWatch alarm in §12.10 on `/api/v1/health` reporting `neo4j != connected`
+— for this deployment that alarm is the only automated signal you get, so treat
+it as required rather than nice-to-have.
+
+### 6.4 Credentials
+
+**Rotate off `nextxr2026`.** That password is published in this repository
+(`graph/connection.py`, `docker-compose.yml`) and is a fixture, not a credential.
+Both files read `NEO4J_PASSWORD` and fall back to it *only* in the local-dev
+posture — with auth enforced, an unset `NEO4J_PASSWORD` is a hard failure at
+connect time rather than a silent use of a known secret.
+
+Set the real password on first boot and store it in Secrets Manager:
+
+```bash
+# On the instance, once, before anything connects:
+sudo neo4j-admin dbms set-initial-password "$(aws secretsmanager get-secret-value \
+  --secret-id nextxr/neo4j-password --query SecretString --output text)"
+```
+
+### 6.5 Encryption in transit (optional inside the VPC)
+
+Bolt is unencrypted by default. Traffic never leaves your private subnets, so
+`bolt://` is defensible; if your compliance posture requires TLS everywhere,
+install a certificate on the instance and switch `NEO4J_URI` to `bolt+s://` —
+that is the only change, and the driver handles the rest.
 
 ---
 
@@ -702,11 +817,22 @@ ElastiCache) across **two AZs**. Security groups:
 | ALB SG | task SG | 8080 |
 | task SG | RDS SG | 3306 |
 | task SG | ElastiCache SG | 6379 |
+| task SG | **Neo4j SG** | **7687** |
 
-RDS and ElastiCache are **not** publicly reachable. S3 goes over a gateway VPC
-endpoint (free, and keeps blob traffic off the NAT gateway's per-GB charge).
+RDS, ElastiCache and Neo4j are **not** publicly reachable — no public IP on the
+Neo4j instance, and 7474 (the browser UI) is not open to anything. Reach it via
+SSM port-forwarding when you need it:
 
-### 3. Create the three shared stores
+```bash
+aws ssm start-session --target $NEO4J_INSTANCE_ID \
+  --document-name AWS-StartPortForwardingSession \
+  --parameters '{"portNumber":["7474"],"localPortNumber":["7474"]}'
+```
+
+S3 goes over a gateway VPC endpoint (free, and keeps blob traffic off the NAT
+gateway's per-GB charge).
+
+### 3. Create the shared stores
 
 ```bash
 # MySQL 8 — records
@@ -724,26 +850,65 @@ aws s3api put-public-access-block --bucket nextxr-twin-blobs \
   --public-access-block-configuration \
   "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
 
-# ElastiCache Redis 7 — event bus
+# ElastiCache Redis 7 — event bus, encrypted and authenticated
+REDIS_AUTH=$(python -c "import secrets;print(secrets.token_urlsafe(32))")
+aws secretsmanager create-secret --name nextxr/redis-auth --secret-string "$REDIS_AUTH"
+
 aws elasticache create-replication-group \
   --replication-group-id nextxr-twin --replication-group-description "twin bus" \
   --engine redis --engine-version 7.1 --cache-node-type cache.t4g.micro \
   --num-cache-clusters 2 --automatic-failover-enabled \
-  --cache-subnet-group-name nextxr-private --security-group-ids $REDIS_SG
+  --cache-subnet-group-name nextxr-private --security-group-ids $REDIS_SG \
+  --transit-encryption-enabled --auth-token "$REDIS_AUTH"
 ```
 
-Also stand up **Neo4j** (Aura, §6) and add **RDS Proxy** in front of MySQL
-(§7.5) if you expect more than a couple of tasks.
+**Set both encryption flags at creation time.** `--transit-encryption-enabled`
+cannot be turned on later without recreating the replication group, and the
+event bus carries every tenant's live twin state. The application needs no change
+for this: `bus/event_bus.py` uses `redis.Redis.from_url()`, which handles
+`rediss://` and the token in the URL natively — store the whole URL as the
+`NXR_DATABASE_URL`-style secret described in §5.2:
+
+```
+rediss://:$REDIS_AUTH@nextxr-twin.xxxx.cache.amazonaws.com:6379/0
+```
+
+### 3b. Neo4j on EC2
+
+Not a managed service — launch it (§6.2), then:
+
+```bash
+# From an SSM session on the instance.
+sudo neo4j-admin dbms set-initial-password "$(aws secretsmanager get-secret-value \
+  --secret-id nextxr/neo4j-password --query SecretString --output text)"
+sudo systemctl enable --now neo4j
+cypher-shell -u neo4j -p "$PW" "RETURN 1"      # confirm bolt is answering
+```
+
+Then schedule the backups (§6.3) — an EBS snapshot policy via Data Lifecycle
+Manager **and** a nightly dump. Community Edition has no failover, so this is the
+whole recovery story, not a formality.
+
+Add **RDS Proxy** in front of MySQL (§7.5) if you expect more than a couple of
+tasks.
 
 ### 4. Secrets
 
 ```bash
 aws secretsmanager create-secret --name nextxr/database-url \
   --secret-string 'mysql://nextxr:PASS@nextxr-twin.xxxx.rds.amazonaws.com:3306/nextxr'
+aws secretsmanager create-secret --name nextxr/redis-url \
+  --secret-string "rediss://:$REDIS_AUTH@nextxr-twin.xxxx.cache.amazonaws.com:6379/0"
 aws secretsmanager create-secret --name nextxr/api-keys \
   --secret-string '[{"key":"...","tenant":"*","role":"admin","name":"prod"}]'
 aws secretsmanager create-secret --name nextxr/neo4j-password --secret-string '...'
 aws secretsmanager create-secret --name nextxr/anthropic-key   --secret-string 'sk-ant-...'
+
+# The two values nothing else generates for you (§4.1).
+aws secretsmanager create-secret --name nextxr/jwt-secret \
+  --secret-string "$(python -c 'import secrets;print(secrets.token_urlsafe(48))')"
+aws secretsmanager create-secret --name nextxr/pepper \
+  --secret-string "$(python -c 'import secrets;print(secrets.token_urlsafe(48))')"
 ```
 
 ### 5. IAM
@@ -777,21 +942,25 @@ Container port 8080, image from step 1, `awslogs` driver, and:
 ```jsonc
 "environment": [
   {"name":"PORT","value":"8080"},
-  {"name":"NEO4J_URI","value":"neo4j+s://xxxx.databases.neo4j.io"},
+  {"name":"NEO4J_URI","value":"bolt://10.0.2.15:7687"},   // the EC2 private IP/DNS — §6
   {"name":"NEO4J_USER","value":"neo4j"},
-  {"name":"NXR_REDIS_URL","value":"redis://nextxr-twin.xxxx.cache.amazonaws.com:6379/0"},
   {"name":"NXR_S3_BUCKET","value":"nextxr-twin-blobs"},
-  {"name":"AWS_REGION","value":"eu-west-1"},
+  {"name":"AWS_REGION","value":"ap-southeast-2"},
   {"name":"NXR_REQUIRE_DB","value":"1"},      // the three guards — §9
   {"name":"NXR_REQUIRE_S3","value":"1"},
   {"name":"NXR_REQUIRE_REDIS","value":"1"},
   {"name":"NXR_REQUIRE_AUTH","value":"1"},
+  {"name":"NXR_TRUST_PROXY","value":"1"},     // behind the ALB — §10
   {"name":"NXR_CORS_ORIGINS","value":"https://app.example.com"},
   {"name":"NXR_DB_POOL_MAX","value":"10"},
+  {"name":"NXR_AUTO_MIGRATE","value":"0"},    // migrations are a one-off task — §14
   {"name":"NXR_DB_SSL","value":"1"}          // TLS to RDS (or NXR_DB_SSL_CA for CA pinning)
 ],
 "secrets": [
   {"name":"NXR_DATABASE_URL","valueFrom":"arn:aws:secretsmanager:...:nextxr/database-url"},
+  {"name":"NXR_REDIS_URL","valueFrom":"arn:aws:secretsmanager:...:nextxr/redis-url"},
+  {"name":"NXR_JWT_SECRET","valueFrom":"arn:aws:secretsmanager:...:nextxr/jwt-secret"},
+  {"name":"NXR_SECRET_PEPPER","valueFrom":"arn:aws:secretsmanager:...:nextxr/pepper"},
   {"name":"NXR_API_KEYS","valueFrom":"arn:aws:secretsmanager:...:nextxr/api-keys"},
   {"name":"NEO4J_PASSWORD","valueFrom":"arn:aws:secretsmanager:...:nextxr/neo4j-password"},
   {"name":"ANTHROPIC_API_KEY","valueFrom":"arn:aws:secretsmanager:...:nextxr/anthropic-key"}
@@ -860,6 +1029,11 @@ for i in 1 2 3 4; do curl -s https://twin.example.com/api/v1/health | jq -c .twi
 
 - CloudWatch alarm on `/api/v1/health` returning `status != healthy` (the ALB
   check deliberately cannot see this — §10).
+- **`/api/v1/health` reporting `neo4j != connected` — treat as required, not
+  optional.** Neo4j is the one store with no managed failover (§6.3) and
+  `/health/ready` deliberately does not check it, so nothing else in the system
+  will tell you the graph is down. Alarm on the EC2 instance's
+  `StatusCheckFailed` too.
 - RDS: CPU, free storage, connection count vs `max_connections`.
 - ElastiCache: evictions, CPU.
 - ECS: running-task count below desired; any task exiting non-zero — with the
