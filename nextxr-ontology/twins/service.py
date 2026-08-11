@@ -144,6 +144,19 @@ TEMPLATES = {
         "machine": True,
         "class_iri": HSP + "Hospital",
     },
+    "hospital-imaging": {
+        "label": "Hospital Imaging Suite",
+        "description": "A single-storey imaging suite twin at equipment level — "
+                       "MRI (cryogenics), CT (tube thermal + detector QA), AHUs, "
+                       "consult-room split ACs, medical O2 line panels, UPS + "
+                       "switchboards, CHW pump and calorifier. Every fault "
+                       "targets one physical machine, and the walkable 3-D floor "
+                       "plan lights up the faulted unit.",
+        "primary_signal": "hsi:mriCoolantTemp",
+        "seeds_feed": False,
+        "machine": True,
+        "class_iri": HSP + "Hospital",
+    },
     "ev-charging-network": {
         "label": "EV Charging Network",
         "description": "An EV charging-network twin — stations, chargers, grid "

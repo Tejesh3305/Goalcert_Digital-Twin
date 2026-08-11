@@ -23,6 +23,10 @@
   --mx-dim-level:0;
 }
 @keyframes mxRootIn{from{opacity:0}to{opacity:1}}
+/* hospital-imaging: no procedural scene of our own — let the real walkable
+   floor-plan Canvas (already mounted behind this overlay) show through. */
+.mx-root.mx-see-through{background:transparent}
+.mx-root.mx-see-through::before{content:none}
 .mx-root::before{ /* faint moving grid */
   content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
   background:
@@ -85,6 +89,8 @@
 .mx-top{grid-area:top;display:flex;align-items:center;gap:14px;z-index:20}
 .mx-center{grid-area:center;position:relative;border-radius:18px;overflow:hidden;
   border:1px solid var(--mx-line2);box-shadow:0 30px 80px rgba(0,0,0,.55),inset 0 0 0 1px rgba(255,255,255,.02)}
+/* live floor-plan behind: no card frame over the real scene */
+.mx-center.mx-center--live{border:none;box-shadow:none;border-radius:0}
 .mx-left{grid-area:left}.mx-right{grid-area:right}
 .mx-left,.mx-right{display:flex;flex-direction:column;gap:12px;min-height:0;overflow-y:auto;z-index:15;
   padding-bottom:4px}

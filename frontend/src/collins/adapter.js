@@ -11,6 +11,7 @@ export const V3_TO_COLLINS_DOMAIN = {
   'ev-charging-network': 'ev-network',
   'ev-battery-pack': 'ev-network',
   'hospital-campus': 'hospital',
+  'hospital-imaging': 'hospital-imaging',
   'tram-network': 'tram-network',
   'railway-metro': 'mrt-line',
   'railway-trainset': 'mrt-line',
@@ -85,7 +86,8 @@ export function toCollinsTwin(v3domain, state) {
 
 // Collins domains the cinematic Repair-with-AI (Maintenance) has repair plans for.
 const MAINT_COLLINS_DOMAINS = new Set([
-  'turbine-engine', 'edm-machine', 'ev-network', 'hospital', 'datacenter', 'manufacturing',
+  'turbine-engine', 'edm-machine', 'ev-network', 'hospital', 'hospital-imaging',
+  'datacenter', 'manufacturing',
 ])
 
 /** Does the cinematic Maintenance Director support this v3 domain? */

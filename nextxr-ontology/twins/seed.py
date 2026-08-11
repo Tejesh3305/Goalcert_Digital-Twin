@@ -30,6 +30,7 @@ DEMO_TWINS = [
     ("railway-metro", "Singapore MRT"),
     ("railway-trainset", "Rolling Stock"),
     ("hospital-campus", "Hospital Campus"),
+    ("hospital-imaging", "Hospital Imaging Suite"),
     ("ev-charging-network", "EV Charging Network"),
     ("ev-battery-pack", "EV Battery Pack"),
     ("defence-base", "Military Base"),

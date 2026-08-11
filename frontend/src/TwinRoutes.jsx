@@ -7,6 +7,7 @@ import Predict from './panels/Predict'
 import Copilot from './panels/Copilot'
 import Changelog from './panels/Changelog'
 import Marketplace from './panels/Marketplace'
+import HospitalFloorPlanScene from './panels/hospitalFloorPlan/HospitalFloorPlanScene'
 
 // The twin platform's routed content, WITHOUT the app chrome (Topbar/Sidebar).
 // Standalone: App.jsx renders <Topbar/><Sidebar/><TwinRoutes/>.
@@ -23,6 +24,7 @@ export default function TwinRoutes() {
       <Route path="/copilot" element={<Copilot />} />
       <Route path="/changelog" element={<Changelog />} />
       <Route path="/marketplace" element={<Marketplace />} />
+      <Route path="/hospital-floorplan" element={<HospitalFloorPlanScene />} />
       <Route path="*" element={<Dashboard />} />
     </Routes>
   )

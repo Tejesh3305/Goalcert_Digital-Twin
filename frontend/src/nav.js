@@ -29,4 +29,5 @@ export const NAV = [
 
   { section: 'Platform' },
   { id: 'marketplace', path: '/marketplace', label: 'Marketplace',  icon: 'ti-layout-grid',      backing: 'mock' },
+  { id: 'hospital3d',  path: '/hospital-floorplan', label: 'Hospital 3D Plan', icon: 'ti-building-hospital', backing: 'live' },
 ]

@@ -186,6 +186,28 @@ export const SIG = {
   'hsp:bedOccupancy': { label: 'Bed Occupancy', unit: '%', warn: 85, crit: 92, icon: 'ti-bed' },
   'hsp:orUtilisation': { label: 'OR Utilisation', unit: '%', icon: 'ti-calendar-event' },
 
+  // ── Hospital imaging suite — mirrors packs/hospital/imaging.py redlines ──
+  'hsi:mriCoolantTemp': { label: 'MRI Coolant', unit: '°C', warn: 24, crit: 28, icon: 'ti-temperature' },
+  'hsi:mriHeliumLevel': { label: 'MRI Helium', unit: '%', warnLow: 30, critLow: 20, icon: 'ti-snowflake' },
+  'hsi:ctTubeTemp': { label: 'CT Tube Temp', unit: '°C', warn: 62, crit: 70, icon: 'ti-temperature' },
+  'hsi:ctDetectorDrift': { label: 'Detector Drift', unit: 'HU', warn: 4, crit: 8, icon: 'ti-adjustments' },
+  'hsi:ahuFilterDP': { label: 'AHU Filter ΔP', unit: 'Pa', warn: 250, crit: 300, icon: 'ti-wind' },
+  'hsi:ahuAirflow': { label: 'AHU Airflow', unit: '%', warnLow: 80, critLow: 65, icon: 'ti-air-conditioning' },
+  'hsi:ahuFanVibration': { label: 'Fan Vibration', unit: 'mm/s', warn: 4.5, crit: 7.1, icon: 'ti-wave-sine' },
+  'hsi:consultRoomTemp': { label: 'Room Temp', unit: '°C', warn: 26, crit: 28, icon: 'ti-temperature' },
+  'hsi:o2LinePressure': { label: 'O₂ Line Pressure', unit: 'kPa', warnLow: 375, critLow: 340, icon: 'ti-vaccine' },
+  'hsi:o2Reserve': { label: 'O₂ Reserve', unit: '%', warnLow: 40, critLow: 30, icon: 'ti-gauge' },
+  'hsi:upsSoC': { label: 'UPS Charge', unit: '%', warnLow: 50, critLow: 25, icon: 'ti-battery-charging' },
+  'hsi:upsRuntime': { label: 'UPS Runtime', unit: 'min', warnLow: 25, critLow: 15, icon: 'ti-clock-bolt' },
+  'hsi:mainsSupply': { label: 'Mains Supply', unit: '', warnLow: 1, critLow: 0.5, icon: 'ti-plug' },
+  'hsi:phaseImbalance': { label: 'Phase Imbalance', unit: '%', warn: 8, crit: 12, icon: 'ti-bolt' },
+  'hsi:hotWaterSupply': { label: 'HW Flow Temp', unit: '°C', warnLow: 50, critLow: 45, icon: 'ti-droplet' },
+  'hsi:pumpFlow': { label: 'CHW Pump Flow', unit: '%', warnLow: 80, critLow: 55, icon: 'ti-ripple' },
+  'hsi:pumpVibration': { label: 'Pump Vibration', unit: 'mm/s', warn: 4.5, crit: 7.1, icon: 'ti-wave-sine' },
+  'hsi:monitorBattery': { label: 'Monitor Battery', unit: '%', warnLow: 40, critLow: 15, icon: 'ti-battery' },
+  'hsi:scanUtilisation': { label: 'Scan Utilisation', unit: '%', icon: 'ti-scan' },
+  'hsi:criticalPowerLoad': { label: 'Critical Load', unit: '%', warn: 82, crit: 90, icon: 'ti-bolt' },
+
   // ── Manufacturing unit (simulated example) ──
   'mfg:oee': { label: 'OEE', unit: '%', warnLow: 75, critLow: 60, icon: 'ti-gauge' },
   'mfg:spindleVib': { label: 'Spindle Vib', unit: 'mm/s', warn: 4.5, crit: 7, icon: 'ti-activity' },

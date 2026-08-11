@@ -124,6 +124,40 @@ const DOMAIN_SUBS = {
       'hsp:medGasO2Pressure': 305, 'hsp:infectionRisk': 7.5, 'hsp:upsRuntime': 9,
     },
   },
+  'hospital-imaging': {
+    meta: {
+      'MRI-1':   { label: 'MRI 1 — 3T Scanner',    icon: 'ti-scan' },
+      'CT-1':    { label: 'CT Scanner',            icon: 'ti-radioactive' },
+      'AHU-N1':  { label: 'AHU 1 (North Plant)',   icon: 'ti-wind' },
+      'AHU-S1':  { label: 'AHU 3 (South Plant)',   icon: 'ti-air-conditioning' },
+      'AC-C3':   { label: 'Consultant 3 Split AC', icon: 'ti-snowflake' },
+      'GAS-MRI': { label: 'O₂ Line Panel (MRI)',   icon: 'ti-vaccine' },
+      'UPS-EQ':  { label: 'MRI UPS',               icon: 'ti-battery-charging' },
+      'SWG-S':   { label: 'Main Switchboard',      icon: 'ti-bolt' },
+      'PUMP-1':  { label: 'CHW Pump',              icon: 'ti-ripple' },
+      'BLR-1':   { label: 'Calorifier',            icon: 'ti-flame' },
+      'MON-CT':  { label: 'Patient Monitor (CT)',  icon: 'ti-heart-rate-monitor' },
+    },
+    order: ['MRI-1', 'CT-1', 'AHU-N1', 'AHU-S1', 'GAS-MRI', 'UPS-EQ', 'SWG-S', 'PUMP-1', 'BLR-1', 'AC-C3', 'MON-CT'],
+    signalMap(sig) {
+      if (/mriCoolant|mriHelium/i.test(sig)) return 'MRI-1'
+      if (/ctTube|ctDetector/i.test(sig)) return 'CT-1'
+      if (/ahuFilterDP|ahuAirflow/i.test(sig)) return 'AHU-N1'
+      if (/ahuFanVibration/i.test(sig)) return 'AHU-S1'
+      if (/consultRoomTemp/i.test(sig)) return 'AC-C3'
+      if (/o2LinePressure|o2Reserve/i.test(sig)) return 'GAS-MRI'
+      if (/upsSoC|upsRuntime/i.test(sig)) return 'UPS-EQ'
+      if (/mainsSupply|phaseImbalance/i.test(sig)) return 'SWG-S'
+      if (/pumpFlow|pumpVibration/i.test(sig)) return 'PUMP-1'
+      if (/hotWaterSupply/i.test(sig)) return 'BLR-1'
+      if (/monitorBattery/i.test(sig)) return 'MON-CT'
+      return 'MRI-1'
+    },
+    degraded: {
+      'hsi:mriCoolantTemp': 29.4, 'hsi:mriHeliumLevel': 24, 'hsi:o2LinePressure': 312,
+      'hsi:ahuFilterDP': 335, 'hsi:upsRuntime': 12, 'hsi:pumpFlow': 52,
+    },
+  },
   'manufacturing': {
     meta: {
       'CNC-7':   { label: 'CNC Machine 7',  icon: 'ti-settings' },
@@ -393,6 +427,229 @@ const HOSPITAL_PLANS = {
   },
 }
 
+// ── Hospital imaging-suite repair plans (one per faultable machine) ──
+const IMAGING_PLANS = {
+  'MRI-1': {
+    title: 'MRI Cryogenics — Coolant / Helium Fault',
+    rootCause: [
+      { icon: 'ti-temperature', text: '<b>Magnet coolant temperature climbing</b> — cryocooler or CHW flow loss' },
+      { icon: 'ti-snowflake', text: '<b>Helium boil-off accelerates</b> — cryostat inventory falls' },
+      { icon: 'ti-magnet', text: '<b>Quench margin erodes</b> — magnet at risk above redline' },
+      { icon: 'ti-alert-octagon', text: '<b>Scanning must stop</b> below 20 % helium' },
+      { icon: 'ti-player-stop', text: '<b>Quench = weeks of downtime</b> if untreated' },
+    ],
+    signals: [['hsi:mriCoolantTemp', 19.5], ['hsi:mriHeliumLevel', 95], ['hsi:pumpFlow', 97]],
+    steps: [
+      { t: 'Confirm cryo alarm', d: 'Read coldhead temperature, helium level and compressor state on the cryo panel.', f: 'MRI-1', tool: 'Cryo panel', time: 10, diff: 'Low' },
+      { t: 'Suspend scanning', d: 'Stop the patient queue; keep the magnet at field — do NOT ramp down.', f: 'MRI-1', tool: 'Protocol', time: 5, diff: 'Low', safety: true },
+      { t: 'Check chilled-water loop', d: 'Verify CHW flow/ΔT to the cryocooler compressor; bleed air if flow low.', f: 'PUMP-1', tool: 'Flow meter', time: 25, diff: 'Medium' },
+      { t: 'Inspect cryocooler compressor', d: 'Check helium static pressure, adsorber age and compressor hours.', f: 'MRI-1', tool: 'Gauge set', time: 30, diff: 'Medium' },
+      { t: 'Restore cooling / swap adsorber', d: 'Restore CHW or replace the adsorber; restart the coldhead.', f: 'MRI-1', tool: 'Adsorber kit', time: 60, diff: 'High' },
+      { t: 'Verify coolant + boil-off', d: 'Confirm coldhead < 24 °C and helium level stable over 30 min.', f: 'MRI-1', tool: 'Cryo panel', time: 35, diff: 'Low' },
+      { t: 'Release for scanning', d: 'Log helium level; schedule a fill if below 60 %.', f: 'MRI-1', tool: '—', time: 10, diff: 'Low' },
+    ],
+  },
+  'CT-1': {
+    title: 'CT Scanner — Tube Cooling / Detector Calibration',
+    rootCause: [
+      { icon: 'ti-temperature', text: '<b>Tube-oil temperature rising</b> — heat exchanger fouled or coolant pump weak' },
+      { icon: 'ti-radioactive', text: '<b>Anode heat units near limit</b> — scans will interlock' },
+      { icon: 'ti-adjustments', text: '<b>Detector HU offset drifting</b> — image bias grows' },
+      { icon: 'ti-alert-triangle', text: '<b>Diagnostic quality at risk</b>' },
+      { icon: 'ti-player-stop', text: '<b>Tube damage</b> — six-figure part if untreated' },
+    ],
+    signals: [['hsi:ctTubeTemp', 48], ['hsi:ctDetectorDrift', 1.5]],
+    steps: [
+      { t: 'Confirm thermal state', d: 'Read tube-oil temperature and heat-unit percentage on the console.', f: 'CT-1', tool: 'Service console', time: 8, diff: 'Low' },
+      { t: 'Pause the scan queue', d: 'Hold non-urgent studies; let the anode cool below 50 %.', f: 'CT-1', tool: 'Protocol', time: 10, diff: 'Low', safety: true },
+      { t: 'Inspect heat exchanger', d: 'Check the tube cooler radiator, fans and oil-pump current.', f: 'CT-1', tool: 'Inspection', time: 25, diff: 'Medium' },
+      { t: 'Clean / restore cooling', d: 'Clean the radiator matrix, verify fan operation, top up coolant.', f: 'CT-1', tool: 'Coolant kit', time: 45, diff: 'Medium' },
+      { t: 'Run air calibration', d: 'Execute air cal to re-zero the detector HU offset.', f: 'CT-1', tool: 'Cal phantom', time: 25, diff: 'Medium' },
+      { t: 'QA phantom scan', d: 'Scan the QA phantom; verify HU accuracy, noise and uniformity.', f: 'CT-1', tool: 'QA phantom', time: 20, diff: 'Low' },
+      { t: 'Release & log', d: 'Return to service; record tube hours and cal results.', f: 'CT-1', tool: '—', time: 7, diff: 'Low' },
+    ],
+  },
+  'AHU-N1': {
+    title: 'AHU 1 — Blocked Final Filter',
+    rootCause: [
+      { icon: 'ti-wind', text: '<b>Filter ΔP past 300 Pa</b> — final filter fully loaded' },
+      { icon: 'ti-arrow-down', text: '<b>Supply airflow starves</b> the consult wing' },
+      { icon: 'ti-temperature', text: '<b>Room conditions drift</b> — comfort and hygiene degrade' },
+      { icon: 'ti-alert-triangle', text: '<b>Fan works harder</b> — energy and belt wear climb' },
+      { icon: 'ti-player-stop', text: '<b>Hygienic airflow floor breach</b> if untreated' },
+    ],
+    signals: [['hsi:ahuFilterDP', 110], ['hsi:ahuAirflow', 97]],
+    steps: [
+      { t: 'Confirm ΔP reading', d: 'Verify the filter manometer against a handheld gauge.', f: 'AHU-N1', tool: 'Manometer', time: 8, diff: 'Low' },
+      { t: 'Isolate the AHU', d: 'Stop the supply fan; lock out the drive before opening panels.', f: 'AHU-N1', tool: 'LOTO kit', time: 12, diff: 'Low', safety: true },
+      { t: 'Open filter section', d: 'Inspect pre + final filter banks; check frame seals.', f: 'AHU-N1', tool: 'Inspection', time: 15, diff: 'Low' },
+      { t: 'Replace filter bank', d: 'Swap pre-filters and the final bag/HEPA bank; seat the gaskets.', f: 'AHU-N1', tool: 'Filter set', time: 40, diff: 'Medium' },
+      { t: 'Restart & rebalance', d: 'Run the fan; verify design airflow and ΔP < 150 Pa.', f: 'AHU-N1', tool: 'Anemometer', time: 20, diff: 'Medium' },
+      { t: 'Verify room conditions', d: 'Confirm consult-room supply volumes and temperatures recover.', f: 'AC-C3', tool: 'Balometer', time: 20, diff: 'Low' },
+      { t: 'Sign off', d: 'Log the filter change; reset the maintenance interval.', f: 'AHU-N1', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+  'AHU-S1': {
+    title: 'AHU 3 — Supply-Fan Bearing Wear',
+    rootCause: [
+      { icon: 'ti-wave-sine', text: '<b>Fan vibration in ISO 10816 zone D</b> — bearing race damage' },
+      { icon: 'ti-volume', text: '<b>Noise transmitted to occupied rooms</b>' },
+      { icon: 'ti-arrow-down', text: '<b>Airflow falls</b> as the impeller loses true' },
+      { icon: 'ti-alert-triangle', text: '<b>Belt / shaft damage follows</b> bearing collapse' },
+      { icon: 'ti-player-stop', text: '<b>Catastrophic fan failure</b> if untreated' },
+    ],
+    signals: [['hsi:ahuFanVibration', 2.4], ['hsi:ahuAirflow', 97]],
+    steps: [
+      { t: 'Confirm vibration', d: 'Measure at drive-end and non-drive-end; compare ISO 10816 zones.', f: 'AHU-S1', tool: 'Vibration pen', time: 12, diff: 'Low' },
+      { t: 'Isolate the AHU', d: 'Stop and lock out the fan drive; let the impeller stop fully.', f: 'AHU-S1', tool: 'LOTO kit', time: 12, diff: 'Low', safety: true },
+      { t: 'Inspect bearing & belt', d: 'Check bearing play, grease state, belt tension and pulley alignment.', f: 'AHU-S1', tool: 'Inspection', time: 20, diff: 'Medium' },
+      { t: 'Replace fan bearings', d: 'Pull the impeller, press new bearings, re-grease to spec.', f: 'AHU-S1', tool: 'Bearing kit · puller', time: 75, diff: 'High' },
+      { t: 'Align & tension drive', d: 'Laser-align pulleys; set belt tension; hand-rotate check.', f: 'AHU-S1', tool: 'Laser jig', time: 25, diff: 'Medium' },
+      { t: 'Run-up & verify', d: 'Confirm vibration < 2.8 mm/s and airflow at design.', f: 'AHU-S1', tool: 'Vibration pen', time: 20, diff: 'Low' },
+      { t: 'Sign off', d: 'Log bearing change; add to vibration-trend register.', f: 'AHU-S1', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+  'GAS-MRI': {
+    title: 'Medical O₂ Line — Leak Isolation (HTM 02-01)',
+    rootCause: [
+      { icon: 'ti-vaccine', text: '<b>O₂ line pressure below 340 kPa</b> — P0 low-line alarm' },
+      { icon: 'ti-droplet', text: '<b>Pipeline leak downstream of the manifold</b>' },
+      { icon: 'ti-gauge', text: '<b>Reserve draining</b> — cylinder bank hours limited' },
+      { icon: 'ti-alert-octagon', text: '<b>Clinical supply at risk</b> in imaging rooms' },
+      { icon: 'ti-player-stop', text: '<b>Supply failure</b> if the leak is not isolated' },
+    ],
+    signals: [['hsi:o2LinePressure', 412], ['hsi:o2Reserve', 90]],
+    steps: [
+      { t: 'Acknowledge P0 alarm', d: 'Confirm line pressure at the area valve service unit gauge.', f: 'GAS-MRI', tool: 'AVSU gauge', time: 5, diff: 'Low' },
+      { t: 'Switch to reserve bank', d: 'Changeover the manifold to the reserve cylinder bank.', f: 'GAS-MRI', tool: 'Manifold panel', time: 8, diff: 'Low', safety: true },
+      { t: 'Leak survey', d: 'Soap-test joints and outlets zone-by-zone from the manifold outward.', f: 'GAS-MRI', tool: 'Leak spray · sniffer', time: 35, diff: 'Medium' },
+      { t: 'Isolate affected zone', d: 'Close the zone AVSU; confirm unaffected areas hold pressure.', f: 'GAS-MRI', tool: 'AVSU key', time: 10, diff: 'Medium', safety: true },
+      { t: 'Repair the joint', d: 'Re-make the leaking fitting (competent person, permit to work).', f: 'GAS-MRI', tool: 'Brazing kit · PTW', time: 60, diff: 'High' },
+      { t: 'Pressure & purity test', d: 'Pressure-hold test, then purge and O₂ purity check per HTM 02-01.', f: 'GAS-MRI', tool: 'Analyser', time: 30, diff: 'Medium' },
+      { t: 'Return to duty bank', d: 'Restore normal manifold; log the AP/AE sign-off.', f: 'GAS-MRI', tool: '—', time: 8, diff: 'Low' },
+    ],
+  },
+  'UPS-EQ': {
+    title: 'MRI UPS — Battery String Failure',
+    rootCause: [
+      { icon: 'ti-battery-off', text: '<b>Battery string dropped out</b> — runtime collapsed' },
+      { icon: 'ti-clock-bolt', text: '<b>Ride-through below 15 min</b> — quench-protect margin gone' },
+      { icon: 'ti-bolt', text: '<b>SoC reads normal</b> — capacity fault, not charge fault' },
+      { icon: 'ti-alert-triangle', text: '<b>A mains dip now reaches the magnet</b>' },
+      { icon: 'ti-player-stop', text: '<b>Uncontrolled shutdown risk</b> if untreated' },
+    ],
+    signals: [['hsi:upsRuntime', 42], ['hsi:upsSoC', 100]],
+    steps: [
+      { t: 'Confirm runtime estimate', d: 'Read the UPS battery-test log and string voltages.', f: 'UPS-EQ', tool: 'UPS panel', time: 10, diff: 'Low' },
+      { t: 'Plan a maintenance window', d: 'Coordinate with imaging: no scans during battery work.', f: 'UPS-EQ', tool: 'Protocol', time: 10, diff: 'Low', safety: true },
+      { t: 'Locate the failed string', d: 'Impedance-test each string; identify failed blocks.', f: 'UPS-EQ', tool: 'Impedance meter', time: 30, diff: 'Medium' },
+      { t: 'Replace battery blocks', d: 'Swap failed blocks (or the string); torque terminals to spec.', f: 'UPS-EQ', tool: 'Battery kit · torque wrench', time: 60, diff: 'Medium' },
+      { t: 'Recharge & equalise', d: 'Let strings equalise; verify float voltages balanced.', f: 'UPS-EQ', tool: 'UPS panel', time: 40, diff: 'Low' },
+      { t: 'Runtime test', d: 'Run a discharge test; confirm runtime > 30 min at site load.', f: 'UPS-EQ', tool: 'Load bank', time: 30, diff: 'Medium' },
+      { t: 'Sign off', d: 'Log the replacement; reset the battery-age register.', f: 'UPS-EQ', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+  'SWG-S': {
+    title: 'Main Switchboard — Phase Imbalance / Supply',
+    rootCause: [
+      { icon: 'ti-bolt', text: '<b>Phase imbalance past 12 %</b> — loose lug or single-phase overload' },
+      { icon: 'ti-flame', text: '<b>Connection heating</b> — thermal runaway risk in the board' },
+      { icon: 'ti-plug-x', text: '<b>Nuisance trips threaten imaging supply</b>' },
+      { icon: 'ti-alert-triangle', text: '<b>Neutral current climbs</b> — cable stress' },
+      { icon: 'ti-player-stop', text: '<b>Board fire / outage</b> if untreated' },
+    ],
+    signals: [['hsi:phaseImbalance', 2.5], ['hsi:mainsSupply', 1]],
+    steps: [
+      { t: 'Confirm imbalance', d: 'Clamp-meter all three phases and neutral at the incomer.', f: 'SWG-S', tool: 'Clamp meter', time: 12, diff: 'Low' },
+      { t: 'Thermographic survey', d: 'IR-scan bus joints and breaker lugs under load.', f: 'SWG-S', tool: 'IR camera', time: 20, diff: 'Medium' },
+      { t: 'Arrange isolation window', d: 'Permit to work; transfer imaging to UPS ride-through.', f: 'UPS-EQ', tool: 'PTW', time: 15, diff: 'Medium', safety: true },
+      { t: 'Re-torque connections', d: 'Isolate, prove dead, re-torque hot joints to spec.', f: 'SWG-S', tool: 'Torque wrench · VDE kit', time: 45, diff: 'High', safety: true },
+      { t: 'Rebalance circuits', d: 'Move single-phase loads to even the per-phase loading.', f: 'SWG-S', tool: 'Schedule', time: 30, diff: 'Medium' },
+      { t: 'Re-energise & verify', d: 'Restore supply; confirm imbalance < 5 % and no hot spots.', f: 'SWG-S', tool: 'Clamp meter · IR', time: 20, diff: 'Low' },
+      { t: 'Sign off', d: 'Close the permit; log thermography results.', f: 'SWG-S', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+  'PUMP-1': {
+    title: 'CHW Pump — Seal Leak / Cavitation',
+    rootCause: [
+      { icon: 'ti-droplet', text: '<b>Mechanical seal passing</b> — air enters the suction' },
+      { icon: 'ti-wave-sine', text: '<b>Cavitation vibration</b> — impeller erosion begins' },
+      { icon: 'ti-arrow-down', text: '<b>CHW flow falls</b> — MRI/CT cooling at risk' },
+      { icon: 'ti-alert-triangle', text: '<b>Imaging thermal trips follow</b> flow loss' },
+      { icon: 'ti-player-stop', text: '<b>Pump seizure</b> if untreated' },
+    ],
+    signals: [['hsi:pumpFlow', 97], ['hsi:pumpVibration', 2.6], ['hsi:mriCoolantTemp', 19.5]],
+    steps: [
+      { t: 'Confirm flow & vibration', d: 'Read the flow meter and measure pump vibration.', f: 'PUMP-1', tool: 'Vibration pen', time: 10, diff: 'Low' },
+      { t: 'Changeover to standby', d: 'Start the standby pump; confirm CHW flow restored to imaging.', f: 'PUMP-1', tool: 'BMS', time: 10, diff: 'Low', safety: true },
+      { t: 'Isolate the duty pump', d: 'Close suction/discharge valves; lock out the starter.', f: 'PUMP-1', tool: 'LOTO kit', time: 12, diff: 'Low', safety: true },
+      { t: 'Replace mechanical seal', d: 'Pull the back-plate, swap the seal, check the shaft sleeve.', f: 'PUMP-1', tool: 'Seal kit', time: 60, diff: 'High' },
+      { t: 'Inspect impeller', d: 'Check for cavitation erosion; replace if pitted.', f: 'PUMP-1', tool: 'Inspection', time: 20, diff: 'Medium' },
+      { t: 'Re-prime & run', d: 'Vent, prime, run against the standby; verify flow and vibration.', f: 'PUMP-1', tool: 'Gauge set', time: 25, diff: 'Medium' },
+      { t: 'Return to duty', d: 'Restore duty/standby rotation; log the seal change.', f: 'PUMP-1', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+  'BLR-1': {
+    title: 'Calorifier — Burner Lockout (Legionella Band)',
+    rootCause: [
+      { icon: 'ti-flame-off', text: '<b>Burner locked out</b> — flame detection or gas valve fault' },
+      { icon: 'ti-temperature', text: '<b>Hot-water flow temp decaying</b> below 45 °C' },
+      { icon: 'ti-bacteria', text: '<b>Legionella growth band entered</b> (20–45 °C)' },
+      { icon: 'ti-alert-triangle', text: '<b>HTM 04-01 compliance breach</b> approaching' },
+      { icon: 'ti-player-stop', text: '<b>System disinfection required</b> if prolonged' },
+    ],
+    signals: [['hsi:hotWaterSupply', 57]],
+    steps: [
+      { t: 'Confirm lockout', d: 'Read the burner fault code and flow temperature.', f: 'BLR-1', tool: 'Burner panel', time: 8, diff: 'Low' },
+      { t: 'Check gas & power', d: 'Verify gas inlet pressure and control supply present.', f: 'BLR-1', tool: 'Manometer', time: 12, diff: 'Low', safety: true },
+      { t: 'Inspect flame detection', d: 'Clean/replace the UV cell or ionisation probe.', f: 'BLR-1', tool: 'Probe kit', time: 25, diff: 'Medium' },
+      { t: 'Reset & fire', d: 'Reset the burner; observe a full ignition sequence.', f: 'BLR-1', tool: 'Burner panel', time: 15, diff: 'Medium' },
+      { t: 'Recover temperature', d: 'Confirm flow temp climbs above 55 °C within the hour.', f: 'BLR-1', tool: 'Thermometer', time: 30, diff: 'Low' },
+      { t: 'Flush outlets', d: 'Run sentinel outlets to purge any tepid dead-legs.', f: 'BLR-1', tool: 'Protocol', time: 20, diff: 'Low' },
+      { t: 'Sign off', d: 'Log the lockout cause; update the water-safety plan record.', f: 'BLR-1', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+  'AC-C3': {
+    title: 'Split AC — Refrigerant Undercharge',
+    rootCause: [
+      { icon: 'ti-snowflake', text: '<b>Refrigerant charge lost</b> — flare joint or coil leak' },
+      { icon: 'ti-temperature', text: '<b>Consult room drifting above 28 °C</b>' },
+      { icon: 'ti-droplet', text: '<b>Evaporator icing / condensate carry-over</b> risk' },
+      { icon: 'ti-alert-triangle', text: '<b>Compressor overheat</b> running undercharged' },
+      { icon: 'ti-player-stop', text: '<b>Compressor failure</b> if untreated' },
+    ],
+    signals: [['hsi:consultRoomTemp', 22.5]],
+    steps: [
+      { t: 'Confirm poor cooling', d: 'Measure supply/return ΔT at the indoor unit (< 8 K = suspect).', f: 'AC-C3', tool: 'Thermometer', time: 10, diff: 'Low' },
+      { t: 'Isolate the unit', d: 'Power down the outdoor unit before gauge connection.', f: 'AC-C3', tool: 'Isolator', time: 5, diff: 'Low', safety: true },
+      { t: 'Check operating pressures', d: 'Connect gauges; verify suction/discharge vs the charge chart.', f: 'AC-C3', tool: 'Manifold gauges', time: 15, diff: 'Medium' },
+      { t: 'Leak-test the circuit', d: 'Electronic sniffer on flare joints, coils and the schrader.', f: 'AC-C3', tool: 'Leak detector', time: 25, diff: 'Medium' },
+      { t: 'Repair & vacuum', d: 'Re-make the leaking flare; pull vacuum to below 500 microns.', f: 'AC-C3', tool: 'Vacuum pump', time: 40, diff: 'Medium' },
+      { t: 'Recharge to spec', d: 'Weigh in the nameplate charge; verify superheat/subcooling.', f: 'AC-C3', tool: 'Scale · refrigerant', time: 25, diff: 'Medium' },
+      { t: 'Verify room recovery', d: 'Confirm the room pulls down below 24 °C; log F-gas record.', f: 'AC-C3', tool: 'Logger', time: 20, diff: 'Low' },
+    ],
+  },
+  'MON-CT': {
+    title: 'Patient Monitor — Battery Replacement',
+    rootCause: [
+      { icon: 'ti-battery-off', text: '<b>Battery cell failure</b> — charge drains on the trolley' },
+      { icon: 'ti-heart-rate-monitor', text: '<b>Transport monitoring unreliable</b> below 15 %' },
+      { icon: 'ti-clock', text: '<b>Runtime shrinks every cycle</b> — cell ageing' },
+      { icon: 'ti-alert-triangle', text: '<b>Alarm gap during patient transfer</b>' },
+      { icon: 'ti-player-stop', text: '<b>Monitor dies mid-transport</b> if untreated' },
+    ],
+    signals: [['hsi:monitorBattery', 90]],
+    steps: [
+      { t: 'Confirm battery health', d: 'Read the battery cycle count and full-charge capacity.', f: 'MON-CT', tool: 'Service menu', time: 8, diff: 'Low' },
+      { t: 'Swap to a spare monitor', d: 'Keep CT covered while this unit is serviced.', f: 'MON-CT', tool: 'Spare unit', time: 5, diff: 'Low', safety: true },
+      { t: 'Replace battery pack', d: 'Fit a new OEM battery; check the contact springs.', f: 'MON-CT', tool: 'Battery pack', time: 10, diff: 'Low' },
+      { t: 'Full charge & calibrate', d: 'Run a full charge cycle; calibrate the fuel gauge.', f: 'MON-CT', tool: 'Charger', time: 45, diff: 'Low' },
+      { t: 'Function test', d: 'ECG/SpO₂ sim test on battery power for 15 min.', f: 'MON-CT', tool: 'Patient simulator', time: 20, diff: 'Low' },
+      { t: 'Return to service', d: 'Tag the battery date; update the device register.', f: 'MON-CT', tool: '—', time: 5, diff: 'Low' },
+    ],
+  },
+}
+
 // ── Manufacturing repair plans ──
 const MANUFACTURING_PLANS = {
   'CNC-7': {
@@ -567,7 +824,7 @@ const EV_PLANS = {
 }
 
 // all domain plans merged into one lookup
-const ALL_PLANS = { ...PLANS, ...TURBINE_PLANS, ...DATACENTER_PLANS, ...HOSPITAL_PLANS, ...MANUFACTURING_PLANS, ...EV_PLANS }
+const ALL_PLANS = { ...PLANS, ...TURBINE_PLANS, ...DATACENTER_PLANS, ...HOSPITAL_PLANS, ...IMAGING_PLANS, ...MANUFACTURING_PLANS, ...EV_PLANS }
 
 function healthyTarget(key) {
   const m = SIG[key] || {}
@@ -578,9 +835,16 @@ function healthyTarget(key) {
   return 0
 }
 
-// Build the active plan from the domain + live findings.
-function buildPlan(domain, twin) {
+// Build the active plan from the domain + live findings. `focusUnit`, when
+// given, is the exact asset id the scene already has red-highlighted (e.g.
+// the hospital floor plan's live `fault_target`) — it wins over the
+// signal-sniffing heuristic below, which only sees the *findings* ring
+// buffer and can lag the actual fault by several physics ticks.
+function buildPlan(domain, twin, focusUnit) {
   const ds = DOMAIN_SUBS[domain] || DOMAIN_SUBS['edm-machine']
+  if (focusUnit && ALL_PLANS[focusUnit]) {
+    return { ...ALL_PLANS[focusUnit], sub: focusUnit, focusSub: focusUnit }
+  }
   const findings = (twin?.findings || []).slice()
     .sort((a, b) => (b.severity === 'critical') - (a.severity === 'critical'))
   const worst = findings[0]
@@ -626,7 +890,7 @@ function buildPlan(domain, twin) {
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`
 const lerp = (a, b, t) => a + (b - a) * t
 
-export default function Maintenance({ domain = 'edm-machine', machineName = 'Wire EDM Machine', twin, modelUrl, claudeOn, onExit }) {
+export default function Maintenance({ domain = 'edm-machine', machineName = 'Wire EDM Machine', twin, modelUrl, focusUnit, reuseScene, claudeOn, onExit }) {
   const hostRef = useRef(null)
   const viewerRef = useRef(null)
   const calloutRef = useRef(null)
@@ -637,12 +901,16 @@ export default function Maintenance({ domain = 'edm-machine', machineName = 'Wir
   // Always show the twin the user is actually on — never a stale/default model.
   //  • ev-network → the live EV energy-site world (same visual as the dashboard)
   //  • any twin with a reconstructed GLB → that GLB
+  //  • reuseScene (hospital-imaging floor plan) → the same walkable 3-D scene
+  //    the user was just standing in (rendered behind this overlay — the
+  //    caller is asserting it's actually there) — no separate cinematic scene
   //  • otherwise → the procedural domain scene
   const useEVWorld = domain === 'ev-network'
   const useGlb = !useEVWorld && !!modelUrl
-  const useCustomVisual = useEVWorld || useGlb   // not the procedural createViewer scene
+  const useRealScene = !useEVWorld && !useGlb && !!reuseScene
+  const useCustomVisual = useEVWorld || useGlb || useRealScene   // not the procedural createViewer scene
 
-  const plan = useMemo(() => buildPlan(domain, twin), [domain, twin?.findings?.length])
+  const plan = useMemo(() => buildPlan(domain, twin, focusUnit), [domain, twin?.findings?.length, focusUnit])
   const steps = plan.steps
   const total = steps.length
 
@@ -861,7 +1129,7 @@ export default function Maintenance({ domain = 'edm-machine', machineName = 'Wir
   const cur = (x) => lerp(x.before, x.after, frac)
 
   return (
-    <div className="mx-root" style={{ '--mx-dim-level': (stage === 'diagnose' || stage === 'repair') ? 0.9 : 0.25 }}>
+    <div className={`mx-root ${useRealScene ? 'mx-see-through' : ''}`} style={{ '--mx-dim-level': (stage === 'diagnose' || stage === 'repair') ? 0.9 : 0.25 }}>
       <div className="mx-veil" />
 
       {/* ── intro takeover ── */}
@@ -936,8 +1204,10 @@ export default function Maintenance({ domain = 'edm-machine', machineName = 'Wir
         </div>
 
         {/* CENTER — the 3-D twin. Shows the actual reconstructed GLB when the
-            twin has one, else the procedural domain scene. */}
-        <div className="mx-center">
+            twin has one, the real floor-plan scene for hospital-imaging
+            (rendered behind this overlay — nothing to mount here), else the
+            procedural domain scene. */}
+        <div className={`mx-center ${useRealScene ? 'mx-center--live' : ''}`}>
           {useEVWorld
             ? <div className="mx-canvas" style={{ position: 'absolute', inset: 0 }}>
                 <EVWorld live={{ ...(worldLive || {}), __stages: worldStages }} machine={machineName}
@@ -949,6 +1219,8 @@ export default function Maintenance({ domain = 'edm-machine', machineName = 'Wir
                   badge={<><I n={domMeta[focusSub]?.icon || 'ti-cube'} /> <b>{machineName}</b>
                     {focusSub && domMeta[focusSub] ? ` · ${domMeta[focusSub].label}` : ''}</>} />
               </div>
+            : useRealScene
+            ? null
             : <div ref={hostRef} className="mx-canvas hero3d scene3d-host" />}
           <div className={`mx-scan ${scan ? 'on' : ''}`}><i /><b /></div>
           {/* glued component callout (procedural scene only) */}

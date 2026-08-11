@@ -10,6 +10,7 @@ archetypes + monitoring bindings) used by the plan→3D / feed path — this run
 the machine-twin runtime like railway-metro / turbine / edm.
 """
 from .behaviors import build_hospital_registry
+from .imaging import SPEC as IMAGING_SPEC
 from .physics import (
     FAULTS,
     SIGNALS,
@@ -88,7 +89,7 @@ SPEC = {
     },
 }
 
-SPECS = [SPEC]
+SPECS = [SPEC, IMAGING_SPEC]
 
 __all__ = [
     "HospitalCampusPhysics", "SIGNALS", "UNITS", "redlines", "FAULTS",
@@ -96,4 +97,5 @@ __all__ = [
     "cold_chain_thermal", "infection_spread_wellsriley", "power_resilience",
     "legionella_thermal", "patient_flow_queuing",
     "component_health", "predict", "build_hospital_registry", "SPEC", "SPECS",
+    "IMAGING_SPEC",
 ]
