@@ -1,0 +1,364 @@
+/* hospitalFloorPlan.css — full-viewport walkable hospital scene */
+
+.hfp-root {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: #0b0d18;
+}
+.hfp-root canvas { display: block; }
+
+/* ── HUD chips (dark glass over the canvas, same idiom as .bim-hud) ── */
+.hfp-hud {
+  position: absolute;
+  left: 14px;
+  top: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  z-index: 30;
+}
+.hfp-chip {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  padding: 6px 11px;
+  border-radius: 8px;
+  background: rgba(15, 17, 26, 0.74);
+  color: #cdd3f5;
+  border: 1px solid rgba(124, 131, 200, 0.32);
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.hfp-chip:hover { border-color: rgba(160, 168, 235, 0.6); }
+.hfp-chip.active { background: rgba(37, 99, 235, 0.88); color: #fff; border-color: transparent; }
+.hfp-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(124, 131, 200, 0.35);
+  margin: 0 2px;
+}
+
+/* ── legend (overview / plan modes) ── */
+.hfp-legend {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  z-index: 30;
+  background: rgba(15, 17, 26, 0.74);
+  border: 1px solid rgba(124, 131, 200, 0.32);
+  border-radius: 10px;
+  padding: 10px 13px;
+  color: #cdd3f5;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  backdrop-filter: blur(6px);
+}
+.hfp-legend-title {
+  font-weight: 600;
+  color: #e8ecff;
+  margin-bottom: 7px;
+  font-size: 11.5px;
+}
+.hfp-legend-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  line-height: 1.75;
+}
+.hfp-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+}
+
+/* ── walk-mode enter overlay (also the pointer-lock click target) ── */
+.hfp-enter {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: rgba(8, 10, 18, 0.35);
+}
+.hfp-enter.hidden { visibility: hidden; }
+.hfp-enter-card {
+  background: rgba(15, 17, 26, 0.85);
+  border: 1px solid rgba(124, 131, 200, 0.4);
+  border-radius: 14px;
+  padding: 22px 34px;
+  text-align: center;
+  color: #e8ecff;
+  backdrop-filter: blur(8px);
+}
+.hfp-enter-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  font-family: var(--display, system-ui);
+}
+.hfp-enter-keys {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+  color: #aab2dd;
+}
+.hfp-enter-keys span {
+  color: #fff;
+  background: rgba(124, 131, 200, 0.25);
+  border-radius: 5px;
+  padding: 2px 6px;
+  margin: 0 2px;
+}
+
+/* ── first-person reticle ── */
+.hfp-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.7);
+  z-index: 25;
+  pointer-events: none;
+}
+
+/* ── fault HUD ── */
+.hfp-chip.alarm {
+  background: rgba(190, 18, 60, 0.85);
+  color: #fff;
+  border-color: transparent;
+  animation: hfpAlarm 1.6s ease-in-out infinite;
+}
+@keyframes hfpAlarm {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.55); }
+  50% { box-shadow: 0 0 0 7px rgba(244, 63, 94, 0); }
+}
+.hfp-health-chip { cursor: default; }
+
+.hfp-faultmenu {
+  position: absolute;
+  left: 14px;
+  top: 54px;
+  z-index: 40;
+  width: 340px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: rgba(15, 17, 26, 0.92);
+  border: 1px solid rgba(124, 131, 200, 0.35);
+  border-radius: 12px;
+  padding: 10px;
+  backdrop-filter: blur(8px);
+}
+.hfp-faultmenu-title {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #e8ecff;
+  padding: 2px 6px 8px;
+}
+.hfp-faultmenu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: rgba(124, 131, 200, 0.08);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: #cdd3f5;
+  font-size: 12px;
+  padding: 8px 10px;
+  margin-bottom: 5px;
+  cursor: pointer;
+}
+.hfp-faultmenu-item:hover { border-color: rgba(244, 63, 94, 0.5); color: #fff; }
+.hfp-faultmenu-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.hfp-faultmenu-item span {
+  margin-left: auto;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: #8f97c9;
+}
+.hfp-faultmenu-clear { background: rgba(52, 211, 153, 0.12); }
+.hfp-faultmenu-clear:hover { border-color: rgba(52, 211, 153, 0.6); }
+.hfp-err { color: #fda4af; }
+
+/* ── equipment inspect panel ── */
+.hfp-panel {
+  position: absolute;
+  right: 14px;
+  top: 14px;
+  bottom: 14px;
+  z-index: 35;
+  width: 380px;
+  overflow-y: auto;
+  background: rgba(15, 17, 26, 0.93);
+  border: 1px solid rgba(124, 131, 200, 0.35);
+  border-radius: 14px;
+  padding: 16px;
+  color: #cdd3f5;
+  backdrop-filter: blur(8px);
+}
+.hfp-panel-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.hfp-panel-title { font-size: 15px; font-weight: 700; color: #fff; }
+.hfp-panel-sub {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10.5px;
+  color: #8f97c9;
+  margin-top: 2px;
+}
+.hfp-x {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #8f97c9;
+  cursor: pointer;
+  font-size: 15px;
+}
+.hfp-x:hover { color: #fff; }
+
+.hfp-pill {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  border-radius: 6px;
+  padding: 3px 8px;
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  white-space: nowrap;
+}
+.hfp-pill-warn { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+.hfp-pill-crit { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
+
+.hfp-health {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+.hfp-health-bar {
+  flex: 1;
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(124, 131, 200, 0.18);
+  overflow: hidden;
+}
+.hfp-health-fill { height: 100%; border-radius: 4px; transition: width 0.6s; }
+
+.hfp-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+  margin-bottom: 12px;
+}
+.hfp-metric {
+  background: rgba(124, 131, 200, 0.08);
+  border-radius: 8px;
+  padding: 7px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.hfp-metric-label { font-size: 10px; color: #8f97c9; }
+.hfp-metric-value {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 13px;
+  color: #fff;
+}
+
+.hfp-faultbox {
+  background: rgba(190, 18, 60, 0.16);
+  border: 1px solid rgba(244, 63, 94, 0.4);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+}
+.hfp-faultbox-title {
+  font-weight: 700;
+  color: #fb7185;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hfp-faultbox-desc { font-size: 11.5px; color: #e6bac4; margin-top: 5px; line-height: 1.45; }
+
+.hfp-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.hfp-select {
+  flex: 1;
+  background: rgba(124, 131, 200, 0.1);
+  border: 1px solid rgba(124, 131, 200, 0.3);
+  color: #cdd3f5;
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 7px 8px;
+}
+.hfp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(124, 131, 200, 0.12);
+  border: 1px solid rgba(124, 131, 200, 0.32);
+  color: #cdd3f5;
+  border-radius: 8px;
+  font-size: 12px;
+  padding: 7px 11px;
+  cursor: pointer;
+}
+.hfp-btn:hover { color: #fff; border-color: rgba(160, 168, 235, 0.6); }
+.hfp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.hfp-btn-danger { background: rgba(190, 18, 60, 0.5); color: #fff; border-color: transparent; }
+.hfp-btn-primary { background: rgba(37, 99, 235, 0.75); color: #fff; border-color: transparent; }
+.hfp-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.hfp-note { font-size: 11.5px; color: #8f97c9; margin-bottom: 10px; }
+.hfp-offline {
+  font-size: 12px;
+  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.12);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+/* work order document renders on a light card inside the dark panel */
+.hfp-wo {
+  background: #f7f8fc;
+  border-radius: 10px;
+  padding: 12px;
+  color: #1f2533;
+}
+.hfp-wo-src {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 10px;
+  color: #6b7280;
+  margin-bottom: 6px;
+}
+
+/* ── bottom status line ── */
+.hfp-status {
+  position: absolute;
+  left: 14px;
+  bottom: 12px;
+  z-index: 30;
+  color: #aab2dd;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 11px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}

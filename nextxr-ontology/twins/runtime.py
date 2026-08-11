@@ -211,8 +211,14 @@ class LiveTwin:
                 self._set_control(throttle)
             if fault is not None:
                 if fault == "none":
-                    self.state.fault = "none"
-                    self.state.fault_severity = 0.0
+                    # Let the pack restore its physical state (ahu capacity,
+                    # leaks, mains…) — resetting only the fault LABEL left the
+                    # degradation in place forever, so "clear" never recovered.
+                    if hasattr(self.physics, "clear"):
+                        self.physics.clear(self.state)
+                    else:
+                        self.state.fault = "none"
+                        self.state.fault_severity = 0.0
                 else:
                     self.physics.inject(self.state, fault, severity)
             return self._step(dt=dt)

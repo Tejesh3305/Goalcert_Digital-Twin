@@ -84,6 +84,11 @@ def list_machine_domains():
                         for sig, (lbl, unit) in s.get("sensors", {}).items()],
             "signals": list(s["signals"].values()),
             "faults": list(s.get("faults", [])),
+            # Optional pack metadata (hospital-imaging): per-fault label/target/
+            # description and the physical equipment register, so a 3-D scene
+            # can map faults onto individual machines without hardcoding.
+            "fault_info": s.get("fault_info", {}),
+            "equipment": s.get("equipment", []),
         })
     return {"domains": out}
 
