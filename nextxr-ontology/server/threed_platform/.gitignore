@@ -1,5 +1,7 @@
 .env
-data/
+# Runtime job artifacts (app/config.py DATA_DIR). Anchored to this package's
+# root - see the root .gitignore for what a bare `data/` cost us.
+/data/
 __pycache__/
 *.pyc
 .venv/

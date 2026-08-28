@@ -6,7 +6,25 @@ dist/
 build/
 .DS_Store
 neo4j_data/
-data/
+# Runtime records and blobs - the SQLite fallback DBs, generated GLBs, scene
+# JSON and 3-D job artifacts that paths.py writes under nextxr-ontology/data
+# at runtime (DATA_DIR, overridable with NXR_DATA_DIR). None of it is source.
+#
+# ANCHORED TO THAT ONE PATH (leading `/`) ON PURPOSE. A bare `data/` matches a
+# directory named `data` at ANY depth, and it silently swallowed
+# frontend/src/panels/hospitalFloorPlan/data/ - floorPlan.js and
+# assetPlacements.js, which seven modules in that panel import. Nothing warned:
+# `git add` skips an ignored path without a word, so the two files were never
+# committed and a clean clone could not build at all -
+#
+#     Could not resolve "./data/floorPlan"
+#       from "src/panels/hospitalFloorPlan/HospitalFloorPlanScene.jsx"
+#
+# which took down `npm run build`, `docker build .` and the CI Frontend job.
+# Do not remove the leading slash. The 3-D platform's own runtime dir is
+# ignored by nextxr-ontology/server/threed_platform/.gitignore, likewise
+# anchored, and apps/3d-platform/data/ by the anchored rule further down.
+/nextxr-ontology/data/
 node_modules/
 
 # Runtime-authored capability bundles (produced by the Bundle Author agent).
@@ -59,3 +77,7 @@ apps/3d-platform/data/
 # `!docs/gen_*.py` first; nothing else in here is authoritative (the API
 # contract is FastAPI's live /openapi.json, the schema is db/schema.py).
 docs/
+
+# Project-local Python environment (see start.ps1 — the pinned stack is kept
+# out of the shared machine-wide interpreter).
+.venv/
