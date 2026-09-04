@@ -290,6 +290,24 @@ _PUBLIC_AUTH_PATHS = {
     "/api/v1/auth/verify-email",
 }
 
+# The Goalcert Hub SSO callback. It MUST be reachable without a credential —
+# arriving without one is the entire point, since the Hub's ticket is what the
+# visitor is carrying instead.
+#
+# It needs naming explicitly because of the asymmetry in `_is_public` below: a
+# non-API GET already falls through to the SPA rule, but a non-API POST does not,
+# and the contract PREFERS the POST form (a token in a query string ends up in
+# browser history, proxy logs and Referer headers). Without this entry the Hub's
+# preferred delivery would 401 before `server/sso_routes.py` ever ran, and the
+# fallback query-param form would appear to work — the worst kind of bug, because
+# it only shows up on the safer path.
+#
+# Kept as a literal rather than imported from `server/sso_routes.py`: that module
+# imports `server/auth_routes.py`, which imports this one, so the import would be
+# circular. The two must stay in step — `sso_routes.CALLBACK_PATH` is the other
+# half.
+_PUBLIC_SSO_PATHS = {"/sso/hub/callback"}
+
 # Paths where an `X-Device-Token` is an acceptable credential INSTEAD of an
 # X-API-Key. Deliberately a tiny, explicit allow-list of append-only telemetry
 # endpoints.
@@ -342,6 +360,8 @@ def _is_public(path: str, method: str) -> bool:
         return True
     if normalized in _PUBLIC_API_PATHS or normalized in _PUBLIC_AUTH_PATHS:
         return True
+    if normalized in _PUBLIC_SSO_PATHS:
+        return True
     if path.startswith(("/static", "/assets")):
         return True
     # Any non-API GET is a client-router path -> serve the SPA shell publicly.
@@ -389,7 +409,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             print(f"[tenancy] posture unavailable: {e}", flush=True)
 
-        for mod in ("identity", "db", "storage", "bus", "historian"):
+        for mod in ("identity", "db", "storage", "bus", "historian", "sso"):
             try:
                 __import__(mod).log_posture()
             except Exception as e:

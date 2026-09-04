@@ -172,6 +172,39 @@ MIGRATIONS: list[Migration] = [
         # and that failure is the correct outcome rather than an error.
         tolerate=("duplicate column", "already exists"),
     ),
+    Migration(
+        migration_id="0004_hub_sso",
+        description=(
+            "Goalcert Hub single sign-on: hub_identities (the permanent Hub "
+            "subject -> local user link) and hub_sso_jti (spent ticket ids, so a "
+            "ticket works exactly once across every worker and task). Adds no "
+            "column to an existing table and grants nothing on its own - until "
+            "NXR_SSO_HUB_SECRET is set, /sso/hub/callback refuses every ticket."),
+        store="identity",
+        # Plain CREATE TABLE IF NOT EXISTS, so this is idempotent on a database
+        # that migration 0001 already provisioned from schema.py and a real
+        # create on one that predates the feature. No `tolerate` needed - unlike
+        # 0003's ALTER, nothing here fails on a fresh database.
+        statements=(
+            """CREATE TABLE IF NOT EXISTS hub_identities (
+                   hub_sub      {id} PRIMARY KEY,
+                   user_id      {id} NOT NULL,
+                   hub_iss      {str} NOT NULL DEFAULT '',
+                   linked_at    TEXT NOT NULL,
+                   last_seen_at TEXT,
+                   linked_by    {str} NOT NULL DEFAULT ''
+               )""",
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_hub_identities_user "
+            "ON hub_identities (user_id)",
+            """CREATE TABLE IF NOT EXISTS hub_sso_jti (
+                   jti        {id} PRIMARY KEY,
+                   seen_at    TEXT NOT NULL,
+                   expires_at TEXT NOT NULL
+               )""",
+            "CREATE INDEX IF NOT EXISTS idx_hub_sso_jti_expires "
+            "ON hub_sso_jti (expires_at)",
+        ),
+    ),
 ]
 
 

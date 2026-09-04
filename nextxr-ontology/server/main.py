@@ -88,6 +88,7 @@ from server.security import (
     cors_origins,
 )
 from server.solar_routes import router as solar_router
+from server.sso_routes import router as sso_router
 from server.tenancy import enforce_tenant_scope
 from server.threed_platform.app.main import app as threed_platform_app
 from server.twin_runtime_routes import router as twin_runtime_router
@@ -172,6 +173,11 @@ app.add_middleware(
 # signup, refresh, password reset) are listed in server/auth.py; the rest of the
 # router authenticates normally.
 app.include_router(auth_router)
+# Goalcert Hub SSO. Registered here, with the other routers, so it is matched
+# BEFORE the `GET /{full_path:path}` SPA fallback at the bottom of this file —
+# FastAPI resolves in registration order, and the fallback would otherwise
+# swallow /sso/hub/callback and serve the app shell instead of signing anyone in.
+app.include_router(sso_router)
 
 app.include_router(query_router)
 app.include_router(write_router)

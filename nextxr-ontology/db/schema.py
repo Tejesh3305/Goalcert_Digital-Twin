@@ -353,6 +353,40 @@ DDL: dict[str, list[str]] = {
            )""",
         "CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log (org_id, ts DESC)",
         "CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log (actor_user, ts DESC)",
+        # ── Goalcert Hub SSO (see the `sso/` package) ──────────────────
+        # WHICH HUB USER IS WHICH LOCAL USER. `hub_sub` is the Hub's subject
+        # claim and the PERMANENT key: emails get reassigned when someone leaves
+        # and their address is handed on, so a system that re-matched on email
+        # every visit would eventually hand the newcomer the leaver's twin. Email
+        # is the bootstrap for the first visit only.
+        #
+        # `user_id` is UNIQUE, not just indexed. One local account maps to at
+        # most one Hub identity, so a second Hub subject cannot quietly claim a
+        # user that is already linked — the resolver refuses that case rather
+        # than guessing, and this constraint is what makes the refusal true even
+        # under a race.
+        """CREATE TABLE IF NOT EXISTS hub_identities (
+               hub_sub      {id} PRIMARY KEY,
+               user_id      {id} NOT NULL,
+               hub_iss      {str} NOT NULL DEFAULT '',
+               linked_at    TEXT NOT NULL,
+               last_seen_at TEXT,
+               linked_by    {str} NOT NULL DEFAULT ''
+           )""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_hub_identities_user "
+        "ON hub_identities (user_id)",
+        # SPENT TICKETS. A Hub ticket is single-use; this is what makes that
+        # true. It is a TABLE rather than an in-process cache because a cache is
+        # per-worker, and a replay landing on a second Uvicorn worker or a second
+        # ECS task would find it empty and be accepted. Rows are purged on the
+        # sign-in path (sso/store.py), so it stays bounded without a cron.
+        """CREATE TABLE IF NOT EXISTS hub_sso_jti (
+               jti        {id} PRIMARY KEY,
+               seen_at    TEXT NOT NULL,
+               expires_at TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_hub_sso_jti_expires "
+        "ON hub_sso_jti (expires_at)",
     ],
     # Field-protocol connectors (Modbus / OPC-UA / MQTT).
     #
@@ -630,7 +664,8 @@ _TABLES = {"twins": ["twins"], "changelog": ["events"],
            "scenes": ["scene_cache"], "threed": ["threed_jobs"],
            "devices": ["ingest_devices"], "connectors": ["connectors"],
            "identity": ["organizations", "users", "memberships", "sessions",
-                        "api_keys", "org_tenants", "auth_tokens", "audit_log"]}
+                        "api_keys", "org_tenants", "auth_tokens", "audit_log",
+                        "hub_identities", "hub_sso_jti"]}
 
 
 def _row_count(store: str, table: str):
