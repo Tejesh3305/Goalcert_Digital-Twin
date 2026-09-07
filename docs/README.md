@@ -45,7 +45,7 @@ someone who is not going to clone a repository:
 | PDF | Pages |
 |---|---|
 | `NextXR_API_SPECIFICATION.pdf` | 11 |
-| `NextXR_ER_DIAGRAM.pdf` | 14 (1 landscape) |
+| `NextXR_ER_DIAGRAM.pdf` | 17 (2 landscape) |
 | `NextXR_AWS_ARCHITECTURE.pdf` | 12 (2 landscape) |
 
 Every Mermaid diagram is rendered to vector SVG and embedded, so the text in

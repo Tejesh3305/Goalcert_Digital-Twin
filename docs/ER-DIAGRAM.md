@@ -203,6 +203,70 @@ people, they do not edit the plant model. One column cannot express both.
 The fault-to-fix loop. This is the half of the product that records **what people
 did** about what the twin detected.
 
+### 3a — How a person becomes a supervisor or a worker
+
+**There is no supervisor table and no worker table.** A person is one `users`
+row whichever job they do; which job that is lives in `memberships.persona`, and
+who a supervisor may dispatch to is `teams` + `team_members` rather than a
+column on the user. That indirection is deliberate — the same account can be a
+supervisor in one organisation and frontline in another, and a person moving
+teams changes one join row rather than being re-created.
+
+```mermaid
+erDiagram
+  users ||--o{ memberships : "persona says which job"
+  users ||--o{ teams : "supervises"
+  users ||--o{ team_members : "is on"
+  teams ||--o{ team_members : "staffed by"
+  teams ||--o{ tasks : "scopes"
+  users ||--o{ tasks : "assignee and assigned_by"
+
+  users {
+    TEXT user_id PK
+    TEXT name
+    TEXT email
+  }
+  memberships {
+    TEXT org_id PK
+    TEXT user_id PK
+    TEXT persona "supervisor | frontline"
+    TEXT role "data access, separate axis"
+  }
+  teams {
+    TEXT team_id PK
+    TEXT org_id
+    TEXT name
+    TEXT supervisor_id "-> users"
+  }
+  team_members {
+    TEXT team_id PK
+    TEXT user_id PK
+    TEXT org_id
+  }
+  tasks {
+    TEXT task_id PK
+    TEXT assignee_id "-> users, the worker"
+    TEXT assigned_by "-> users, the supervisor"
+    TEXT team_id "-> teams"
+    TEXT status
+  }
+```
+
+Reading the dispatch rule off the diagram: a supervisor may assign a task only
+to somebody who shares a team with them — `teams.supervisor_id = me`, joined
+through `team_members` to the candidate. `work/authority.py` computes exactly
+that as `assignable_user_ids`, and both the assign endpoint and the roster the
+console renders are derived from it, so the dialog cannot offer a person the API
+would refuse. A supervisor who supervises no team can assign to nobody, which is
+the correct failure direction.
+
+> **`tasks` carries two different people.** `assignee_id` is the worker who owes
+> the fix; `assigned_by` is the supervisor who decided it. Collapsing them into
+> one "owner" column would make "who decided this" unanswerable after the fact —
+> the first question asked in an incident review.
+
+### 3b — The work tables
+
 ```mermaid
 erDiagram
   teams ||--o{ team_members : "staffed by"
