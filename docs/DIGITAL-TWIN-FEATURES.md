@@ -10,13 +10,16 @@ status against two codebases:
 
 | | Meaning |
 |---|---|
-| **✅ Built** | Working code exists — in `nextxr-ontology-v3` or in `workforce-intelligence` |
-| **○ Not built** | No working code, or only a narrower version than the platform needs |
+| **✅ Built** | Working in the digital twin (`nextxr-ontology-v3`) today |
+| **○ Not built** | Not in the digital twin — whether it exists elsewhere or nowhere |
 
-Where a built feature currently lives is named in its Notes column, because it
-changes the cost: something already written in `workforce-intelligence` needs
-*moving* rather than inventing. A feature marked Not built where a partial
-version already exists says so in the same column.
+**The status is about the digital twin and nothing else.** A feature that works
+in `workforce-intelligence` but not here is Not built, because it is not in this
+product yet.
+
+Where such a feature already exists is kept in its Notes column, since it changes
+what the work is — porting rather than inventing — but it does not change the
+status.
 
 Surveyed 2026-09-07 against `nextxr-ontology-v3` (27 tables, 188 API routes) and
 `workforce-intelligence` (15 work tables, 7 roles collapsed to 5 here, 6 role
@@ -40,7 +43,7 @@ rendered from that role's capability list.
 | 1.7 | **Capability matrix per role** | ○ Not built | Twin's `work/authority.py` covers dispatch only. The five roles need ~20 capabilities across content, clearance, evidence, KPI and org |
 | 1.8 | Team scoping ("whose people?") | ✅ Built | `assignable_user_ids` — supervisor is authoritative over their own team only |
 | 1.9 | Frontend renders from the capability list | ✅ Built | `GET /work/me` returns capabilities; buttons drawn from it |
-| 1.10 | Approval routing by role | ✅ Built | `APPROVER_FOR` routes each approval kind to the right inbox — retargets to Manager / CEO |
+| 1.10 | Approval routing by role | ○ Not built | `APPROVER_FOR` routes each approval kind to the right inbox — retargets to Manager / CEO |
 | 1.11 | Multi-tenant isolation | ✅ Built | `org_tenants` + per-label `(tenantId, id)` graph constraints |
 
 ### The five roles
@@ -105,10 +108,10 @@ ships six shells, so this is a merge rather than new construction.
 |---|---|---|---|---|
 | 2.1 | **Field** | Frontline operator | ✅ Built | Today's jobs, the procedure, the fix. The twin's is the better of the two |
 | 2.2 | **Command** | Supervisor | ✅ Built | Dispatch queue, team load, sign-off. Built in the twin |
-| 2.3 | **Manage** | Manager | ✅ Built | Merge of WI's **Studio** (authoring, review, publish) and **Evidence** (clearances, evidence packs, export, agent logs), plus multi-team dispatch |
-| 2.4 | **Exec** | CEO | ✅ Built | KPIs, targets, readiness, case studies, org-wide rollup |
-| 2.5 | **Control** | Admin | ✅ Built | Org provisioning, connectors, platform health |
-| 2.6 | Role-based routing, lazy-loaded per app | ✅ Built | `PersonaRouter` — a session downloads only its own application |
+| 2.3 | **Manage** | Manager | ○ Not built | Merge of WI's **Studio** (authoring, review, publish) and **Evidence** (clearances, evidence packs, export, agent logs), plus multi-team dispatch |
+| 2.4 | **Exec** | CEO | ○ Not built | KPIs, targets, readiness, case studies, org-wide rollup |
+| 2.5 | **Control** | Admin | ○ Not built | Org provisioning, connectors, platform health |
+| 2.6 | Role-based routing, lazy-loaded per app | ○ Not built | `PersonaRouter` — a session downloads only its own application |
 | 2.7 | "No workspace for this role" handling | ✅ Built | Both treat an unassigned role as a provisioning bug, not a crash |
 | 2.8 | Operator dashboard with charts and live 3-D | ✅ Built | KPI tiles, completion bars, severity mix, score trend, XP, and the job's twin rendered beside it |
 | 2.9 | Supervisor team-load view | ✅ Built | Per-operator load and throughput, org-wide with `assignable` flags |
@@ -140,7 +143,7 @@ one workspace with sections, not a tab bar joining two former apps.
 | 3.7 | Operator inbox, own work only | ✅ Built | No user id parameter; server reads the session |
 | 3.8 | Supervisor sign-off closes the loop | ✅ Built | Closing resolves the Finding back in the graph |
 | 3.9 | **Assignment and WorkOrder as separate objects** | ○ Not built | Twin merges both into `tasks`. WI models them separately — an assignment is *what you owe*, a work order is *the authorised job* |
-| 3.10 | **Assist: request help, respond, close** | ✅ Built | `AssistSession` — an operator escalates to a supervisor mid-job |
+| 3.10 | **Assist: request help, respond, close** | ○ Not built | `AssistSession` — an operator escalates to a supervisor mid-job |
 | 3.11 | **Notifications** | ○ Not built | WI has the `Notification` table and endpoints; no delivery channel exists in either (no email/push/SMS) |
 | 3.12 | Work rules: which findings become work | ✅ Built | Data-driven; default critical-only, dedup by finding node |
 | 3.13 | Auto-generated work order content | ✅ Built | AI-written, on explicit request |
@@ -154,11 +157,11 @@ twin; all of it exists in WI.
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 4.1 | Clearance: a person is cleared to do a procedure on an asset class | ✅ Built | `Clearance` model |
-| 4.2 | Evidence links backing a clearance | ✅ Built | `EvidenceLink` — what proves competency |
-| 4.3 | Clearance revocation | ✅ Built | Manager capability under the five-role model |
-| 4.4 | Clearance exception approval | ✅ Built | Routed to Supervisor or Manager |
-| 4.5 | Evidence pack export | ✅ Built | The audit deliverable |
+| 4.1 | Clearance: a person is cleared to do a procedure on an asset class | ○ Not built | `Clearance` model |
+| 4.2 | Evidence links backing a clearance | ○ Not built | `EvidenceLink` — what proves competency |
+| 4.3 | Clearance revocation | ○ Not built | Manager capability under the five-role model |
+| 4.4 | Clearance exception approval | ○ Not built | Routed to Supervisor or Manager |
+| 4.5 | Evidence pack export | ○ Not built | The audit deliverable |
 | 4.6 | **Clearance gates dispatch** | ○ Not built | Neither codebase refuses an assignment because the assignee is not cleared. This is the point of the feature and it is unbuilt in both |
 | 4.7 | Expiry and recertification | ○ Not built | No scheduled re-validation anywhere |
 | 4.8 | Agent action log for audit | ○ Not built | Twin meters agent spend and records `task_events`; WI has `agentlog.read` as a capability. Neither writes a reviewable per-decision agent log |
@@ -181,9 +184,9 @@ twin; all of it exists in WI.
 | 5.5 | XP, levels and an auditable ledger | ✅ Built | Twin-only — WI has no XP model |
 | 5.6 | Training library with per-item standing | ✅ Built | Passed / in progress / attempts / last score; resume a half-finished run |
 | 5.7 | "Repair with AI" reusable trainer | ✅ Built | Component reachable from the job, the library and the twin |
-| 5.8 | **Candidate content pipeline: draft → review → publish** | ✅ Built | `CandidateContent` + `content.publish` / `content.review` |
-| 5.9 | **Authoring UI for procedures** | ✅ Built | WI's Studio app; becomes a section of Manage |
-| 5.10 | **Loop events: what the fleet learned** | ✅ Built | `LoopEvent` — feeding outcomes back into content |
+| 5.8 | **Candidate content pipeline: draft → review → publish** | ○ Not built | `CandidateContent` + `content.publish` / `content.review` |
+| 5.9 | **Authoring UI for procedures** | ○ Not built | WI's Studio app; becomes a section of Manage |
+| 5.10 | **Loop events: what the fleet learned** | ○ Not built | `LoopEvent` — feeding outcomes back into content |
 | 5.11 | Curriculum / learning paths | ○ Not built | No ordered multi-procedure programme in either |
 | 5.12 | Skills matrix per person | ○ Not built | Implied by clearances; no aggregate view |
 
@@ -195,17 +198,17 @@ twin; all of it exists in WI.
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 6.1 | **Scenario builder / authoring studio** | ✅ Built | `scenario_engine/api/studio.py` — authors a scenario **from a natural-language description**, browses domains and fault types, runs it |
-| 6.2 | Scenario model: objectives, steps, decision gates, target selectors | ✅ Built | `engine/scenario.py` |
-| 6.3 | **Monte Carlo runs** | ✅ Built | `engine/monte_carlo.py` — distribution of outcomes, not one path |
-| 6.4 | World model: actors, resources, environment | ✅ Built | `engine/world.py`, `environment.py` |
-| 6.5 | Workflows and conditions | ✅ Built | `engine/workflows.py`, `conditions.py` |
-| 6.6 | KPI evaluation per run | ✅ Built | `engine/kpis.py` |
-| 6.7 | Nine domain plug-ins | ✅ Built | aerospace, defence, edm, ev, facility, fleet, hospital, railway, solar |
-| 6.8 | Run manager, run history, tripwires | ✅ Built | `api/runs.py`, `api/tripwire.py` |
-| 6.9 | Scenario reports | ✅ Built | `reports/generator.py` |
+| 6.1 | **Scenario builder / authoring studio** | ○ Not built | `scenario_engine/api/studio.py` — authors a scenario **from a natural-language description**, browses domains and fault types, runs it |
+| 6.2 | Scenario model: objectives, steps, decision gates, target selectors | ○ Not built | `engine/scenario.py` |
+| 6.3 | **Monte Carlo runs** | ○ Not built | `engine/monte_carlo.py` — distribution of outcomes, not one path |
+| 6.4 | World model: actors, resources, environment | ○ Not built | `engine/world.py`, `environment.py` |
+| 6.5 | Workflows and conditions | ○ Not built | `engine/workflows.py`, `conditions.py` |
+| 6.6 | KPI evaluation per run | ○ Not built | `engine/kpis.py` |
+| 6.7 | Nine domain plug-ins | ○ Not built | aerospace, defence, edm, ev, facility, fleet, hospital, railway, solar |
+| 6.8 | Run manager, run history, tripwires | ○ Not built | `api/runs.py`, `api/tripwire.py` |
+| 6.9 | Scenario reports | ○ Not built | `reports/generator.py` |
 | 6.10 | Guided mode | ✅ Built | Both have a guided path; the twin's is the graded operator drill |
-| 6.11 | Scenario engine reads live twin state | ✅ Built | `services/twin_client.py` — the seam that makes scenarios run against a real plant |
+| 6.11 | Scenario engine reads live twin state | ○ Not built | `services/twin_client.py` — the seam that makes scenarios run against a real plant |
 | 6.12 | **Physics simulation of a machine** | ✅ Built | Different thing, and the twin is ahead: `dynamics/` integrates wear, faults persist, one lease-owner per tenant ticks it |
 
 > **Two different simulators, and they are complementary rather than duplicated.**
@@ -240,7 +243,7 @@ older embedded copy at the same standard.
 | 7.11 | SSE event bus per tenant | ✅ Built | |
 | 7.12 | Prediction / RUL and cascade analysis | ✅ Built | |
 | 7.13 | **Twin access scoped by workforce role** | ○ Not built | Today twin access is `role` + `org_tenants`. Nothing expresses "a frontline operator may see only the assets their team owns" |
-| 7.14 | **Asset ↔ twin binding from the work side** | ✅ Built | WI's `POST /work/assets/bind-twins`; the twin has no equivalent |
+| 7.14 | **Asset ↔ twin binding from the work side** | ○ Not built | WI's `POST /work/assets/bind-twins`; the twin has no equivalent |
 | 7.15 | **Graph is populated** | ○ Not built | 3 nodes against 16 registered twins. Schema and constraints are provisioned; content is not. Everything above is demonstrable only once this is seeded |
 
 ---
@@ -254,8 +257,8 @@ older embedded copy at the same standard.
 | 8.3 | Spend ledger, response memo, in-flight coalescing | ✅ Built | Per-model token and cost accounting |
 | 8.4 | Per-tenant budget cap | ○ Not built | Implemented but **disabled** unless `NXR_COPILOT_BUDGET_USD` is set |
 | 8.5 | Long-running agent sessions | ✅ Built | 26 endpoints: twin builder, bundle author, plugin, accelerator, ops |
-| 8.6 | Scenario analyst agent | ✅ Built | `embedded_agents/scenario/analyst.py` |
-| 8.7 | Scenario authoring agent | ✅ Built | `embedded_agents/scenario/authoring.py` — powers the builder |
+| 8.6 | Scenario analyst agent | ○ Not built | `embedded_agents/scenario/analyst.py` |
+| 8.7 | Scenario authoring agent | ○ Not built | `embedded_agents/scenario/authoring.py` — powers the builder |
 | 8.8 | **Per-role agent access levels** | ○ Not built | Every signed-in user can call every agent. No role gates which agents run, and no per-role budget |
 | 8.9 | **Reviewable agent decision log** | ○ Not built | Spend is metered; individual decisions are not recorded for audit |
 
@@ -268,10 +271,10 @@ older embedded copy at the same standard.
 | 9.1 | Operator's own stats: counts, series, score, streak | ✅ Built | `GET /work/stats/me` |
 | 9.2 | Supervisor team throughput | ✅ Built | `GET /work/team-stats` |
 | 9.3 | XP ledger and standing | ✅ Built | |
-| 9.4 | **KPI points and targets** | ✅ Built | `KpiPoint`, `kpi.set_target` |
-| 9.5 | **Readiness snapshots** | ✅ Built | `ReadinessSnapshot` — is the workforce ready for the work |
-| 9.6 | **Org-wide executive view** | ✅ Built | Exec app |
-| 9.7 | Case study management | ✅ Built | `casestudy.manage` |
+| 9.4 | **KPI points and targets** | ○ Not built | `KpiPoint`, `kpi.set_target` |
+| 9.5 | **Readiness snapshots** | ○ Not built | `ReadinessSnapshot` — is the workforce ready for the work |
+| 9.6 | **Org-wide executive view** | ○ Not built | Exec app |
+| 9.7 | Case study management | ○ Not built | `casestudy.manage` |
 | 9.8 | Cross-tenant fleet analytics | ○ Not built | Neither aggregates across organisations |
 
 ---
@@ -287,7 +290,7 @@ older embedded copy at the same standard.
 | 10.5 | Health / readiness split for the load balancer | ✅ Built | |
 | 10.6 | Federated frontend (twin mounts inside a host shell) | ✅ Built | Module federation — this is what makes WI-as-host feasible |
 | 10.7 | **Two codebases with two data layers** | ○ Not built | Twin uses raw SQL over `db/core.py`; WI uses SQLAlchemy. One has to win, and it is the single biggest structural decision ahead |
-| 10.8 | Org provisioning / connector management UI | ✅ Built | Control app |
+| 10.8 | Org provisioning / connector management UI | ○ Not built | Control app |
 | 10.9 | CI, tests | ✅ Built | 528 tests passing |
 | 10.10 | Notification delivery (email / push / SMS) | ○ Not built | No transport in either codebase |
 
@@ -295,53 +298,48 @@ older embedded copy at the same standard.
 
 ## 11. Scorecard
 
-Counted from the tables above, not estimated:
+Counted from the tables above, against the digital twin only:
 
 | Status | Count | Share |
 |---|---:|---:|
-| ✅ Built | 89 | 82% |
-| ○ Not built | 19 | 18% |
+| ✅ Built in the digital twin | 57 | 53% |
+| ○ Not built in the digital twin | 51 | 47% |
 | **Total** | **108** | |
 
-**Four features in five already have working code.** The dominant cost ahead is
-not writing features — it is choosing a host application, reconciling two data
-layers, and widening the role model so five roles can reach capabilities that
-already work for two.
+**Just over half the platform is working here today.** The twin is strongest on
+the plant itself, the dispatch loop, the operator and supervisor workspaces, the
+agents and the deployment story — sections 3, 7, 8 and 10 are nearly complete.
 
-Of the 89 built, 55 are in this repository and 34 are in `workforce-intelligence`
-and need porting or integrating. That split does not change whether something is
-built, but it does change what it costs to have it in the platform, so each row's
-Notes column names where it lives.
+### What the 51 are made of
 
-### The nineteen not built
+Not all missing work costs the same, and the split matters for planning:
+
+| | Count | What it means |
+|---|---:|---|
+| Already built in `workforce-intelligence` | 32 | Port or integrate — the design exists and runs |
+| A narrower version exists here | 6 | Extend what is written: 1.6, 1.7, 3.9, 4.8, 5.1, 8.4 |
+| Genuinely new | 13 | Design and build from nothing |
+
+So of 51 gaps, **38 have something to start from** and 13 do not. Treating all 51
+as new work would overstate the remaining effort by roughly a factor of three.
+
+### The thirteen with nothing to start from
 
 | # | Feature | Note |
 |---|---|---|
-| 1.6 | Five-role hierarchy | Two personas exist; the axis extends to five without structural change |
-| 1.7 | Capability matrix per role | Covers dispatch; needs content, clearance, evidence, KPI |
 | 2.10 | Manager multi-team view | The team view is scoped to one supervisor |
-| 3.9 | Assignment vs WorkOrder as separate objects | Merged into `tasks` here; WI models them separately |
-| 3.11 | Notifications | Model exists in WI; nothing delivers |
+| 3.11 | Notifications | A model exists in WI; nothing delivers, in either |
 | 4.6 | **Clearance gates dispatch** | The check that makes the competency model matter |
 | 4.7 | Clearance expiry and recertification | |
-| 4.8 | Reviewable agent action log | Spend is metered; individual decisions are not recorded |
-| 5.1 | Authorable procedure catalogue | 980 lines in **code** — an L&D user cannot edit it |
 | 5.11 | Curriculum / learning paths | |
 | 5.12 | Skills matrix per person | |
 | 7.13 | Twin access scoped by workforce role | |
 | 7.15 | **Graph population** | Blocked on data, not code |
-| 8.4 | Per-tenant agent budget enforced | Implemented but disabled unless the env var is set |
 | 8.8 | Per-role agent access levels and budgets | |
 | 8.9 | Reviewable agent decision log | |
 | 9.8 | Cross-tenant fleet analytics | |
 | 10.7 | **Unified data layer** | A decision, then a migration |
 | 10.10 | Notification delivery transport | No email/push/SMS in either codebase |
-
-Six of these have something to build **on** rather than starting from nothing —
-1.6, 1.7, 3.9, 4.8, 5.1 and 8.4 all have a narrower version already working. They
-are counted as not built because the platform cannot use them as they stand, but
-they are extensions rather than blank pages, and that is the difference between a
-fortnight and a quarter.
 
 ---
 
