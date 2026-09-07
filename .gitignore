@@ -66,17 +66,33 @@ apps/3d-platform/data/
 !/AWS_DEPLOYMENT.md
 !/README.md
 
-# docs/ — the generated document set (DRD/FRD/HLD/LLD as .docx, the TechDocs
-# HTML + PNG diagrams, the OpenAPI dump, a schema.sql snapshot) and the
-# `gen_*.py` scripts that produce it. Excluded wholesale by request.
+# docs/ — the GENERATED document set (DRD/FRD/HLD/LLD as .docx, the TechDocs
+# HTML + PNG diagrams, a schema.sql snapshot) and the `gen_*.py` scripts that
+# produce it. Excluded by request, because generated output was always going to
+# drift from the code it describes.
 #
-# The generated files are output and were always going to drift from the code
-# they describe. THE GENERATORS ARE NOT — `docs/gen_*.py` is the only copy of
-# how that document set is built, so it now lives outside version control on
-# the author's machine. If a document set is ever needed again, unignore
-# `!docs/gen_*.py` first; nothing else in here is authoritative (the API
-# contract is FastAPI's live /openapi.json, the schema is db/schema.py).
-docs/
+# THE EXCEPTIONS BELOW ARE HAND-MAINTAINED AND BELONG IN THE REPO. The reference
+# documents an engineer or a reviewer actually reads are Markdown with Mermaid,
+# rendered by GitHub, and keeping them out of version control put the only copy
+# on one machine. They are listed individually rather than by glob so that
+# adding a file to docs/ is still a deliberate act.
+#
+# `docs/*` rather than `docs/` is load-bearing: git does not descend into an
+# excluded DIRECTORY, so a negation under `docs/` would never be reached.
+#
+# THE GENERATORS ARE STILL EXCLUDED — `docs/gen_*.py` is the only copy of how
+# the .docx set is built and lives outside version control on the author's
+# machine. Unignore `!docs/gen_*.py` if that set is ever reissued.
+docs/*
+!docs/README.md
+!docs/API-SPECIFICATION.md
+!docs/ER-DIAGRAM.md
+!docs/AWS-ARCHITECTURE.md
+# The OpenAPI export: generated, but from the live app in one command, and it is
+# the machine-readable half of the API contract.
+!docs/SetupDocs/
+docs/SetupDocs/*
+!docs/SetupDocs/nextxr_openapi.json
 
 # Project-local Python environment (see start.ps1 — the pinned stack is kept
 # out of the shared machine-wide interpreter).
