@@ -51,7 +51,7 @@ would confirm its existence to an attacker enumerating ids.
 Three credential types, resolved by `server/auth.py`:
 
 ```mermaid
-flowchart LR
+flowchart TD
   R["Request"] --> A{"Credential?"}
   A -->|"Authorization: Bearer"| S["Session JWT<br/>user + org + role"]
   A -->|"X-API-Key"| K["API key<br/>org + role + tenant scope"]

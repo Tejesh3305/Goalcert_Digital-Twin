@@ -61,19 +61,20 @@ flowchart LR
 
 ## 2. Identity and tenancy
 
-The account model. `organizations` owns everything; `org_tenants` is what binds
-a twin to an organisation, and it is the join every authorisation check walks.
+The account model, shown as two diagrams rather than one: the four tables that
+define *who exists* answer different questions from the six that record *how
+they proved it*, and a single ten-entity diagram is wide enough that its column
+names stop being readable in print.
+
+**2a — Accounts and tenancy.** `organizations` owns everything, and `org_tenants`
+is what binds a twin to an organisation — the join every authorisation check
+walks.
 
 ```mermaid
 erDiagram
   organizations ||--o{ memberships : "has members"
   organizations ||--o{ org_tenants : "owns twins"
-  organizations ||--o{ api_keys : "issues"
-  organizations ||--o{ audit_log : "records"
   users ||--o{ memberships : "belongs to"
-  users ||--o{ sessions : "signs in"
-  users ||--o{ auth_tokens : "resets via"
-  users ||--o| hub_identities : "linked to Goalcert Hub"
 
   organizations {
     TEXT org_id PK
@@ -110,6 +111,19 @@ erDiagram
     TEXT org_id
     TEXT created_at
   }
+```
+
+**2b — Credentials, sessions and audit.** Everything here is a *hash or a record
+of use*: no plaintext credential is stored in any of these tables.
+
+```mermaid
+erDiagram
+  users ||--o{ sessions : "signs in"
+  users ||--o{ auth_tokens : "resets via"
+  users ||--o| hub_identities : "linked to Hub"
+  organizations ||--o{ api_keys : "issues"
+  organizations ||--o{ audit_log : "records"
+
   sessions {
     TEXT session_id PK
     TEXT user_id
@@ -159,6 +173,9 @@ erDiagram
     TEXT outcome
   }
 ```
+
+`hub_sso_jti` stands alone by design — it is a replay guard, recording each
+Goalcert Hub SSO ticket id once so the same ticket cannot be presented twice.
 
 ### The two role vocabularies
 
@@ -310,13 +327,14 @@ page held the answers, the score would be a claim the browser made about itself.
 
 ## 4. Twin registry, content and telemetry
 
+**4a — Registry and published content.** What a twin *is*, and the artefacts
+generated from it.
+
 ```mermaid
 erDiagram
   twins ||--o| scene_cache : "renders as"
   twins ||--o{ events : "audited by"
-  twins ||--o{ measurements : "emits"
-  twins ||--o{ connectors : "ingests via"
-  twins ||--o{ ingest_devices : "authenticated by"
+  twins ||--o{ published_bundles : "packaged as"
 
   twins {
     TEXT tenant_id PK
@@ -326,17 +344,6 @@ erDiagram
     TEXT seed_asset_id
     TEXT org_id
     TEXT created_at
-  }
-  measurements {
-    TEXT tenant_id PK
-    TEXT asset_id PK
-    TEXT signal PK
-    TEXT ts PK
-    REAL value
-    TEXT unit
-    INTEGER quality
-    TEXT source
-    TEXT received_at
   }
   events {
     INTEGER seq PK
@@ -355,6 +362,35 @@ erDiagram
     TEXT tenant_id PK
     TEXT scene "JSON"
     TEXT updated_at
+  }
+  published_bundles {
+    TEXT bundle_id PK
+    TEXT name
+    TEXT domains
+    TEXT payload "JSON"
+    TEXT tenant_id
+  }
+```
+
+**4b — Ingest, telemetry and jobs.** How readings arrive, who is allowed to send
+them, and the asynchronous work they trigger.
+
+```mermaid
+erDiagram
+  twins ||--o{ measurements : "emits"
+  twins ||--o{ connectors : "ingests via"
+  twins ||--o{ ingest_devices : "authenticated by"
+
+  measurements {
+    TEXT tenant_id PK
+    TEXT asset_id PK
+    TEXT signal PK
+    TEXT ts PK
+    REAL value
+    TEXT unit
+    INTEGER quality
+    TEXT source
+    TEXT received_at
   }
   connectors {
     TEXT connector_id PK
@@ -376,13 +412,6 @@ erDiagram
     REAL samples_total
     REAL rejected_total
   }
-  published_bundles {
-    TEXT bundle_id PK
-    TEXT name
-    TEXT domains
-    TEXT payload "JSON"
-    TEXT tenant_id
-  }
   threed_jobs {
     TEXT job_id PK
     TEXT status
@@ -401,6 +430,10 @@ erDiagram
     TEXT updated_at
   }
 ```
+
+`threed_jobs` and `checkpoints` carry no `tenant_id`: a reconstruction job and an
+agent checkpoint are keyed by their own opaque id and reached only by the caller
+that created them.
 
 **`measurements` has a four-column primary key** — `(tenant_id, asset_id,
 signal, ts)`. That is what makes ingest idempotent: replaying a batch overwrites

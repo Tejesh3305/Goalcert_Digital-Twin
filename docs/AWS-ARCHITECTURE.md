@@ -34,23 +34,28 @@ flowchart TB
     end
   end
 
-  S3[("S3<br/>GLBs · 3-D artifacts")]
-  SM["Secrets Manager"]
-  CW["CloudWatch Logs<br/>+ alarms"]
-  RP["RunPod serverless GPU<br/>TRELLIS · <b>external</b>"]
-  AN["Anthropic API<br/>Claude · <b>external</b>"]
+  subgraph SUP["AWS services · outside the VPC"]
+    direction TB
+    S3[("S3<br/>GLBs · 3-D artifacts")]
+    SM["Secrets Manager"]
+    CW["CloudWatch Logs<br/>+ alarms"]
+  end
+  subgraph EXT["Third party"]
+    direction TB
+    RP["RunPod serverless GPU<br/>TRELLIS"]
+    AN["Anthropic API<br/>Claude"]
+  end
 
   U --> R53 --> CF --> ALB
   ALB -->|"health: /api/v1/health/ready"| ECS
-  T1 & T2 --> RDS
-  T1 & T2 --> EC
-  T1 & T2 --> NEO
-  T1 & T2 --> S3
+  ECS --> RDS
+  ECS --> EC
+  ECS --> NEO
+  ECS -->|"task role"| S3
   SM -.->|"execution role<br/>injects secrets"| ECS
-  ECS -.->|"task role"| S3
   ECS --> CW
-  T1 & T2 -.->|"photo to 3-D only"| RP
-  T1 & T2 -.->|"copilot agents"| AN
+  ECS -.->|"photo to 3-D"| RP
+  ECS -.->|"copilot agents"| AN
 ```
 
 **Everything except RunPod and the Anthropic API runs inside your VPC and your
@@ -198,7 +203,7 @@ credential), `NXR_REDIS_URL` (contains the AUTH token), `NXR_JWT_SECRET`,
 This is the product's spine, and it crosses every component.
 
 ```mermaid
-flowchart LR
+flowchart TB
   DEV["Field device<br/>or connector"] -->|"POST /ingest/telemetry<br/>device token"| API["Fargate task"]
   API --> HIST[("MySQL<br/>measurements")]
   API --> RT["Twin runtime<br/><i>lease owner only</i>"]

@@ -37,6 +37,35 @@ degrades cleanly without Neo4j or Redis. The prose documents are maintained by
 hand; the row counts and route totals in them carry their extraction date, so a
 stale figure is visible rather than silent.
 
+## PDF set
+
+`docs/pdf/` holds the same three documents as print-ready PDFs, for handing to
+someone who is not going to clone a repository:
+
+| PDF | Pages |
+|---|---|
+| `NextXR_API_SPECIFICATION.pdf` | 11 |
+| `NextXR_ER_DIAGRAM.pdf` | 14 (1 landscape) |
+| `NextXR_AWS_ARCHITECTURE.pdf` | 12 (2 landscape) |
+
+Every Mermaid diagram is rendered to vector SVG and embedded, so the text in
+them stays selectable and searchable rather than being a screenshot. Diagrams
+wider than they are tall are placed on their own landscape page — a wide figure
+squeezed into the portrait column drops its labels to about 3pt, which is
+present but unreadable.
+
+Rebuild with:
+
+```bash
+python docs/build_pdfs.py                    # all three
+python docs/build_pdfs.py ER-DIAGRAM.md      # just one
+```
+
+Requirements: Node (the script fetches `mermaid-cli` and `marked` through
+`npx -y`, caching them outside the repo) and Chrome or Edge, which the script
+locates itself — set `CHROME` if it is somewhere unusual. Nothing is installed
+into the project's Python environment.
+
 ## Superseded
 
 `TechDocs/` holds the previous generated set — `NextXR_ERD.svg`,

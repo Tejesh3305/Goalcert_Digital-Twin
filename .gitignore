@@ -94,6 +94,18 @@ docs/*
 docs/SetupDocs/*
 !docs/SetupDocs/nextxr_openapi.json
 
+# The print set, and the script that produces it. These ARE generated output,
+# which the rule above exists to exclude — they are kept for one reason: they are
+# what gets handed to somebody who is not going to clone a repo, and a reviewer
+# reading a PDF should not have to be sent one out of band. `build_pdfs.py`
+# comes with them so the set stays reproducible instead of becoming another
+# artifact that exists only on one machine.
+!docs/build_pdfs.py
+!docs/pdf/
+docs/pdf/*
+!docs/pdf/*.pdf
+docs/.pdfbuild/
+
 # Project-local Python environment (see start.ps1 — the pinned stack is kept
 # out of the shared machine-wide interpreter).
 .venv/
