@@ -7,7 +7,7 @@
 | [**API-SPECIFICATION.md**](API-SPECIFICATION.md) | The 188 routes, the auth model, the error contract, per-group detail |
 | [**ER-DIAGRAM.md**](ER-DIAGRAM.md) | Every table and column, the Neo4j graph model, and the seam between them |
 | [**AWS-ARCHITECTURE.md**](AWS-ARCHITECTURE.md) | Component topology, the four stores, failure modes, security posture |
-| [**WORKFORCE-INTELLIGENCE-FEATURES.md**](WORKFORCE-INTELLIGENCE-FEATURES.md) | The platform feature list — 108 features, what is built here, what is in WI, what is unbuilt |
+| [**DIGITAL-TWIN-FEATURES.md**](DIGITAL-TWIN-FEATURES.md) | The platform feature list — 108 features, what is built here, what is in WI, what is unbuilt |
 | [sql/](sql/) | The relational schema as `.sql`, MySQL and SQLite |
 | [SetupDocs/nextxr_openapi.json](SetupDocs/nextxr_openapi.json) | Machine-readable OpenAPI 3.1.0 — import into Postman, Swagger UI, Redoc |
 
@@ -41,7 +41,7 @@ stale figure is visible rather than silent.
 
 ## PDF set
 
-`docs/pdf/` holds the same three documents as print-ready PDFs, for handing to
+`docs/pdf/` holds the reference documents as print-ready PDFs, for handing to
 someone who is not going to clone a repository:
 
 | PDF | Pages |
@@ -49,6 +49,7 @@ someone who is not going to clone a repository:
 | `NextXR_API_SPECIFICATION.pdf` | 11 |
 | `NextXR_ER_DIAGRAM.pdf` | 17 (2 landscape) |
 | `NextXR_AWS_ARCHITECTURE.pdf` | 12 (2 landscape) |
+| `NextXR_DIGITAL_TWIN_FEATURES.pdf` | 15 |
 
 Every Mermaid diagram is rendered to vector SVG and embedded, so the text in
 them stays selectable and searchable rather than being a screenshot. Diagrams
@@ -59,7 +60,7 @@ present but unreadable.
 Rebuild with:
 
 ```bash
-python docs/build_pdfs.py                    # all three
+python docs/build_pdfs.py                    # all four
 python docs/build_pdfs.py ER-DIAGRAM.md      # just one
 ```
 

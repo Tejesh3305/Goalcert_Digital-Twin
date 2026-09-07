@@ -1,4 +1,4 @@
-# Workforce Intelligence — Feature List and Build Status
+# Digital Twin — Feature List and Build Status
 
 **The target.** Workforce Intelligence becomes the main application: an
 organisation signs in, every person lands in the workspace for their role, and

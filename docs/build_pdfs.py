@@ -59,6 +59,9 @@ TITLES = {
         "Relational schema, the Neo4j graph, and the seam between them"),
     "AWS-ARCHITECTURE.md": ("AWS Component Architecture",
         "Runtime topology, the four stores, failure modes and security posture"),
+    "DIGITAL-TWIN-FEATURES.md": ("Digital Twin Features",
+        "108 features across the platform — what is built, what needs porting, "
+        "what is not started"),
 }
 
 # Mermaid theme pinned to the product's brand so the diagrams in the PDF match
