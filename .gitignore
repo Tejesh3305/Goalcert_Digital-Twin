@@ -105,6 +105,14 @@ docs/SetupDocs/*
 docs/pdf/*
 !docs/pdf/*.pdf
 docs/.pdfbuild/
+# The schema as .sql, both dialects, plus the generator. Generated — but from
+# db/schema.py in one command, and it is what somebody asks for when they want
+# the database without cloning and booting the app.
+!docs/build_sql.py
+!docs/sql/
+docs/sql/*
+!docs/sql/*.sql
+
 
 # Project-local Python environment (see start.ps1 — the pinned stack is kept
 # out of the shared machine-wide interpreter).
