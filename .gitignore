@@ -88,6 +88,7 @@ docs/*
 !docs/API-SPECIFICATION.md
 !docs/ER-DIAGRAM.md
 !docs/AWS-ARCHITECTURE.md
+!docs/WORKFORCE-INTELLIGENCE-FEATURES.md
 # The OpenAPI export: generated, but from the live app in one command, and it is
 # the machine-readable half of the API contract.
 !docs/SetupDocs/

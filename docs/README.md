@@ -7,6 +7,8 @@
 | [**API-SPECIFICATION.md**](API-SPECIFICATION.md) | The 188 routes, the auth model, the error contract, per-group detail |
 | [**ER-DIAGRAM.md**](ER-DIAGRAM.md) | Every table and column, the Neo4j graph model, and the seam between them |
 | [**AWS-ARCHITECTURE.md**](AWS-ARCHITECTURE.md) | Component topology, the four stores, failure modes, security posture |
+| [**WORKFORCE-INTELLIGENCE-FEATURES.md**](WORKFORCE-INTELLIGENCE-FEATURES.md) | The platform feature list — 108 features, what is built here, what is in WI, what is unbuilt |
+| [sql/](sql/) | The relational schema as `.sql`, MySQL and SQLite |
 | [SetupDocs/nextxr_openapi.json](SetupDocs/nextxr_openapi.json) | Machine-readable OpenAPI 3.1.0 — import into Postman, Swagger UI, Redoc |
 
 All three were built by introspecting the running application and databases
