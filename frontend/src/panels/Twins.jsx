@@ -32,8 +32,8 @@ export default function Twins() {
 
   return (
     <div className="panel">
-      <PanelHeader title="Twins"
-        subtitle="Your live digital twins. To create a new one, use Build a Twin.">
+      <PanelHeader title="Twin Library"
+        subtitle="Every twin you can reach. Open one to monitor it on the Twin page.">
         <button className="btn btn-primary" onClick={() => nav('/build')}>
           <i className="ti ti-sparkles" /> Build a Twin
         </button>

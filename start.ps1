@@ -1,26 +1,43 @@
-# start.ps1 — one-command launcher for the NextXR platform (Windows / PowerShell).
+﻿# start.ps1 — one-command launcher for the NextXR platform (Windows / PowerShell).
 #
-#   ./start.ps1            full stack: Docker (Neo4j+Redis) + backend, serving the built UI
-#   ./start.ps1 -NoDocker  backend only, in degraded mode (no DB) — UI still loads
+#   ./start.ps1            full stack: Docker (Neo4j+Redis) + backend, AUTH ON,
+#                          serving the built UI. Sign in at /login.
+#   ./start.ps1 -NoAuth    open the API with no credential (NXR_DEV_MODE=1).
+#                          There is then no login page and no persona, so the
+#                          role-based pages have nothing to render.
+#   ./start.ps1 -NoDocker  backend only, degraded (no Neo4j/Redis) — UI still loads
 #   ./start.ps1 -Dev       also start the Vite dev server (npm run dev) for live reload
 #   ./start.ps1 -Build     rebuild the frontend before starting
-#   ./start.ps1 -Secure    run in the PRODUCTION posture: authentication required,
-#                          sign in at /login. Rehearse a release with this.
 #
 # This script makes the "503 / blank UI" problem self-healing: it detects when
 # Docker is down, starts it, and waits for Neo4j before launching the server.
 #
-# NOTE ON AUTHENTICATION: the API defaults to CLOSED (see server/auth.py). Without
-# -Secure this script sets NXR_DEV_MODE=1, which is the explicit local opt-out —
-# so the open posture is something you run on purpose rather than something a
-# deployment inherits by forgetting a variable.
+# NOTE ON AUTHENTICATION: authentication is ON BY DEFAULT here, matching the API's
+# own default (server/auth.py) and the posture that actually ships.
+#
+# It used to be the other way round — open unless you passed -Secure — and that
+# was a trap rather than a convenience. The open posture has no session, so it
+# has no persona; Dispatch and My Work correctly render "nobody is signed in",
+# and there is no login page to fix it from. Someone starting the app the
+# obvious way saw a twin with the DB offline, an in-memory bus and no way to
+# sign in, and had no reason to suspect a flag. Opting OUT is now the deliberate
+# act, which is the direction that fails safe.
 
 param(
     [switch]$NoDocker,
     [switch]$Dev,
     [switch]$Build,
+    # Opt OUT of authentication. See the note above on why this is the flag
+    # rather than its opposite.
+    [switch]$NoAuth,
+    # Accepted and ignored: -Secure was how you asked for the posture that is now
+    # the default. Kept so existing habits and docs do not error.
     [switch]$Secure
 )
+
+# One name for the posture, derived once, so the boot log and the environment
+# cannot disagree about which mode this run is in.
+$AuthOn = -not $NoAuth
 
 $ErrorActionPreference = "Stop"
 $root = $PSScriptRoot
@@ -35,6 +52,37 @@ function Test-DockerUp {
     try { docker ps *> $null; return $LASTEXITCODE -eq 0 } catch { return $false }
 }
 
+# ── .env -> this process ────────────────────────────────────────────
+#
+# `docker compose` reads .env by itself, so REDIS_PORT reached the CONTAINER.
+# The backend runs on the HOST, and nothing put those values in its environment:
+# the only reason ANTHROPIC_API_KEY ever worked was that copilot/config.py calls
+# load_dotenv() as an import side effect, which is fragile and does not run early
+# enough to be relied on. NXR_REDIS_URL had no such accident, so the bus fell
+# back to redis://localhost:6379 — another project's Redis on this machine.
+#
+# Existing environment variables WIN: a value exported in the shell is a
+# deliberate override for one run and must not be clobbered by a file.
+function Import-DotEnv($path) {
+    if (-not (Test-Path $path)) { return }
+    $loaded = @()
+    foreach ($line in Get-Content $path) {
+        $t = $line.Trim()
+        if ($t -eq "" -or $t.StartsWith("#")) { continue }
+        $eq = $t.IndexOf("=")
+        if ($eq -lt 1) { continue }
+        $name = $t.Substring(0, $eq).Trim()
+        $value = $t.Substring($eq + 1).Trim().Trim('"').Trim("'")
+        if ([System.Environment]::GetEnvironmentVariable($name)) { continue }
+        [System.Environment]::SetEnvironmentVariable($name, $value)
+        $loaded += $name
+    }
+    if ($loaded.Count) { Write-Ok "loaded from .env: $($loaded -join ', ')" }
+}
+
+Write-Step "Configuration"
+Import-DotEnv (Join-Path $root ".env")
+
 # ── 1. Docker / databases ───────────────────────────────────────────
 if (-not $NoDocker) {
     Write-Step "Checking Docker"
@@ -42,8 +90,31 @@ if (-not $NoDocker) {
         Write-Ok "Docker daemon is running"
     } else {
         Write-Warn "Docker daemon not responding — starting Docker Desktop"
-        $dockerExe = "C:\Program Files\Docker\Docker\Docker Desktop.exe"
-        if (Test-Path $dockerExe) {
+        # SEARCH, do not assume. Docker Desktop installs per-user under
+        # %LOCALAPPDATA% as often as it does under Program Files, and this used
+        # to hardcode the Program Files path only. On a per-user install the
+        # check failed, the script announced "Docker Desktop not found" and fell
+        # through to degraded mode — which is how you end up staring at a twin
+        # with the database offline and an in-memory bus, with nothing saying
+        # the launcher simply looked in one place.
+        #
+        # The CLI's own location is the last resort and the most reliable: if
+        # `docker` is on PATH, Desktop is beside it.
+        $candidates = @(
+            "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe",
+            "${env:ProgramFiles(x86)}\Docker\Docker\Docker Desktop.exe",
+            "$env:LOCALAPPDATA\Programs\DockerDesktop\Docker Desktop.exe",
+            "$env:LOCALAPPDATA\Docker\Docker Desktop.exe"
+        )
+        $cli = (Get-Command docker -ErrorAction SilentlyContinue).Source
+        if ($cli) {
+            # ...\resources\bin\docker.exe  ->  ...\Docker Desktop.exe
+            $guess = Join-Path (Split-Path (Split-Path (Split-Path $cli))) "Docker Desktop.exe"
+            $candidates += $guess
+        }
+        $dockerExe = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+        if ($dockerExe) {
+            Write-Host "  found: $dockerExe" -ForegroundColor DarkGray
             Start-Process $dockerExe
             Write-Host "  Waiting for Docker to become ready (up to 120s)..." -NoNewline
             $ready = $false
@@ -61,7 +132,9 @@ if (-not $NoDocker) {
                 $NoDocker = $true
             }
         } else {
-            Write-Warn "Docker Desktop not found — running in DEGRADED mode (no DB)."
+            Write-Warn "Docker Desktop not found in any known location."
+            Write-Warn "Searched: Program Files, %LOCALAPPDATA%\Programs\DockerDesktop, and next to the docker CLI."
+            Write-Warn "Running in DEGRADED mode (no Neo4j, no Redis, in-memory bus)."
             $NoDocker = $true
         }
     }
@@ -165,8 +238,8 @@ if ($Dev) {
 # a deploy inherits by forgetting a variable. Pass -Secure to run the local
 # server in the production posture instead — worth doing before a release, since
 # it is the configuration that will actually ship.
-if ($Secure) {
-    Write-Step "Local server in PRODUCTION posture (authentication required)"
+if ($AuthOn) {
+    Write-Step "Authentication REQUIRED (sign in at /login)"
     $env:NXR_DEV_MODE = $null
     $env:NXR_REQUIRE_AUTH = "1"
     if (-not $env:NXR_JWT_SECRET) {
@@ -183,7 +256,8 @@ if ($Secure) {
 } else {
     $env:NXR_DEV_MODE = "1"
     Write-Warn "NXR_DEV_MODE=1 — the API is OPEN (no credential required)."
-    Write-Warn "This is the local-development posture only. Use -Secure to rehearse production."
+    Write-Warn "There is NO login page in this mode, and no persona: Dispatch and"
+    Write-Warn "My Work will say 'nobody is signed in'. Drop -NoAuth to sign in."
 }
 
 # Migrations. Local dev is a single process, so applying them at boot is safe
@@ -195,7 +269,7 @@ $env:NXR_AUTO_MIGRATE = "1"
 Write-Step "Starting the NextXR backend"
 Write-Host "  → App:  http://localhost:8080" -ForegroundColor Green
 Write-Host "  → API:  http://localhost:8080/docs" -ForegroundColor Green
-if ($Secure) { Write-Host "  → Sign in: http://localhost:8080/login" -ForegroundColor Green }
+if ($AuthOn) { Write-Host "  → Sign in: http://localhost:8080/login" -ForegroundColor Green }
 if ($Dev) { Write-Host "  → Dev:  http://localhost:5173 (live reload)" -ForegroundColor Green }
 Write-Host ""
 Push-Location $ontology

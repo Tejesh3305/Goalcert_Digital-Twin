@@ -31,11 +31,13 @@ from typing import Any
 from db import Json, connect, json_load, schema
 
 from .models import (
+    DEFAULT_PERSONA,
     ApiKeyRecord,
     Membership,
     Organization,
     Session,
     User,
+    normalize_persona,
     normalize_role,
 )
 from .passwords import hash_secret
@@ -420,19 +422,65 @@ def count_users() -> int:
 # ── Memberships ─────────────────────────────────────────────────────────
 
 
-def add_member(org_id: str, user_id: str, role: str) -> Membership:
+def _membership(row: dict) -> Membership:
+    """One place that maps a memberships row, so a column added to that table is
+    read consistently by every caller instead of in four hand-written spots.
+
+    `persona` is read defensively: a database that predates migration 0005 has no
+    such column, and `normalize_persona` turns the resulting None into the least
+    privileged persona rather than a KeyError during login.
+    """
+    return Membership(org_id=row["org_id"], user_id=row["user_id"],
+                      role=row["role"],
+                      persona=normalize_persona(row.get("persona")),
+                      created_at=row["created_at"])
+
+
+def add_member(org_id: str, user_id: str, role: str,
+               persona: str | None = None) -> Membership:
+    """Add or update a membership.
+
+    `persona=None` means "do not express an opinion": a NEW row gets the default
+    persona, and an EXISTING row keeps whatever persona it already had. That
+    distinction matters because `service.set_member_role` routes through here —
+    changing somebody's data role must not silently demote a supervisor to an
+    operator as a side effect.
+    """
     _ensure()
+    existing = get_membership(org_id, user_id)
+    resolved = (normalize_persona(persona) if persona is not None
+                else (existing.persona if existing else DEFAULT_PERSONA))
     membership = Membership(org_id=org_id, user_id=user_id,
-                            role=normalize_role(role), created_at=_now())
+                            role=normalize_role(role), persona=resolved,
+                            created_at=_now())
     with connect(_STORE) as conn:
         conn.execute(
-            "INSERT INTO memberships (org_id, user_id, role, created_at) "
-            "VALUES (?, ?, ?, ?) "
-            "ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role",
+            "INSERT INTO memberships (org_id, user_id, role, persona, created_at) "
+            "VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT (org_id, user_id) DO UPDATE SET role = excluded.role, "
+            "persona = excluded.persona",
             (membership.org_id, membership.user_id, membership.role,
-             membership.created_at),
+             membership.persona, membership.created_at),
         )
     return membership
+
+
+def set_member_persona(org_id: str, user_id: str, persona: str) -> Membership | None:
+    """Change the operational role only, leaving the data role untouched.
+
+    Separate from `add_member` because the two axes are administered by
+    different people for different reasons — an ops lead promotes a supervisor;
+    an org admin grants write access — and one endpoint that does both makes
+    each of those changes a chance to make the other by accident.
+    """
+    if not get_membership(org_id, user_id):
+        return None
+    _ensure()
+    with connect(_STORE) as conn:
+        conn.execute(
+            "UPDATE memberships SET persona = ? WHERE org_id = ? AND user_id = ?",
+            (normalize_persona(persona), org_id, user_id))
+    return get_membership(org_id, user_id)
 
 
 def get_membership(org_id: str, user_id: str) -> Membership | None:
@@ -445,8 +493,7 @@ def get_membership(org_id: str, user_id: str) -> Membership | None:
             (org_id, user_id)))
     if not row:
         return None
-    return Membership(org_id=row["org_id"], user_id=row["user_id"],
-                      role=row["role"], created_at=row["created_at"])
+    return _membership(row)
 
 
 def list_memberships_for_user(user_id: str) -> list[Membership]:
@@ -455,8 +502,7 @@ def list_memberships_for_user(user_id: str) -> list[Membership]:
         rows = _rows(conn.execute(
             "SELECT * FROM memberships WHERE user_id = ? ORDER BY created_at",
             (user_id,)))
-    return [Membership(org_id=r["org_id"], user_id=r["user_id"], role=r["role"],
-                       created_at=r["created_at"]) for r in rows]
+    return [_membership(r) for r in rows]
 
 
 def list_members(org_id: str) -> list[tuple[Membership, User]]:
@@ -473,9 +519,7 @@ def list_members(org_id: str) -> list[tuple[Membership, User]]:
         user = get_user(r["user_id"])
         if user is None:
             continue                              # membership outlived the user
-        out.append((Membership(org_id=r["org_id"], user_id=r["user_id"],
-                               role=r["role"], created_at=r["created_at"]),
-                    user))
+        out.append((_membership(r), user))
     return out
 
 

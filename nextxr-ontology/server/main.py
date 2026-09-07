@@ -80,6 +80,7 @@ from server.observability import RequestContextMiddleware
 from server.observability import configure as _configure_logging
 from server.query_api import router as query_router
 from server.ratelimit import RateLimitMiddleware
+from server.scenario_routes import router as scenario_router
 from server.schema_routes import router as schema_router
 from server.security import (
     BodyLimitMiddleware,
@@ -93,6 +94,7 @@ from server.tenancy import enforce_tenant_scope
 from server.threed_platform.app.main import app as threed_platform_app
 from server.twin_runtime_routes import router as twin_runtime_router
 from server.twins_routes import router as twins_router
+from server.work_routes import router as work_router
 from server.write_api import router as write_router
 
 # ── App setup ───────────────────────────────────────────────────────
@@ -201,6 +203,13 @@ app.include_router(agent_router)
 # not a proxy to an external agent service. See copilot/README.md.
 app.include_router(copilot_router)
 app.include_router(hub_router)
+# Dispatch: the fault -> supervisor -> operator loop, and the graded fix
+# procedure an operator runs to close one. The twin has always DETECTED faults;
+# these two routers are what let it say who was told, who acted, and what they
+# learned. See work/__init__.py for why persona (supervisor/frontline) is a
+# separate axis from the owner/admin/write/read data ladder.
+app.include_router(work_router)
+app.include_router(scenario_router)
 # Schema status/reconcile/migrate against the LIVE database, so a schema change
 # does not need a second one-off ECS task after the image rolls. Every route is
 # a 404 unless NXR_DB_ADMIN_API=1, and an admin scope on top of that — these

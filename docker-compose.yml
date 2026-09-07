@@ -55,11 +55,20 @@ services:
       timeout: 5s
       retries: 15
 
+  # HOST PORT IS OVERRIDABLE, for the same reason MySQL's is above: 6379 is a
+  # popular port. If anything else on the machine already owns it — another
+  # compose stack, a native Redis — this container's publish silently produces
+  # NO binding at all rather than an error, and `localhost:6379` then reaches
+  # THAT other Redis. The twin appears to have a working bus while writing its
+  # streams into a stranger's database.
+  #
+  # Set REDIS_PORT=6380 (and NXR_REDIS_URL=redis://localhost:6380/0) to run
+  # alongside one, instead of stopping it.
   redis:
     image: redis:7-alpine
     container_name: nxr-redis
     ports:
-      - "6379:6379"   # event bus (Redis Streams)
+      - "${REDIS_PORT:-6379}:6379"   # event bus (Redis Streams)
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data

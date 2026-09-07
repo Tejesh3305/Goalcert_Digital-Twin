@@ -1,0 +1,57 @@
+/**
+ * persona.css — the boot gate, and the little the persona shells add.
+ *
+ * Deliberately short. Both personas now share `AppShell`, which is the twin's
+ * own chrome, so nearly everything is already covered by app.css and theme.css.
+ * An earlier version of this file was long because it rebuilt an entire second
+ * shell for the operator — including its own colours, which is how the operator
+ * pages ended up dark-on-white and unreadable.
+ *
+ * Everything here uses theme.css tokens. No invented variable names, and no
+ * `opacity` on text.
+ */
+
+/* ── Boot gate ──────────────────────────────────────────────────────── */
+/* Shown while /work/me resolves. Plain on purpose: it is on screen for a few
+   hundred milliseconds and anything eye-catching would flash. */
+.persona-boot {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 16px;
+  min-height: 100vh;
+  background: var(--bg);
+}
+.persona-boot-label {
+  font-size: 11px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--hint);
+  font-weight: 700;
+}
+
+/* ── Operator's XP block in the rail foot ───────────────────────────── */
+/* Sits where "Build a twin" sits for a supervisor: the one thing that persona
+   most wants a glance at from every page. */
+.rail-xp {
+  padding: 11px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  border: 1px solid var(--brand-ring);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.rail-xp-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--brand-strong);
+}
+.rail-xp-head i { font-size: 15px; color: var(--brand); }
+.rail-xp-foot { font-size: 10px; color: var(--muted); font-weight: 600; }
+
+/* The rail's track is narrower than the one on a card. */
+.rail-xp .xp-track { height: 5px; }

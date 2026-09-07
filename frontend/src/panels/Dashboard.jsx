@@ -51,7 +51,7 @@ function FacilityDashboard() {
   return (
     <div className="panel">
       <PanelHeader
-        title="Operations Overview"
+        title="Twin"
         subtitle={`${activeTwin?.name || activeTenant} · live from the graph`}
       >
         <FeedControls />

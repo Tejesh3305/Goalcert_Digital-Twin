@@ -37,6 +37,7 @@ import random
 from dataclasses import dataclass, field
 
 from behaviors.registry import Behavior, BehaviorRegistry, Finding, Tier
+
 from packs._core.physics import (
     clamp,
     first_order_lag,
@@ -399,7 +400,10 @@ class ImagingSuitePhysics:
         swgs = [U[e["id"]] for e in EQUIPMENT if e["kind"] == "switchgear"]
         gass = [U[e["id"]] for e in EQUIPMENT if e["kind"] == "gas"]
         mons = [U[e["id"]] for e in EQUIPMENT if e["kind"] == "patientmonitor"]
-        mri = U["MRI-1"]; ct = U["CT-1"]; pump = U["PUMP-1"]; blr = U["BLR-1"]
+        mri = U["MRI-1"]
+        ct = U["CT-1"]
+        pump = U["PUMP-1"]
+        blr = U["BLR-1"]
 
         worst_ups = min(upss, key=lambda u: u["soc"] * u["cap"])
         runtime = 45.0 * worst_ups["cap"] * (worst_ups["soc"] / 100.0)

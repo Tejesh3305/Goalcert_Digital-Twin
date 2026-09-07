@@ -33,6 +33,10 @@ from __future__ import annotations
 
 from .models import (  # noqa: F401
     API_KEY_ROLES,
+    DEFAULT_PERSONA,
+    PERSONA_FRONTLINE,
+    PERSONA_SUPERVISOR,
+    PERSONAS,
     ROLE_ADMIN,
     ROLE_OWNER,
     ROLE_READ,
@@ -44,6 +48,7 @@ from .models import (  # noqa: F401
     Principal,
     Session,
     User,
+    normalize_persona,
     normalize_role,
     role_at_least,
     role_rank,
@@ -69,11 +74,13 @@ from .service import (  # noqa: F401
 )
 
 __all__ = [
-    "API_KEY_ROLES", "ROLES", "ROLE_ADMIN", "ROLE_OWNER", "ROLE_READ",
+    "API_KEY_ROLES", "DEFAULT_PERSONA", "PERSONAS", "PERSONA_FRONTLINE",
+    "PERSONA_SUPERVISOR", "ROLES", "ROLE_ADMIN", "ROLE_OWNER", "ROLE_READ",
     "ROLE_WRITE", "ApiKeyRecord", "AuthFailed", "Conflict", "Forbidden",
     "Membership", "Organization", "Principal", "Session", "User",
     "anonymous_principal", "bootstrap_admin", "clear_cache",
-    "clear_shared_cache", "normalize_role", "platform_admin_principal",
+    "clear_shared_cache", "normalize_persona", "normalize_role",
+    "platform_admin_principal",
     "posture", "principal_for_device", "principal_from_access_token",
     "principal_from_api_key", "role_at_least", "role_rank", "shared_tenants",
     "signup_allowed", "tenants_for",

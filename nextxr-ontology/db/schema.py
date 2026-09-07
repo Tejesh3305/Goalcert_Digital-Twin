@@ -64,6 +64,20 @@ _T = {
         # Short string columns that carry a DEFAULT — MySQL forbids a DEFAULT on
         # TEXT/BLOB, so these are VARCHAR. Not indexed, so length is generous.
         "str":       "VARCHAR(1024)",
+        # A short CLOSED VOCABULARY that is also INDEXED — a status, a severity,
+        # a reason code. `{str}` cannot be used for these: at VARCHAR(1024) a
+        # single such column costs 4096 bytes of index key (utf8mb4 is 4 bytes
+        # per character) and InnoDB's limit for the whole key is 3072, so the
+        # CREATE INDEX fails outright with errno 1071. That is not a theoretical
+        # cap — it is why `tasks(org_id, status)` and the UNIQUE
+        # `xp_ledger(user_id, task_id, reason)` could not be created on MySQL at
+        # all, which took the whole `work` store's provisioning down with them.
+        #
+        # 64 characters is far more than any vocabulary in this schema needs
+        # ("in_progress" is the longest at 11) and leaves the three-column XP
+        # index at 2296 bytes, comfortably inside the limit with room for the
+        # index to gain a column later.
+        "code":      "VARCHAR(64)",
     },
     core.SQLITE: {
         "serial_pk": "INTEGER PRIMARY KEY AUTOINCREMENT",
@@ -73,6 +87,7 @@ _T = {
         "float":     "REAL",
         "id":        "TEXT",
         "str":       "TEXT",
+        "code":      "TEXT",
     },
 }
 
@@ -259,10 +274,18 @@ DDL: dict[str, list[str]] = {
         # A user's role is per-organisation. Someone can be an owner at their own
         # company and a read-only guest at a partner's, and one column on `users`
         # could not express that.
+        # `role` is the DATA ladder (owner/admin/write/read): what you may read
+        # and write. `persona` is the OPERATIONAL role (supervisor/frontline):
+        # what job you do. They are separate columns because they answer separate
+        # questions and collapsing them loses one of the answers — a supervisor
+        # who may only READ the twin is a perfectly ordinary account, and so is a
+        # frontline operator who may write telemetry back. ensure() ADDs `persona`
+        # to an existing memberships table, so this is safe on a live database.
         """CREATE TABLE IF NOT EXISTS memberships (
                org_id     {id} NOT NULL,
                user_id    {id} NOT NULL,
                role       {str} NOT NULL DEFAULT 'read',
+               persona    {str} NOT NULL DEFAULT 'frontline',
                created_at TEXT NOT NULL,
                PRIMARY KEY (org_id, user_id)
            )""",
@@ -380,10 +403,19 @@ DDL: dict[str, list[str]] = {
         # per-worker, and a replay landing on a second Uvicorn worker or a second
         # ECS task would find it empty and be accepted. Rows are purged on the
         # sign-in path (sso/store.py), so it stays bounded without a cron.
+        # `expires_at` is {id}, NOT TEXT, because the index below names it and
+        # MySQL cannot index a TEXT column without a prefix length (errno 1170).
+        # As TEXT this CREATE INDEX failed on MySQL, and because migration 0001
+        # provisions every store with ensure_all(strict=True) that single
+        # statement blocked the WHOLE migration chain on MySQL — not just hub
+        # SSO. It has always worked on SQLite, where {id} and TEXT are the same
+        # type, which is why it went unnoticed. Values are ISO-8601 strings
+        # compared lexicographically (sso/store.py), so the narrower type is a
+        # drop-in.
         """CREATE TABLE IF NOT EXISTS hub_sso_jti (
                jti        {id} PRIMARY KEY,
                seen_at    TEXT NOT NULL,
-               expires_at TEXT NOT NULL
+               expires_at {id} NOT NULL
            )""",
         "CREATE INDEX IF NOT EXISTS idx_hub_sso_jti_expires "
         "ON hub_sso_jti (expires_at)",
@@ -413,6 +445,174 @@ DDL: dict[str, list[str]] = {
            )""",
         "CREATE INDEX IF NOT EXISTS idx_connectors_tenant "
         "ON connectors (tenant_id, enabled)",
+    ],
+
+    # ── Work: the fault -> supervisor -> operator loop ──────────────────
+    #
+    # The twin already detects faults; a Finding node is the detection. What it
+    # could not express is DISPATCH — that a person owes a fix to a specific
+    # fault, that a supervisor decided who, and that the operator learned
+    # something by closing it. These tables are that missing half.
+    #
+    #     Finding (graph)  ->  task (unassigned)  ->  supervisor assigns
+    #                      ->  operator fixes via a scenario run
+    #                      ->  xp_ledger entry + task closed
+    #
+    # Findings stay in the GRAPH: this is deliberately not a copy of them. A task
+    # points at its finding by node id (`finding_node_id`) and the graph remains
+    # the single source of truth for what is wrong with the plant. Dropping every
+    # row here would lose the dispatch history and not one byte of twin state.
+    "work": [
+        # A supervisor is authoritative over their own people, not the whole org.
+        # Teams are what bound that authority — without them "supervisor" would
+        # mean "may assign to anyone in the tenant", which is not a role anyone
+        # asked for.
+        """CREATE TABLE IF NOT EXISTS teams (
+               team_id       {id} PRIMARY KEY,
+               org_id        {id} NOT NULL,
+               name          {str} NOT NULL DEFAULT '',
+               site          {str} NOT NULL DEFAULT '',
+               shift         {str} NOT NULL DEFAULT 'A',
+               supervisor_id {id},
+               created_at    TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_teams_org ON teams (org_id)",
+        "CREATE INDEX IF NOT EXISTS idx_teams_supervisor ON teams (supervisor_id)",
+
+        """CREATE TABLE IF NOT EXISTS team_members (
+               team_id    {id} NOT NULL,
+               user_id    {id} NOT NULL,
+               org_id     {id} NOT NULL,
+               created_at TEXT NOT NULL,
+               PRIMARY KEY (team_id, user_id)
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_team_members_user ON team_members (user_id)",
+
+        # The task itself: one row per fault that someone must fix.
+        #
+        # `finding_node_id` is the join back to the graph. It is unique among
+        # LIVE tasks (enforced in the store, not by a UNIQUE index here, because
+        # a closed task must not stop the same fault raising work when it
+        # recurs next month).
+        #
+        # `scenario_id` is how "fix the issue" knows WHICH procedure to teach.
+        # It is resolved once, when the task is created, from the finding's
+        # behaviour — so the operator's page needs no lookup of its own.
+        """CREATE TABLE IF NOT EXISTS tasks (
+               task_id         {id} PRIMARY KEY,
+               org_id          {id} NOT NULL,
+               tenant_id       {id} NOT NULL,
+               code            {str} NOT NULL DEFAULT '',
+               title           TEXT NOT NULL,
+               detail          TEXT NOT NULL DEFAULT '',
+               finding_node_id {id} NOT NULL DEFAULT '',
+               asset_node_id   {id} NOT NULL DEFAULT '',
+               asset_name      {str} NOT NULL DEFAULT '',
+               behavior_id     {str} NOT NULL DEFAULT '',
+               severity        {str} NOT NULL DEFAULT 'warning',
+               scenario_id     {str} NOT NULL DEFAULT '',
+               status          {code} NOT NULL DEFAULT 'open',
+               priority        {str} NOT NULL DEFAULT 'normal',
+               assignee_id     {id},
+               assigned_by     {id},
+               team_id         {id},
+               source          {str} NOT NULL DEFAULT 'twin_finding',
+               score           {float},
+               xp_awarded      INTEGER NOT NULL DEFAULT 0,
+               resolution      TEXT NOT NULL DEFAULT '',
+               changelog_ref   {str} NOT NULL DEFAULT '',
+               created_at      TEXT NOT NULL,
+               assigned_at     TEXT,
+               started_at      TEXT,
+               completed_at    TEXT
+           )""",
+        # `status` is {code}, not {str}: it is named in the two indexes below and
+        # a VARCHAR(1024) column cannot be part of a MySQL index key. See _T.
+        "CREATE INDEX IF NOT EXISTS idx_tasks_org_status ON tasks (org_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_assignee ON tasks (assignee_id, status)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_finding ON tasks (finding_node_id)",
+        "CREATE INDEX IF NOT EXISTS idx_tasks_tenant ON tasks (tenant_id)",
+
+        # Every transition, append-only. This is what makes "who assigned this,
+        # when, and what happened next" answerable after the fact — a status
+        # column alone remembers only the present.
+        """CREATE TABLE IF NOT EXISTS task_events (
+               event_id   {id} PRIMARY KEY,
+               task_id    {id} NOT NULL,
+               org_id     {id} NOT NULL,
+               kind       {str} NOT NULL DEFAULT '',
+               actor_id   {id} NOT NULL DEFAULT '',
+               actor_name {str} NOT NULL DEFAULT '',
+               summary    TEXT NOT NULL DEFAULT '',
+               payload    {json},
+               created_at TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events (task_id)",
+
+        # XP is a LEDGER, not a counter on the user row. A total that can only be
+        # incremented cannot be explained, audited or corrected; a ledger answers
+        # "why do I have 340 XP" with the rows that produced it, and the total is
+        # a SUM. The unique index on (user, task, reason) is what makes a double
+        # award impossible rather than merely unlikely — a retried request that
+        # gets as far as the insert is refused by the database.
+        """CREATE TABLE IF NOT EXISTS xp_ledger (
+               entry_id   {id} PRIMARY KEY,
+               org_id     {id} NOT NULL,
+               user_id    {id} NOT NULL,
+               task_id    {id} NOT NULL DEFAULT '',
+               reason     {code} NOT NULL DEFAULT '',
+               points     INTEGER NOT NULL DEFAULT 0,
+               detail     TEXT NOT NULL DEFAULT '',
+               created_at TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_xp_user ON xp_ledger (user_id)",
+        # THE UNIQUE INDEX IS THE DOUBLE-AWARD GUARD, so it has to exist on both
+        # backends. `reason` is {code} for that reason — as {str} this index was
+        # 6136 bytes and MySQL refused to create it, which would have left the
+        # `ON CONFLICT DO NOTHING` in store.add_xp with nothing to conflict on.
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_xp_task_reason "
+        "ON xp_ledger (user_id, task_id, reason)",
+
+        # Which findings become tasks. Data rather than code, so raising the bar
+        # from "critical only" to "warnings too" is a row edit, not a deploy.
+        """CREATE TABLE IF NOT EXISTS work_rules (
+               rule_id       {id} PRIMARY KEY,
+               org_id        {id} NOT NULL,
+               tenant_id     {str} NOT NULL DEFAULT '',
+               behavior_glob {str} NOT NULL DEFAULT '*',
+               min_severity  {str} NOT NULL DEFAULT 'critical',
+               priority      {str} NOT NULL DEFAULT 'high',
+               scenario_id   {str} NOT NULL DEFAULT '',
+               enabled       INTEGER NOT NULL DEFAULT 1,
+               seq           INTEGER NOT NULL DEFAULT 0,
+               created_at    TEXT NOT NULL
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_work_rules_org ON work_rules (org_id, seq)",
+
+        # One row per operator per scenario run. A run is deterministic and
+        # recomputable from (scenario, answers), so what is stored is the
+        # OUTCOME — score, how far they got, where they went wrong — not a
+        # replay of every keystroke.
+        """CREATE TABLE IF NOT EXISTS scenario_runs (
+               run_id       {id} PRIMARY KEY,
+               org_id       {id} NOT NULL,
+               user_id      {id} NOT NULL,
+               task_id      {id} NOT NULL DEFAULT '',
+               scenario_id  {str} NOT NULL DEFAULT '',
+               mode         {str} NOT NULL DEFAULT 'guided',
+               status       {str} NOT NULL DEFAULT 'in_progress',
+               step         INTEGER NOT NULL DEFAULT 0,
+               total_steps  INTEGER NOT NULL DEFAULT 0,
+               score        {float},
+               passed       INTEGER NOT NULL DEFAULT 0,
+               hints_used   INTEGER NOT NULL DEFAULT 0,
+               wrong_steps  INTEGER NOT NULL DEFAULT 0,
+               transcript   {json},
+               started_at   TEXT NOT NULL,
+               completed_at TEXT
+           )""",
+        "CREATE INDEX IF NOT EXISTS idx_runs_user ON scenario_runs (user_id)",
+        "CREATE INDEX IF NOT EXISTS idx_runs_task ON scenario_runs (task_id)",
     ],
 }
 
@@ -665,7 +865,9 @@ _TABLES = {"twins": ["twins"], "changelog": ["events"],
            "devices": ["ingest_devices"], "connectors": ["connectors"],
            "identity": ["organizations", "users", "memberships", "sessions",
                         "api_keys", "org_tenants", "auth_tokens", "audit_log",
-                        "hub_identities", "hub_sso_jti"]}
+                        "hub_identities", "hub_sso_jti"],
+           "work": ["teams", "team_members", "tasks", "task_events",
+                    "xp_ledger", "work_rules", "scenario_runs"]}
 
 
 def _row_count(store: str, table: str):

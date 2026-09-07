@@ -1,4 +1,4 @@
-# start-dev.ps1 — launches the 2-D → 3-D backend + frontend for local review.
+﻿# start-dev.ps1 — launches the 2-D → 3-D backend + frontend for local review.
 #
 #   Right-click → "Run with PowerShell", or from a terminal:  ./start-dev.ps1
 #

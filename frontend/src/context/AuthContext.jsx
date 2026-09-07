@@ -163,4 +163,19 @@ export function useAuth() {
   return ctx
 }
 
+/**
+ * The same context, but `null` instead of an exception when there is no provider.
+ *
+ * The federated remote (TwinRemoteApp) deliberately does NOT mount AuthProvider:
+ * inside the hub, identity belongs to the host and is injected through
+ * `window.__NXR_AUTH__`. Anything rendered in BOTH shells therefore cannot call
+ * `useAuth()` — it would throw in the hub — but still needs to ask the question
+ * when it is running standalone. That is what this is for, and it is the only
+ * reason it exists: ordinary pages should keep using `useAuth`, so a genuinely
+ * missing provider stays a loud error rather than a silent null.
+ */
+export function useAuthOptional() {
+  return useContext(AuthContext)
+}
+
 export default AuthContext

@@ -196,14 +196,60 @@ MIGRATIONS: list[Migration] = [
                )""",
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_hub_identities_user "
             "ON hub_identities (user_id)",
+            # `expires_at` is {id} rather than TEXT: MySQL cannot index a TEXT
+            # column without a prefix length, so the CREATE INDEX below failed
+            # there and took this migration with it.
+            #
+            # EDITING AN APPLIED MIGRATION, deliberately, against the rule at the
+            # top of this file. The rule exists so two databases cannot disagree
+            # about what a migration did — and here they cannot: on SQLite, the
+            # only backend where this migration has ever succeeded, {id} and TEXT
+            # render to the identical type, so the change is a no-op on every
+            # existing database. On MySQL it has never completed, so there is
+            # nothing to disagree with. Leaving it correct-in-schema.py-only
+            # would have left MySQL permanently unable to migrate.
             """CREATE TABLE IF NOT EXISTS hub_sso_jti (
                    jti        {id} PRIMARY KEY,
                    seen_at    TEXT NOT NULL,
-                   expires_at TEXT NOT NULL
+                   expires_at {id} NOT NULL
                )""",
             "CREATE INDEX IF NOT EXISTS idx_hub_sso_jti_expires "
             "ON hub_sso_jti (expires_at)",
         ),
+    ),
+    Migration(
+        migration_id="0005_membership_persona",
+        description=(
+            "Add memberships.persona — the OPERATIONAL role (supervisor / "
+            "frontline), separate from `role`, which stays the DATA ladder "
+            "(owner/admin/write/read). Two columns because they answer two "
+            "questions: what job you do, and what you may read and write. "
+            "Existing rows default to 'frontline', which is the least "
+            "privileged of the two personas — an upgrade must not silently "
+            "hand anyone a supervisor's assignment powers."),
+        store="identity",
+        statements=(
+            "ALTER TABLE memberships ADD COLUMN persona {str} NOT NULL "
+            "DEFAULT 'frontline'",
+        ),
+        # A database provisioned after this column joined schema.py already has
+        # it: migration 0001 runs schema.ensure_all(), which now reconciles the
+        # column in. So on a fresh database this ALTER is expected to fail, and
+        # that failure is the correct outcome rather than an error. Same
+        # reasoning as 0003.
+        tolerate=("duplicate column", "already exists"),
+    ),
+    Migration(
+        migration_id="0006_work_graph",
+        description=(
+            "The work store: teams, team_members, tasks, task_events, "
+            "xp_ledger, work_rules and scenario_runs. This is the dispatch half "
+            "of the twin — the twin could detect a fault and could not say who "
+            "owes the fix. Creates tables only; adds no column to an existing "
+            "one, so it is idempotent on a database schema.ensure() already "
+            "provisioned and a real create on one that predates the feature."),
+        store="work",
+        run=lambda conn: schema.ensure("work", strict=True),
     ),
 ]
 

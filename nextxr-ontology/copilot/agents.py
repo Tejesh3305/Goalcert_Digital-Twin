@@ -865,6 +865,21 @@ def cascade_analysis(diagnostics: dict, prediction: dict, machine: str,
 
 # ── Agent #11: Work Order ─────────────────────────────────────────────────
 
+def _first_str(*candidates, default: str = "") -> str:
+    """The first candidate that is a non-empty string, else `default`.
+
+    Exists because several agent stubs build REQUIRED string fields out of
+    optional dict lookups, and a `.get()` that returns None turns the fallback
+    path — the one that is supposed to work when nothing else does — into a
+    pydantic ValidationError. One helper, so the next stub that does this cannot
+    reintroduce the same crash.
+    """
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate
+    return default
+
+
 class WorkOrderStep(BaseModel):
     step: int = Field(description="Step number")
     action: str = Field(description="What the technician does")
@@ -900,8 +915,21 @@ def generate_work_order(diagnostics: dict, machine: str,
             ata_chapter="(assign on review)",
             priority="Critical" if critical else "Routine",
             compliance_ref=ctx["compliance"],
-            fault_description=(findings[0].get("message") if findings
-                               else "Degradation detected by the behaviour engine"),
+            # `fault_description` is a REQUIRED str, so every branch here must
+            # produce one. This used to be `findings[0].get("message")`, which
+            # returns None for a finding that carries no `message` key — and a
+            # None into a required str raises ValidationError, so the STUB
+            # ITSELF crashed. That defeated the entire fallback: with no API key
+            # (or, as here, no credit on it) the documented behaviour is a
+            # deterministic answer, and instead the caller got an exception.
+            #
+            # Findings reach this function from several places with different
+            # shapes — the behaviour engine writes `message`, the graph writes
+            # `displayName` — so it falls through both before defaulting.
+            fault_description=_first_str(
+                findings[0].get("message") if findings else None,
+                findings[0].get("displayName") if findings else None,
+                default="Degradation detected by the behaviour engine"),
             root_cause="Root cause not yet established — requires inspection.",
             steps=[
                 WorkOrderStep(step=1, action="Isolate the asset and apply LOTO",

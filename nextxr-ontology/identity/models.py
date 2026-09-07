@@ -22,6 +22,10 @@ a session or a key, and there is no translation table to get wrong.
 different blast radius from "can change the data", and collapsing them is how an
 ordinary operator ends up able to lock out the account holder.
 
+A membership carries a SECOND role on a different axis — `persona`
+(supervisor / frontline), the job the person does rather than the data they may
+touch. See the PERSONAS block below.
+
 Note that NONE of these is the platform-wide superuser. That is
 `User.is_platform_admin`, a column on the user rather than a role in an org,
 because it is our staff rather than a customer's — and keeping it off the role
@@ -62,6 +66,44 @@ def normalize_role(role: str) -> str:
 # `owner`: issuing a key that can issue more keys turns one leaked secret into
 # permanent access that survives revoking it.
 API_KEY_ROLES = (ROLE_ADMIN, ROLE_WRITE, ROLE_READ)
+
+
+# ── Personas: the OTHER role vocabulary ─────────────────────────────────
+#
+# The four roles above are the DATA ladder: what a caller may read and write.
+# A persona is the OPERATIONAL role: what job the person does.
+#
+#     supervisor  dispatches faults to the people on their team
+#     frontline   fixes what they are dispatched, and learns doing it
+#
+# These are deliberately NOT rungs on the role ladder, and the temptation to
+# make them rungs is worth resisting explicitly. "Supervisor = admin" breaks the
+# moment you meet a shift supervisor who may dispatch people but has no business
+# editing the plant model — and "operator = write" breaks on the operator whose
+# closing a job must write back. Dispatch authority and data authority vary
+# independently, so they are two columns rather than one.
+#
+# `work/authority.py` holds what each persona MAY DO; this is only the
+# vocabulary, because the column lives on Membership and Membership lives here.
+PERSONA_SUPERVISOR = "supervisor"
+PERSONA_FRONTLINE = "frontline"
+
+PERSONAS = (PERSONA_SUPERVISOR, PERSONA_FRONTLINE)
+
+#: The persona an account gets when nobody has said otherwise. Deliberately the
+#: one that cannot dispatch work: a defaulting bug must not mint supervisors.
+DEFAULT_PERSONA = PERSONA_FRONTLINE
+
+
+def normalize_persona(persona: str) -> str:
+    """Coerce to a known persona, defaulting to the least privileged.
+
+    Same rule as `normalize_role`: an unrecognised value LOSES authority rather
+    than gaining it, so a typo in a seed script or an API payload produces an
+    operator, never a supervisor.
+    """
+    candidate = (persona or "").strip().lower()
+    return candidate if candidate in PERSONAS else DEFAULT_PERSONA
 
 
 @dataclass(frozen=True)
@@ -120,10 +162,25 @@ class User:
 
 @dataclass(frozen=True)
 class Membership:
+    """What one user is, inside one organisation — on BOTH axes.
+
+    `role` is the data ladder, `persona` is the job. See the PERSONAS block
+    above for why one column could not carry both.
+    """
+
     org_id: str
     user_id: str
     role: str = ROLE_READ
+    persona: str = DEFAULT_PERSONA
     created_at: str = ""
+
+    @property
+    def is_supervisor(self) -> bool:
+        return self.persona == PERSONA_SUPERVISOR
+
+    def public(self) -> dict:
+        return {"org_id": self.org_id, "user_id": self.user_id,
+                "role": self.role, "persona": self.persona}
 
 
 @dataclass(frozen=True)

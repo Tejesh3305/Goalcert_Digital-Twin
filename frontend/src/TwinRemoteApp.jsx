@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { ToastProvider } from './context/ToastContext'
 import { TwinProvider, useTwin } from './context/TwinContext'
+import { WorkProvider } from './context/WorkContext'
 import TwinRoutes from './TwinRoutes'
 import Topbar from './components/layout/Topbar'
 import Sidebar from './components/layout/Sidebar'
@@ -65,6 +66,12 @@ export default function TwinRemoteApp({
   return (
     <ToastProvider>
       <TwinProvider initialTenant={tenant || initialTenant}>
+        {/* WorkProvider here too, so anything shared with the standalone shell
+            (the Topbar's persona badge, TwinRoutes' persona-aware root) can rely
+            on the context existing. It has no AuthProvider to read — see
+            useAuthOptional — and degrades to "no persona" if the host's
+            credential does not resolve one. */}
+        <WorkProvider>
         <TwinBridge onTwinChange={onTwinChange} />
         <MemoryRouter initialEntries={[initialPath]}>
           <RouterBridge path={path} onNavigate={onNavigate} />
@@ -78,6 +85,7 @@ export default function TwinRemoteApp({
             </div>
           </div>
         </MemoryRouter>
+        </WorkProvider>
       </TwinProvider>
     </ToastProvider>
   )

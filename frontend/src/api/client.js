@@ -316,6 +316,105 @@ export const api = {
     buildTwinSpec: (body) =>
       request('/copilot/build-twin/spec', { method: 'POST', body: JSON.stringify(body) }),
   },
+
+  // ── Work: dispatch (/api/v1/work) ────────────────────────────────────
+  //
+  // The fault -> supervisor -> operator loop. Which of these a given account may
+  // actually call is decided by its PERSONA (supervisor | frontline), not by its
+  // data role — see nextxr-ontology/work/authority.py. Read `work.me()` first
+  // and render from the `capabilities` it returns rather than hardcoding a menu
+  // per persona: that way the buttons drawn and the actions the API honours come
+  // from one table and cannot drift.
+  work: {
+    // Persona, capabilities and XP standing. The UI's source of truth for
+    // "what may this person do".
+    me: () => request('/work/me'),
+
+    // Supervisor
+    queue: (tenant) => request(`/work/queue?${qs({ tenant })}`),
+    board: (tenant) => request(`/work/board?${qs({ tenant })}`),
+    // `scope` is 'team' (who you may assign to) or 'all' (every operator in the
+    // org, each row flagged `assignable`). The widening is a VIEW only — the
+    // assign endpoint still enforces team scope, so an unassignable row is
+    // somebody you can see the load of and cannot dispatch to.
+    roster: (scope = 'team') => request(`/work/roster?${qs({ scope })}`),
+    teamStats: (days = 14) => request(`/work/team-stats?${qs({ days })}`),
+    createTask: (body) => request('/work/tasks', { method: 'POST', body: JSON.stringify(body) }),
+    assign: (taskId, assignee_id, note = '') =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/assign`,
+        { method: 'POST', body: JSON.stringify({ assignee_id, note }) }),
+    unassign: (taskId, note = '') =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/unassign`,
+        { method: 'POST', body: JSON.stringify({ note }) }),
+    close: (taskId, note = '') =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/close`,
+        { method: 'POST', body: JSON.stringify({ note }) }),
+
+    // Operator. There is deliberately no user id on `inbox` — an operator reads
+    // their own work and nobody else's, and the server takes it from the session.
+    inbox: () => request('/work/inbox'),
+    // Everything the dashboard's numbers and charts are drawn from, in ONE
+    // payload. Five endpoints for five cards would let them disagree the moment
+    // one of them was slow, and the dashboard's whole job is a coherent answer
+    // to "where do I stand".
+    myStats: (days = 14) => request(`/work/stats/me?${qs({ days })}`),
+    history: (limit = 50) => request(`/work/history?${qs({ limit })}`),
+    start: (taskId) =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/start`, { method: 'POST' }),
+    block: (taskId, reason) =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/block`,
+        { method: 'POST', body: JSON.stringify({ reason }) }),
+    // `body` is { run_id, passed?, resolution? } — deliberately NOT a score.
+    // The server reads that from the run (work.service._verified_outcome), so a
+    // page cannot assert its own result.
+    complete: (taskId, body) =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/complete`,
+        { method: 'POST', body: JSON.stringify(body) }),
+
+    // Shared
+    task: (taskId) => request(`/work/tasks/${encodeURIComponent(taskId)}`),
+    // The work order + on-asset steps the twin's own agents generate for this
+    // fault, from LIVE diagnostics rather than a copy frozen at dispatch time.
+    // `generate` costs money: it runs an LLM agent. Default false, so opening
+    // a job is free and only an explicit click bills the account.
+    workorder: (taskId, generate = false) =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/workorder?${qs({ generate })}`),
+    comment: (taskId, text) =>
+      request(`/work/tasks/${encodeURIComponent(taskId)}/comment`,
+        { method: 'POST', body: JSON.stringify({ text }) }),
+    xp: () => request('/work/xp'),
+    teams: () => request('/work/teams'),
+  },
+
+  // ── Scenario: the "fix the issue" run (/api/v1/scenario) ─────────────
+  //
+  // Grading is SERVER-SIDE. These endpoints never return the answer key for a
+  // step the operator has not answered yet, so nothing here can be used to
+  // pre-compute a score — see nextxr-ontology/scenario/guided.py.
+  scenario: {
+    procedures: (domain) => request(`/scenario/procedures?${qs({ domain })}`),
+    procedure: (id) => request(`/scenario/procedures/${encodeURIComponent(id)}`),
+
+    // Starts a NEW run, or resumes this operator's unfinished one on the same
+    // task. Resumption is the default: a locked phone mid-procedure must not
+    // reset the score.
+    startRun: (task_id, scenario_id = '') =>
+      request('/scenario/runs', { method: 'POST', body: JSON.stringify({ task_id, scenario_id }) }),
+
+    // Training, with no assigned fault behind it. A separate endpoint rather
+    // than a flag, because /runs requires a task assigned to you and practice
+    // has none — see the note on the server handler.
+    startPractice: (scenario_id) =>
+      request('/scenario/practice', { method: 'POST', body: JSON.stringify({ scenario_id }) }),
+    run: (runId) => request(`/scenario/runs/${encodeURIComponent(runId)}`),
+    answer: (runId, step_index, choice) =>
+      request(`/scenario/runs/${encodeURIComponent(runId)}/answer`,
+        { method: 'POST', body: JSON.stringify({ step_index, choice }) }),
+    hint: (runId) =>
+      request(`/scenario/runs/${encodeURIComponent(runId)}/hint`, { method: 'POST' }),
+    result: (runId) => request(`/scenario/runs/${encodeURIComponent(runId)}/result`),
+    runs: (limit = 50) => request(`/scenario/runs?${qs({ limit })}`),
+  },
 }
 
 export default api

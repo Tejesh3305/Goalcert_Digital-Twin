@@ -250,7 +250,10 @@ def test_declared_columns_ignores_table_constraints():
         schema.render("identity")[3])   # the memberships CREATE TABLE
 
     assert table == "memberships"
-    assert set(columns) == {"org_id", "user_id", "role", "created_at"}
+    # `persona` (the operational role: supervisor / frontline) joined this table
+    # in migration 0005; `role` remains the data ladder. See identity/models.py
+    # for why the two axes are separate columns.
+    assert set(columns) == {"org_id", "user_id", "role", "persona", "created_at"}
     assert "primary" not in {c.lower() for c in columns}
 
 

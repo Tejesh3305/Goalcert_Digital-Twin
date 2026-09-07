@@ -1,0 +1,320 @@
+/* work-dashboard.css — the pieces the role dashboards added.
+ *
+ * Kept out of work.css because that file styles the dispatch/drill vocabulary
+ * shared by every work page, and these are dashboard furniture: the selectable
+ * job card, the team load table, and the clickable 3-D twin card. Splitting them
+ * means a change to the dashboard cannot restyle the drill player by accident.
+ */
+
+/* ── Selectable job cards ──────────────────────────────────────────────
+ * A job card drives the machine panel beside it, so it has to look pickable
+ * and show which one is currently being shown. Without the "showing" marker
+ * the side panel appears to change on its own.
+ */
+.job-card {
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.job-card:hover { border-color: var(--border2); }
+
+.job-card-active {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 1px var(--brand-ring);
+}
+
+.job-card-showing {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand);
+}
+
+/* A finished job is a record, not a choice. */
+.job-card-done { cursor: default; }
+.job-card-done:hover { border-color: var(--border); }
+
+.shift-streak {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-strong);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.shift-streak b { font-size: 14px; }
+
+/* ── Chart pairing ─────────────────────────────────────────────────────
+ * Two charts side by side above 900px, stacked below. They are separate
+ * measures on separate scales — never combined into one dual-axis frame.
+ */
+.chart-duo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+@media (max-width: 900px) {
+  .chart-duo { grid-template-columns: 1fr; }
+}
+
+.card-note {
+  font-size: 11px;
+  color: var(--hint);
+  white-space: nowrap;
+}
+
+/* ── Supervisor team table ─────────────────────────────────────────────
+ * Four columns: who, how loaded, how much they finished, how well. The load
+ * bar is the point — a supervisor scans it to find who to spare.
+ */
+.team-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.team-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) minmax(120px, 1.2fr) 62px 52px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--border);
+}
+
+.team-row:last-child { border-bottom: none; }
+
+/* Somebody on another supervisor's team: visible for context, not a choice. */
+.team-row-readonly { opacity: 0.62; }
+
+.team-who {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.team-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.team-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.team-load {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-load-track {
+  flex: 1;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--surface2);
+  overflow: hidden;
+}
+
+.team-load-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.5s ease;
+}
+
+.team-load-n,
+.team-through-k {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.team-through { text-align: right; }
+
+.team-through-n,
+.team-score-n {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.team-score { text-align: right; }
+.team-score-none { color: var(--hint); }
+
+/* ── The clickable twin card ───────────────────────────────────────────
+ * The model itself is the link. An operator told "the fault is in the
+ * turbine" should be able to click the turbine, so the whole visual is a
+ * button rather than a picture with a link underneath it.
+ */
+.twin-visual-link {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--surface2);
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.twin-visual-link:hover {
+  border-color: var(--brand);
+  box-shadow: var(--shadow);
+}
+
+.twin-visual-link:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.twin-visual-hint {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(22, 19, 31, 0.72);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+.twin-visual-link:hover .twin-visual-hint,
+.twin-visual-link:focus-visible .twin-visual-hint { opacity: 1; }
+
+/* Touch has no hover, so the affordance has to be permanent there. */
+@media (hover: none) {
+  .twin-visual-hint { opacity: 1; }
+}
+
+.twin-asset-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.twin-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+/* ── Training status chips ─────────────────────────────────────────────
+ * Four states an operator acts on differently. Each carries an ICON and a
+ * WORD as well as a colour: these sit next to a difficulty badge and a
+ * required badge, and a third colour-only signal in that row would be
+ * unreadable for anyone who does not separate red from amber.
+ */
+.sim-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.sim-status-passed { background: #eaf7ee; color: #15803d; }
+.sim-status-open   { background: #fdf3e3; color: #b45309; }
+.sim-status-tried  { background: var(--surface2); color: var(--muted); }
+.sim-status-new    { background: transparent; color: var(--hint); }
+
+/* ── Raise-a-job form (Dispatch) ───────────────────────────────────────
+ * Collapsed by default. Dispatch's primary job is deciding who owns the
+ * faults the twin already found; raising one by hand is the exception, and
+ * an always-open form would put the exception at the top of the page.
+ */
+.raise-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.raise-detail {
+  resize: vertical;
+  min-height: 46px;
+  font: inherit;
+}
+
+.raise-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 9px;
+}
+
+.raise-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.raise-field > span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.raise-field select,
+.raise-field input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+
+.raise-field select:focus-visible,
+.raise-field input:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+.raise-actions {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  flex-wrap: wrap;
+}
+
+.raise-hint {
+  font-size: 11.5px;
+  color: var(--muted);
+}

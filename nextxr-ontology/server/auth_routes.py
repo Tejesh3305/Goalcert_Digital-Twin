@@ -51,7 +51,13 @@ if str(ROOT) not in sys.path:
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from identity import Principal, service, store, tokens
-from identity.models import API_KEY_ROLES, ROLE_ADMIN, ROLES
+from identity.models import (
+    API_KEY_ROLES,
+    DEFAULT_PERSONA,
+    PERSONAS,
+    ROLE_ADMIN,
+    ROLES,
+)
 from identity.passwords import PasswordError
 from pydantic import BaseModel, Field
 
@@ -106,10 +112,18 @@ class InviteReq(BaseModel):
     email: str
     role: str = "read"
     name: str = ""
+    # The OPERATIONAL role (supervisor / frontline), separate from `role` above,
+    # which is the data ladder. None means "use the default", which is frontline
+    # — inviting somebody must not mint a supervisor by omission.
+    persona: str | None = None
 
 
 class RoleReq(BaseModel):
     role: str
+
+
+class PersonaReq(BaseModel):
+    persona: str
 
 
 class KeyReq(BaseModel):
@@ -488,7 +502,7 @@ async def list_members(org_id: str,
                        principal: Principal = Depends(current_principal)):
     _require_org_access(principal, org_id)
     return {"members": [
-        {**user.public(), "role": membership.role}
+        {**user.public(), "role": membership.role, "persona": membership.persona}
         for membership, user in store.list_members(org_id)]}
 
 
@@ -498,13 +512,26 @@ async def invite_member(org_id: str, body: InviteReq,
     if body.role not in ROLES:
         raise HTTPException(status_code=422,
                             detail=f"role must be one of {', '.join(ROLES)}.")
+    if body.persona is not None and body.persona not in PERSONAS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"persona must be one of {', '.join(PERSONAS)}.")
     try:
         result = service.invite_member(org_id=org_id, email=body.email,
                                        role=body.role, actor=principal,
                                        name=body.name)
     except Exception as e:
         raise _handle(e) from None
-    payload = {"user": result["user"].public(), "role": result["role"]}
+    # Applied after the invite rather than inside it: `service.invite_member`
+    # owns the account-creation rules (who may invite, what role they may grant)
+    # and the persona is a separate axis it has no opinion about.
+    persona = DEFAULT_PERSONA
+    if body.persona is not None:
+        membership = store.set_member_persona(org_id, result["user"].user_id,
+                                              body.persona)
+        persona = membership.persona if membership else DEFAULT_PERSONA
+    payload = {"user": result["user"].public(), "role": result["role"],
+               "persona": persona}
     if result.get("reset_token") and not _mailer_configured():
         payload["invite_token"] = result["reset_token"]
         payload["note"] = ("No mailer is configured. Send this token to the user "
@@ -524,6 +551,33 @@ async def set_member_role(org_id: str, user_id: str, body: RoleReq,
     except Exception as e:
         raise _handle(e) from None
     return {"ok": True}
+
+
+@router.patch("/orgs/{org_id}/members/{user_id}/persona")
+async def set_member_persona(org_id: str, user_id: str, body: PersonaReq,
+                             principal: Principal = Depends(current_principal)):
+    """Set a member's OPERATIONAL role: supervisor or frontline.
+
+    Deliberately a separate endpoint from the role PATCH above. The two axes are
+    administered by different people for different reasons — an ops lead
+    promotes a supervisor, an org admin grants write access — and one endpoint
+    that did both would make each of those changes an opportunity to make the
+    other by accident.
+
+    Requires `admin` for the same reason the role endpoint does: promoting
+    somebody to supervisor grants them dispatch authority over their team, which
+    is a permission change rather than an operational one.
+    """
+    if body.persona not in PERSONAS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"persona must be one of {', '.join(PERSONAS)}.")
+    _require_org_role(principal, org_id, ROLE_ADMIN)
+    membership = store.set_member_persona(org_id, user_id, body.persona)
+    if membership is None:
+        raise HTTPException(status_code=404,
+                            detail="That user is not a member of this organisation.")
+    return {"ok": True, "persona": membership.persona}
 
 
 @router.delete("/orgs/{org_id}/members/{user_id}")

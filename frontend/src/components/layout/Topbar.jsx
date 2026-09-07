@@ -1,6 +1,7 @@
 import { usePolling } from '../../hooks/useApi'
 import api from '../../api/client'
 import { useTwin } from '../../context/TwinContext'
+import { useWork } from '../../context/WorkContext'
 import { hasBackendState, isSimTenant, simLabel } from '../../lib/simTwins'
 import TwinSwitcher from './TwinSwitcher'
 import UserMenu from './UserMenu'
@@ -34,6 +35,12 @@ export default function Topbar() {
     connecting: 'Connecting…',
   }[status]
 
+  // Which JOB you are signed in as, not which data role. Shown because the two
+  // dispatch pages behave completely differently per persona, and "why does
+  // Dispatch say I'm an operator?" is answered fastest by putting the answer in
+  // the chrome rather than in a page that refuses.
+  const { persona, signedIn } = useWork()
+
   return (
     <div className="topbar">
       <Logo size={30} />
@@ -64,6 +71,12 @@ export default function Topbar() {
       <div className="topbar-stat"><b>{assets}</b> assets</div>
       <div className="topbar-stat"><b>{events}</b> log events</div>
       {bus && <div className="topbar-stat">bus: <b>{bus}</b></div>}
+      {signedIn && persona && (
+        <div className="topbar-stat" title={`You are signed in as a ${persona}`}>
+          <i className={`ti ${persona === 'supervisor' ? 'ti-clipboard-list' : 'ti-tool'}`} />
+          &nbsp;<b>{persona}</b>
+        </div>
+      )}
       <div className={`status-dot ${dot}`} title={dotTitle} />
       {/* Who you are and which organisation you're acting for. Last, so it sits
           at the right edge where an account control is expected. */}

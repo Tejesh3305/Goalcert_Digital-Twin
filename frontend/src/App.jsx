@@ -1,11 +1,10 @@
 import { Route, Routes } from 'react-router-dom'
 
-import Topbar from './components/layout/Topbar'
-import Sidebar from './components/layout/Sidebar'
 import TwinRoutes from './TwinRoutes'
-import CommandPalette from './components/CommandPalette'
+import PersonaRouter from './persona/PersonaRouter'
 import RequireAuth from './components/RequireAuth'
 import { TwinProvider } from './context/TwinContext'
+import { WorkProvider } from './context/WorkContext'
 import AccountSettings from './pages/AccountSettings'
 import ForgotPassword from './pages/ForgotPassword'
 import Login from './pages/Login'
@@ -37,6 +36,12 @@ import Signup from './pages/Signup'
  * The hub federates only <TwinRoutes/> and supplies its own chrome AND its own
  * identity, so none of this applies there — which is why the guard lives here
  * rather than inside TwinRoutes.
+ *
+ * THE CHROME IS NO LONGER FIXED. <PersonaRouter> picks the shell from the
+ * signed-in account's persona: a supervisor gets the twin's full chrome (top
+ * bar, twin switcher, left rail), an operator gets the field application (no
+ * switcher, no counters, a thumb-reachable tab bar). A session with no persona
+ * — dev mode with auth off — gets the original full shell unchanged.
  */
 export default function App() {
   return (
@@ -51,19 +56,21 @@ export default function App() {
         element={
           <RequireAuth>
             <TwinProvider>
-              <div className="app-root">
-                <Topbar />
-                <div className="body">
-                  <Sidebar />
-                  <div className="content">
-                    <Routes>
-                      <Route path="/account" element={<AccountSettings />} />
-                      <Route path="*" element={<TwinRoutes />} />
-                    </Routes>
-                  </div>
-                </div>
-                <CommandPalette />
-              </div>
+              {/* WorkProvider is INSIDE RequireAuth for the same reason
+                  TwinProvider is: it calls /work/me on mount, and mounting it
+                  above the guard would fire that for an unauthenticated visitor
+                  and collect a 401 behind the login form. */}
+              <WorkProvider>
+                {/* PersonaRouter chooses the SHELL, not just the contents: a
+                    supervisor gets the full twin chrome, an operator gets the
+                    field application. See persona/PersonaRouter.jsx. */}
+                <PersonaRouter>
+                  <Routes>
+                    <Route path="/account" element={<AccountSettings />} />
+                    <Route path="*" element={<TwinRoutes />} />
+                  </Routes>
+                </PersonaRouter>
+              </WorkProvider>
             </TwinProvider>
           </RequireAuth>
         }

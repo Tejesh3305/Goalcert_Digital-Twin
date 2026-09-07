@@ -16,13 +16,22 @@
  */
 export const NAV = [
   { section: 'Overview' },
-  { id: 'twins',       path: '/twins',       label: 'Twins',        icon: 'ti-stack-2',          backing: 'live' },
+  { id: 'twin',        path: '/twin',        label: 'Twin',         icon: 'ti-box',              backing: 'live' },
+  { id: 'twin-library', path: '/twin-library', label: 'Twin Library', icon: 'ti-stack-2',        backing: 'live' },
   { id: 'dashboard',   path: '/',            label: 'Dashboard',    icon: 'ti-layout-dashboard', backing: 'live' },
   { id: 'concierge',   path: '/build',       label: 'Build a Twin', icon: 'ti-sparkles',         backing: 'live' },
 
   { section: 'Intelligence' },
   { id: 'copilot',     path: '/copilot',     label: 'Twin Copilot', icon: 'ti-sparkles',         backing: 'live' },
   { id: 'predict',     path: '/predict',     label: 'Prediction',   icon: 'ti-chart-histogram',  backing: 'live' },
+
+  { section: 'Work' },
+  // Both are listed for everyone and each page refuses politely if the persona
+  // is wrong. Filtering the nav by persona would need the persona BEFORE the
+  // first paint, which means either blocking the sidebar on a fetch or flashing
+  // the wrong menu — and the pages themselves already explain the boundary.
+  { id: 'dispatch',    path: '/dispatch',    label: 'Dispatch',     icon: 'ti-clipboard-list',   backing: 'live' },
+  { id: 'mywork',      path: '/my-work',     label: 'My Work',      icon: 'ti-tool',             backing: 'live' },
 
   { section: 'Governance' },
   { id: 'changelog',   path: '/changelog',   label: 'Change Log',   icon: 'ti-history',          backing: 'live' },

@@ -5,7 +5,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { NAV } from '../nav'
+import { useWork } from '../context/WorkContext'
+import { workspaceFor } from '../persona/nav'
 import { useTwin } from '../context/TwinContext'
 import { domainMeta } from '../lib/machine'
 import { SIM_TWINS, simTenantFor } from '../lib/simTwins'
@@ -85,11 +86,17 @@ export default function CommandPalette() {
     return () => window.removeEventListener('keydown', handler)
   }, [])
 
+  // The palette offers this persona's destinations only. A supervisor being
+  // able to jump to an operator's page would just bounce off PersonaRouter's
+  // redirect, which is a worse answer than not offering it.
+  const { persona } = useWork()
+  const personaNav = workspaceFor(persona).nav
+
   const commands = useMemo(() => {
     const go = (path) => () => nav(path)
     const openTwin = (tid) => () => { setActiveTenant(tid); nav('/') }
     const cmds = [
-      ...NAV.filter((n) => n.path).map((n) => ({
+      ...personaNav.filter((n) => n.path).map((n) => ({
         id: `nav:${n.id}`, label: n.label, icon: n.icon, group: 'Navigate', action: go(n.path),
       })),
       ...twins.map((t) => ({
@@ -110,7 +117,7 @@ export default function CommandPalette() {
       },
     ]
     return cmds
-  }, [nav, twins, setActiveTenant])
+  }, [nav, twins, setActiveTenant, personaNav])
 
   if (!open) return null
   return <Palette commands={commands} onClose={() => setOpen(false)} />
